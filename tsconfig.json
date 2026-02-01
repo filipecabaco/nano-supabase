@@ -13,15 +13,16 @@
     "module": "ESNext",
     "moduleResolution": "bundler",
     "target": "ES2022",
-    "lib": ["ES2022"],
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "allowImportingTsExtensions": true,
 
-    // Emit
+    // Emit - disabled for Deno-style project
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true,
     "outDir": "./dist",
     "rootDir": "./src",
+    "noEmit": true,
 
     // Interop
     "esModuleInterop": true,

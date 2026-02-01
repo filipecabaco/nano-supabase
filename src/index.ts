@@ -1,6 +1,8 @@
 /**
  * nano-supabase
- * A lightweight Supabase-compatible client for PGlite
+ *
+ * A lightweight Supabase emulator powered by PGlite
+ * Provides full auth and PostgREST API emulation in-browser or in-process
  *
  * @example
  * ```typescript
@@ -14,9 +16,49 @@
  * ```
  */
 
-// Main Supabase client
+// Main client factories
+export {
+  createLocalSupabaseClient,
+  createFetchAdapter,
+  initializeAuth,
+  type LocalSupabaseClientConfig,
+  type LocalSupabaseClientResult,
+} from './client.ts'
+
+// Original Supabase-compatible client (for direct usage without supabase-js)
 export { createSupabaseClient, SupabaseClient } from './supabase-client.ts'
 export type { QueryBuilder } from './supabase-client.ts'
+
+// Fetch adapter
+export {
+  createLocalFetch,
+  handleAuthRoute,
+  handleDataRoute,
+  type FetchAdapterConfig,
+} from './fetch-adapter/index.ts'
+
+// Auth module
+export {
+  AuthHandler,
+  AUTH_SCHEMA_SQL,
+  getSetAuthContextSQL,
+  CLEAR_AUTH_CONTEXT_SQL,
+  createAccessToken,
+  verifyAccessToken,
+  generateTokenPair,
+  extractUserIdFromToken,
+  extractSessionIdFromToken,
+  type User,
+  type Session,
+  type AuthResponse,
+  type AuthError,
+  type AuthChangeEvent,
+  type AuthStateChangeCallback,
+  type AuthSubscription,
+  type SignUpCredentials,
+  type SignInCredentials,
+  type TokenPair,
+} from './auth/index.ts'
 
 // PostgREST parser
 export { PostgrestParser } from './postgrest-parser.ts'
@@ -36,3 +78,6 @@ export type {
   QueueMetrics,
   QueryResult,
 } from './types.ts'
+
+// TCP Server
+export { PGliteServer } from './server.ts'
