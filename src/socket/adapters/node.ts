@@ -101,13 +101,15 @@ export class NodeSocket implements UniversalSocket {
       if (
         typeof localAddr === 'object' &&
         localAddr &&
+        'address' in localAddr &&
+        'port' in localAddr &&
         remoteAddr &&
         typeof remotePort === 'number'
       ) {
         this.openedResolve({
           localAddress: {
-            hostname: localAddr.address,
-            port: localAddr.port,
+            hostname: localAddr.address as string,
+            port: localAddr.port as number,
           },
           remoteAddress: {
             hostname: remoteAddr,

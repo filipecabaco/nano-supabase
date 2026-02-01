@@ -4,7 +4,8 @@
  */
 
 import type { PGlitePooler } from './pooler.js'
-import { listen, type UniversalSocket } from './socket/index.js'
+import { listen } from './socket/index.js'
+import type { UniversalSocket } from './socket/index.js'
 import { QueryPriority } from './types.js'
 
 /**
@@ -118,7 +119,7 @@ export class PGliteServer {
   private async handleQuery(
     writer: WritableStreamDefaultWriter<Uint8Array>,
     encoder: TextEncoder,
-    clientId: string,
+    _clientId: string,
     sql: string
   ): Promise<void> {
     try {

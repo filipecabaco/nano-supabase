@@ -6,7 +6,8 @@ yarn-error.log*
 pnpm-debug.log*
 
 # Build outputs
-dist/
+# Note: dist/ is NOT ignored - it's included for git-based distribution
+# (Deno, Bun, Cloudflare Workers can import directly from git)
 build/
 out/
 *.tsbuildinfo

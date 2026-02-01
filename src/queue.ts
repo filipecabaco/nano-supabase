@@ -1,4 +1,5 @@
-import type { QueuedQuery, QueryPriority } from './types.js'
+import type { QueuedQuery } from './types.js'
+import type { QueryPriority } from './types.js'
 
 /**
  * Priority-based queue for managing query execution order

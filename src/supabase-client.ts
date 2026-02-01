@@ -4,7 +4,7 @@
  */
 
 import type { PGlite } from '@electric-sql/pglite'
-import { PostgrestParser } from './postgrest-parser.ts'
+import { PostgrestParser } from './postgrest-parser.js'
 
 /**
  * Query builder interface compatible with Supabase-js
