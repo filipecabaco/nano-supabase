@@ -203,7 +203,7 @@ Deno.test('Supabase Client - UPDATE', async () => {
   assertEquals(error, null)
 
   // Verify update
-  const result = await db.query('SELECT age FROM users WHERE name = $1', ['Alice'])
+  const result = await db.query<{ age: number }>('SELECT age FROM users WHERE name = $1', ['Alice'])
   assertEquals(result.rows[0]?.age, 26)
 
   await db.close()
@@ -237,7 +237,7 @@ Deno.test('Supabase Client - DELETE', async () => {
   assertEquals(error, null)
 
   // Verify deletion
-  const result = await db.query('SELECT COUNT(*) as count FROM users')
+  const result = await db.query<{ count: number }>('SELECT COUNT(*) as count FROM users')
   assertEquals(result.rows[0]?.count, 1)
 
   await db.close()

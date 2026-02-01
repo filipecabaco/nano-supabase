@@ -16,7 +16,7 @@
   "type": "module",
   "dependencies": {
     "@electric-sql/pglite": "^0.3.15",
-    "native_postgrest_parser": "file:../native_postgrest_parser/pkg"
+    "native_postgrest_parser": "github:filipecabaco/native_postgrest_parser"
   },
   "devDependencies": {
     "@types/node": "^25.1.0",

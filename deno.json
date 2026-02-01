@@ -1,12 +1,14 @@
 {
   "tasks": {
-    "test:parser": "deno test --allow-read tests/postgrest-parser.test.ts"
+    "test:parser": "deno test --allow-read --allow-net=raw.githubusercontent.com tests/postgrest-parser.test.ts",
+    "test:supabase": "deno test --allow-read --allow-net=raw.githubusercontent.com tests/supabase-client.test.ts",
+    "example:supabase": "deno run --allow-read --allow-net=raw.githubusercontent.com examples/supabase-client.ts"
   },
   "imports": {
     "@electric-sql/pglite": "npm:@electric-sql/pglite@^0.3.15",
-    "native_postgrest_parser": "../native_postgrest_parser/pkg/client.ts",
-    "native_postgrest_parser/wasm": "../native_postgrest_parser/pkg/postgrest_parser.js",
-    "native_postgrest_parser/types": "../native_postgrest_parser/pkg/types.ts"
+    "native_postgrest_parser": "https://raw.githubusercontent.com/filipecabaco/native_postgrest_parser/main/pkg/client.ts",
+    "native_postgrest_parser/wasm": "https://raw.githubusercontent.com/filipecabaco/native_postgrest_parser/main/pkg/postgrest_parser.js",
+    "native_postgrest_parser/types": "https://raw.githubusercontent.com/filipecabaco/native_postgrest_parser/main/pkg/types.ts"
   },
   "compilerOptions": {
     "lib": ["deno.window", "dom"]

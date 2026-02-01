@@ -1,14 +1,10 @@
 /**
- * Supabase-compatible client for PGlite
- * Intercepts PostgREST-style API calls and converts them to SQL
+ * Simplified Supabase-compatible client for React demo
+ * Standalone version without external dependencies
  */
 
 import type { PGlite } from '@electric-sql/pglite'
-import { PostgrestParser } from './postgrest-parser.ts'
 
-/**
- * Query builder interface compatible with Supabase-js
- */
 export interface QueryBuilder<T = unknown> {
   select(columns?: string): QueryBuilder<T>
   insert(data: Record<string, unknown> | Record<string, unknown>[]): QueryBuilder<T>
@@ -34,35 +30,26 @@ export interface QueryBuilder<T = unknown> {
   ): Promise<TResult>
 }
 
-/**
- * Supabase-compatible database client
- */
 export class SupabaseClient {
-  private readonly db: PGlite
-  private readonly parser: PostgrestParser
+  constructor(private readonly db: PGlite) {}
 
-  constructor(db: PGlite, parser: PostgrestParser) {
-    this.db = db
-    this.parser = parser
-  }
-
-  /**
-   * Access a table for querying
-   */
   from<T = unknown>(table: string): QueryBuilder<T> {
-    return new PostgrestQueryBuilder<T>(this.db, this.parser, table)
+    return new SimpleQueryBuilder<T>(this.db, table)
   }
 
-  /**
-   * Call a stored procedure
-   */
   async rpc<T = unknown>(
     functionName: string,
     params?: Record<string, unknown>
   ): Promise<{ data: T | null; error: Error | null }> {
     try {
-      const parsed = this.parser.parseRpc(functionName, params)
-      const result = await this.db.query(parsed.sql, [...parsed.params])
+      const paramList = params
+        ? Object.entries(params)
+            .map(([key, val]) => `"${key}" := $${Object.keys(params).indexOf(key) + 1}`)
+            .join(', ')
+        : ''
+      const sql = `SELECT * FROM "public"."${functionName}"(${paramList})`
+      const paramValues = params ? Object.values(params) : []
+      const result = await this.db.query(sql, paramValues)
       return { data: result.rows as T, error: null }
     } catch (error) {
       return { data: null, error: error as Error }
@@ -70,13 +57,7 @@ export class SupabaseClient {
   }
 }
 
-/**
- * Query builder implementation
- */
-class PostgrestQueryBuilder<T> implements QueryBuilder<T> {
-  private readonly db: PGlite
-  private readonly parser: PostgrestParser
-  private readonly table: string
+class SimpleQueryBuilder<T> implements QueryBuilder<T> {
   private selectColumns?: string
   private filters: string[] = []
   private orderBy?: string
@@ -88,11 +69,10 @@ class PostgrestQueryBuilder<T> implements QueryBuilder<T> {
   private expectSingle = false
   private expectMaybeSingle = false
 
-  constructor(db: PGlite, parser: PostgrestParser, table: string) {
-    this.db = db
-    this.parser = parser
-    this.table = table
-  }
+  constructor(
+    private readonly db: PGlite,
+    private readonly table: string
+  ) {}
 
   select(columns = '*'): QueryBuilder<T> {
     this.selectColumns = columns
@@ -115,61 +95,61 @@ class PostgrestQueryBuilder<T> implements QueryBuilder<T> {
   }
 
   eq(column: string, value: unknown): QueryBuilder<T> {
-    this.filters.push(`${column}=eq.${String(value)}`)
+    this.filters.push(`"${column}" = ${this.toSqlValue(value)}`)
     return this
   }
 
   neq(column: string, value: unknown): QueryBuilder<T> {
-    this.filters.push(`${column}=neq.${String(value)}`)
+    this.filters.push(`"${column}" <> ${this.toSqlValue(value)}`)
     return this
   }
 
   gt(column: string, value: unknown): QueryBuilder<T> {
-    this.filters.push(`${column}=gt.${String(value)}`)
+    this.filters.push(`"${column}" > ${this.toSqlValue(value)}`)
     return this
   }
 
   gte(column: string, value: unknown): QueryBuilder<T> {
-    this.filters.push(`${column}=gte.${String(value)}`)
+    this.filters.push(`"${column}" >= ${this.toSqlValue(value)}`)
     return this
   }
 
   lt(column: string, value: unknown): QueryBuilder<T> {
-    this.filters.push(`${column}=lt.${String(value)}`)
+    this.filters.push(`"${column}" < ${this.toSqlValue(value)}`)
     return this
   }
 
   lte(column: string, value: unknown): QueryBuilder<T> {
-    this.filters.push(`${column}=lte.${String(value)}`)
+    this.filters.push(`"${column}" <= ${this.toSqlValue(value)}`)
     return this
   }
 
   like(column: string, pattern: string): QueryBuilder<T> {
-    this.filters.push(`${column}=like.${pattern}`)
+    this.filters.push(`"${column}" LIKE '${pattern}'`)
     return this
   }
 
   ilike(column: string, pattern: string): QueryBuilder<T> {
-    this.filters.push(`${column}=ilike.${pattern}`)
+    this.filters.push(`"${column}" ILIKE '${pattern}'`)
     return this
   }
 
   in(column: string, values: unknown[]): QueryBuilder<T> {
-    const joined = values.map(String).join(',')
-    this.filters.push(`${column}=in.(${joined})`)
+    const valueList = values.map((v) => this.toSqlValue(v)).join(', ')
+    this.filters.push(`"${column}" IN (${valueList})`)
     return this
   }
 
   is(column: string, value: null | boolean): QueryBuilder<T> {
-    const val = value === null ? 'null' : value ? 'true' : 'false'
-    this.filters.push(`${column}=is.${val}`)
+    const val = value === null ? 'NULL' : value ? 'TRUE' : 'FALSE'
+    this.filters.push(`"${column}" IS ${val}`)
     return this
   }
 
   order(column: string, options?: { ascending?: boolean; nullsFirst?: boolean }): QueryBuilder<T> {
-    const direction = options?.ascending === false ? 'desc' : 'asc'
-    const nulls = options?.nullsFirst ? 'nullsfirst' : 'nullslast'
-    this.orderBy = `${column}.${direction}.${nulls}`
+    const direction = options?.ascending === false ? 'DESC' : 'ASC'
+    const nulls = options?.nullsFirst ? 'NULLS FIRST' : 'NULLS LAST'
+    this.orderBy = `"${column}" ${direction} ${nulls}`
     return this
   }
 
@@ -205,23 +185,20 @@ class PostgrestQueryBuilder<T> implements QueryBuilder<T> {
 
   private async execute(): Promise<{ data: T | null; error: Error | null }> {
     try {
-      const queryString = this.buildQueryString()
+      let sql: string
 
-      let parsed
       if (this.insertData !== undefined) {
-        const data: Record<string, unknown> = Array.isArray(this.insertData)
-          ? (this.insertData[0] ?? {})
-          : this.insertData
-        parsed = this.parser.parseInsert(this.table, data, queryString)
+        sql = this.buildInsertSQL()
       } else if (this.updateData !== undefined) {
-        parsed = this.parser.parseUpdate(this.table, this.updateData, queryString)
+        sql = this.buildUpdateSQL()
       } else if (this.isDelete) {
-        parsed = this.parser.parseDelete(this.table, queryString)
+        sql = this.buildDeleteSQL()
       } else {
-        parsed = this.parser.parseSelect(this.table, queryString)
+        sql = this.buildSelectSQL()
       }
 
-      const result = await this.db.query(parsed.sql, [...parsed.params])
+      console.log('Executing SQL:', sql)
+      const result = await this.db.query(sql)
 
       if (this.expectSingle && result.rows.length === 0) {
         throw new Error('No rows returned')
@@ -231,53 +208,87 @@ class PostgrestQueryBuilder<T> implements QueryBuilder<T> {
         throw new Error('Multiple rows returned')
       }
 
-      const data = this.expectSingle || this.expectMaybeSingle
-        ? (result.rows[0] as T) ?? null
-        : (result.rows as T)
+      const data = this.expectSingle || this.expectMaybeSingle ? (result.rows[0] as T) ?? null : (result.rows as T)
 
       return { data, error: null }
     } catch (error) {
+      console.error('Query error:', error)
       return { data: null, error: error as Error }
     }
   }
 
-  private buildQueryString(): string {
-    const parts: string[] = []
+  private buildSelectSQL(): string {
+    const columns = this.selectColumns || '*'
+    let sql = `SELECT ${columns} FROM "${this.table}"`
 
-    if (this.selectColumns) {
-      parts.push(`select=${this.selectColumns}`)
+    if (this.filters.length > 0) {
+      sql += ` WHERE ${this.filters.join(' AND ')}`
     }
 
-    parts.push(...this.filters)
-
     if (this.orderBy) {
-      parts.push(`order=${this.orderBy}`)
+      sql += ` ORDER BY ${this.orderBy}`
     }
 
     if (this.limitCount !== undefined) {
-      parts.push(`limit=${this.limitCount}`)
+      sql += ` LIMIT ${this.limitCount}`
     }
 
     if (this.offsetCount !== undefined) {
-      parts.push(`offset=${this.offsetCount}`)
+      sql += ` OFFSET ${this.offsetCount}`
     }
 
-    return parts.join('&')
+    return sql
+  }
+
+  private buildInsertSQL(): string {
+    if (!this.insertData) throw new Error('No insert data')
+
+    const data = Array.isArray(this.insertData) ? this.insertData[0]! : this.insertData
+    const columns = Object.keys(data)
+    const values = Object.values(data)
+
+    const columnList = columns.map((c) => `"${c}"`).join(', ')
+    const valueList = values.map((v) => this.toSqlValue(v)).join(', ')
+
+    return `INSERT INTO "${this.table}" (${columnList}) VALUES (${valueList})`
+  }
+
+  private buildUpdateSQL(): string {
+    if (!this.updateData) throw new Error('No update data')
+
+    const setClauses = Object.entries(this.updateData)
+      .map(([key, value]) => `"${key}" = ${this.toSqlValue(value)}`)
+      .join(', ')
+
+    let sql = `UPDATE "${this.table}" SET ${setClauses}`
+
+    if (this.filters.length > 0) {
+      sql += ` WHERE ${this.filters.join(' AND ')}`
+    }
+
+    return sql
+  }
+
+  private buildDeleteSQL(): string {
+    let sql = `DELETE FROM "${this.table}"`
+
+    if (this.filters.length > 0) {
+      sql += ` WHERE ${this.filters.join(' AND ')}`
+    }
+
+    return sql
+  }
+
+  private toSqlValue(value: unknown): string {
+    if (value === null) return 'NULL'
+    if (typeof value === 'string') return `'${value.replace(/'/g, "''")}'`
+    if (typeof value === 'number') return String(value)
+    if (typeof value === 'boolean') return value ? 'TRUE' : 'FALSE'
+    if (value instanceof Date) return `'${value.toISOString()}'`
+    return `'${String(value)}'`
   }
 }
 
-/**
- * Create a Supabase-compatible client with schema introspection
- */
 export async function createSupabaseClient(db: PGlite): Promise<SupabaseClient> {
-  await PostgrestParser.init()
-
-  // Initialize schema introspection from the database
-  await PostgrestParser.initSchema(async (sql: string) => {
-    const result = await db.query(sql)
-    return { rows: result.rows }
-  })
-
-  const parser = new PostgrestParser()
-  return new SupabaseClient(db, parser)
+  return new SupabaseClient(db)
 }

@@ -3,9 +3,14 @@
  * Uses native_postgrest_parser WASM to convert PostgREST queries to SQL
  */
 
-import init from 'native_postgrest_parser/wasm'
-import { createClient } from 'native_postgrest_parser'
-import type { QueryResult as ParserQueryResult } from 'native_postgrest_parser/types'
+import init, { initSchemaFromDb } from 'native_postgrest_parser/pkg/postgrest_parser.js'
+import { createClient } from 'native_postgrest_parser/pkg/client.js'
+import type { QueryResult as ParserQueryResult } from 'native_postgrest_parser/pkg/types.js'
+
+/**
+ * Query executor function type for schema introspection
+ */
+export type QueryExecutor = (sql: string) => Promise<{ rows: unknown[] }>
 
 /**
  * Parsed SQL query with parameters
@@ -21,7 +26,7 @@ export interface ParsedQuery {
  */
 export class PostgrestParser {
   private readonly client: ReturnType<typeof createClient>
-  private static initPromise: Promise<void> | null = null
+  private static initPromise: Promise<unknown> | null = null
 
   constructor() {
     this.client = createClient()
@@ -39,6 +44,32 @@ export class PostgrestParser {
       PostgrestParser.initPromise = init()
     }
     await PostgrestParser.initPromise
+  }
+
+  /**
+   * Initialize schema introspection from a database connection
+   * This enables the parser to validate queries against the actual database schema
+   *
+   * @param queryExecutor - Function that executes SQL queries and returns rows
+   *
+   * @example
+   * ```typescript
+   * import { PGlite } from '@electric-sql/pglite'
+   * import { PostgrestParser } from './postgrest-parser'
+   *
+   * const db = new PGlite()
+   * await PostgrestParser.init()
+   *
+   * // Initialize schema introspection
+   * await PostgrestParser.initSchema(async (sql) => {
+   *   const result = await db.query(sql)
+   *   return { rows: result.rows }
+   * })
+   * ```
+   */
+  static async initSchema(queryExecutor: QueryExecutor): Promise<void> {
+    await PostgrestParser.init()
+    await initSchemaFromDb(queryExecutor)
   }
 
   /**
