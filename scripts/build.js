@@ -8,7 +8,7 @@
  */
 
 import * as esbuild from 'esbuild'
-import { mkdirSync, rmSync } from 'node:fs'
+import { mkdirSync, rmSync, copyFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -65,8 +65,14 @@ async function build() {
     metafile: true,
   })
 
+  // Copy WASM file from native_postgrest_parser to dist
+  const wasmSource = join(rootDir, 'node_modules/native_postgrest_parser/pkg/postgrest_parser_bg.wasm')
+  const wasmDest = join(rootDir, 'dist/postgrest_parser_bg.wasm')
+  copyFileSync(wasmSource, wasmDest)
+  console.log('Copied WASM file to dist/')
+
   // Report sizes
-  console.log('Bundle sizes (minified, all deps included except PGlite):')
+  console.log('\nBundle sizes (minified, all deps included except PGlite):')
   for (const [file, data] of Object.entries(mainResult.metafile.outputs)) {
     if (file.endsWith('.js')) {
       const sizeKB = (data.bytes / 1024).toFixed(2)

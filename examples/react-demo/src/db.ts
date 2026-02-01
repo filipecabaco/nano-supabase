@@ -4,7 +4,7 @@
  */
 
 import { PGlite } from '@electric-sql/pglite'
-import { createSupabaseClient, type SupabaseClient } from './supabase'
+import { createSupabaseClient, type SupabaseClient } from 'nano-supabase/slim'
 
 let dbInstance: PGlite | null = null
 let supabaseInstance: SupabaseClient | null = null

@@ -48,23 +48,25 @@ function App() {
 
   async function loadUsers() {
     const supabase = getSupabase()
-    const { data, error } = await supabase.from<User>('users').select('*')
+    const { data, error } = await supabase.from<User[]>('users').select('*')
 
     if (error) {
       setError(error.message)
       return
     }
 
-    setUsers(data as User[])
-    if (data && data.length > 0) {
-      setSelectedUser((data as User[])[0]!.id)
+    if (data) {
+      setUsers(data)
+      if (data.length > 0) {
+        setSelectedUser(data[0]!.id)
+      }
     }
   }
 
   async function loadTasks() {
     const supabase = getSupabase()
     const { data, error } = await supabase
-      .from<Task>('tasks')
+      .from<Task[]>('tasks')
       .select('*')
       .order('created_at', { ascending: false })
 
@@ -73,7 +75,9 @@ function App() {
       return
     }
 
-    setTasks(data as Task[])
+    if (data) {
+      setTasks(data)
+    }
   }
 
   async function addTask() {
