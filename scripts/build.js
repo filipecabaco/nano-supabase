@@ -1,10 +1,14 @@
 /**
  * Build script for nano-supabase
- * Creates optimized ESM bundles for distribution via git
+ * Creates optimized single-file ESM bundles for git distribution
+ *
+ * All dependencies are bundled EXCEPT:
+ * - @electric-sql/pglite (large WASM - user provides as peer dep)
+ * - Node.js built-ins (for cross-runtime compat)
  */
 
 import * as esbuild from 'esbuild'
-import { readFileSync, writeFileSync, mkdirSync } from 'node:fs'
+import { mkdirSync, rmSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -20,28 +24,32 @@ const commonOptions = {
   minify: true,
   treeShaking: true,
   sourcemap: true,
-  // External dependencies - not bundled
+  // Only externalize PGlite (user provides) and Node built-ins
   external: [
     '@electric-sql/pglite',
-    'native_postgrest_parser',
-    'native_postgrest_parser/*',
-    // Node.js built-ins (for cross-runtime compat)
+    // Node.js built-ins - dynamically imported for cross-runtime
     'node:*',
     'net',
     'tls',
     'crypto',
+    'node:net',
+    'node:tls',
+    'node:crypto',
   ],
-  // Conditions for proper module resolution
+  // Ensure proper module resolution
   conditions: ['import', 'module', 'default'],
+  // Bundle native_postgrest_parser and all other deps
+  mainFields: ['module', 'main'],
 }
 
 async function build() {
-  console.log('Building nano-supabase...\n')
+  console.log('Building nano-supabase (single-file bundles)...\n')
 
-  // Ensure dist directory exists
+  // Clean dist directory
+  rmSync(join(rootDir, 'dist'), { recursive: true, force: true })
   mkdirSync(join(rootDir, 'dist'), { recursive: true })
 
-  // Build main bundle (full library)
+  // Build main bundle (full library - everything in one file)
   const mainResult = await esbuild.build({
     ...commonOptions,
     entryPoints: [join(rootDir, 'src/index.ts')],
@@ -58,24 +66,24 @@ async function build() {
   })
 
   // Report sizes
-  console.log('Bundle sizes:')
+  console.log('Bundle sizes (minified, all deps included except PGlite):')
   for (const [file, data] of Object.entries(mainResult.metafile.outputs)) {
     if (file.endsWith('.js')) {
       const sizeKB = (data.bytes / 1024).toFixed(2)
-      console.log(`  index.js: ${sizeKB} KB (minified + tree-shaken)`)
+      console.log(`  index.js: ${sizeKB} KB`)
     }
   }
   for (const [file, data] of Object.entries(slimResult.metafile.outputs)) {
     if (file.endsWith('.js')) {
       const sizeKB = (data.bytes / 1024).toFixed(2)
-      console.log(`  slim.js:  ${sizeKB} KB (minified + tree-shaken)`)
+      console.log(`  slim.js:  ${sizeKB} KB`)
     }
   }
 
   console.log('\nBuild complete!')
-  console.log('\nUsage with git import:')
-  console.log('  Deno:  import { createSupabaseClient } from "https://raw.githubusercontent.com/filipecabaco/nano-supabase/main/dist/index.js"')
-  console.log('  Bun:   import { createSupabaseClient } from "github:filipecabaco/nano-supabase/dist/index.js"')
+  console.log('\nUsage (single import, no additional deps needed):')
+  console.log('  import { createSupabaseClient } from "nano-supabase"')
+  console.log('  // Only @electric-sql/pglite needs to be installed separately')
 }
 
 build().catch((err) => {

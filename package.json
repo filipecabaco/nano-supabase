@@ -19,18 +19,17 @@
     }
   },
   "files": [
-    "dist",
-    "src"
+    "dist"
   ],
   "scripts": {
-    "build": "npm run build:bundle && npm run build:types",
+    "build": "pnpm run build:bundle && pnpm run build:types",
     "build:bundle": "node scripts/build.js",
     "build:types": "tsc --emitDeclarationOnly",
     "build:dev": "tsc",
+    "clean": "rm -rf dist",
     "example:basic": "tsx examples/basic.ts",
     "example:server": "tsx examples/tcp-server.ts",
-    "example:parser": "tsx examples/postgrest-parser.ts",
-    "clean": "rm -rf dist"
+    "example:parser": "tsx examples/postgrest-parser.ts"
   },
   "keywords": [
     "pglite",
@@ -53,13 +52,11 @@
       "optional": false
     }
   },
-  "dependencies": {
-    "native_postgrest_parser": "github:filipecabaco/native_postgrest_parser"
-  },
   "devDependencies": {
     "@electric-sql/pglite": "^0.3.15",
     "@types/node": "^25.1.0",
     "esbuild": "^0.24.0",
+    "native_postgrest_parser": "github:filipecabaco/native_postgrest_parser",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3"
   }
