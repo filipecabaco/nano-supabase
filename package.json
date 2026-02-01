@@ -11,11 +11,6 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "default": "./dist/index.js"
-    },
-    "./slim": {
-      "types": "./dist/slim.d.ts",
-      "import": "./dist/slim.js",
-      "default": "./dist/slim.js"
     }
   },
   "files": [
