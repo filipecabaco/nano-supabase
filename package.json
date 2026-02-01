@@ -1,0 +1,26 @@
+{
+  "name": "nano-supabase",
+  "version": "1.0.0",
+  "description": "A TypeScript library that provides a lightweight PostgREST-compatible server backed by [PGlite](https://github.com/electric-sql/pglite), featuring N-to-1 connection multiplexing with priority queues over TCP sockets.",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "example:basic": "tsx examples/basic.ts",
+    "example:server": "tsx examples/tcp-server.ts",
+    "example:parser": "tsx examples/postgrest-parser.ts"
+  },
+  "keywords": ["pglite", "postgresql", "pooling", "postgrest"],
+  "author": "",
+  "license": "MIT",
+  "type": "module",
+  "dependencies": {
+    "@electric-sql/pglite": "^0.3.15",
+    "native_postgrest_parser": "file:../native_postgrest_parser/pkg"
+  },
+  "devDependencies": {
+    "@types/node": "^25.1.0",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  }
+}

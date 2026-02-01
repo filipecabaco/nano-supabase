@@ -1,0 +1,14 @@
+{
+  "tasks": {
+    "test:parser": "deno test --allow-read tests/postgrest-parser.test.ts"
+  },
+  "imports": {
+    "@electric-sql/pglite": "npm:@electric-sql/pglite@^0.3.15",
+    "native_postgrest_parser": "../native_postgrest_parser/pkg/client.ts",
+    "native_postgrest_parser/wasm": "../native_postgrest_parser/pkg/postgrest_parser.js",
+    "native_postgrest_parser/types": "../native_postgrest_parser/pkg/types.ts"
+  },
+  "compilerOptions": {
+    "lib": ["deno.window", "dom"]
+  }
+}
