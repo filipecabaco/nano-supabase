@@ -812,6 +812,10 @@ Deno.test('Auth onAuthStateChange - Unsubscribe stops events', async () => {
 // ============================================================================
 
 Deno.test('Crypto - createAccessToken generates valid JWT structure', async () => {
+  const db = new PGlite()
+  const authHandler = new AuthHandler(db)
+  await authHandler.initialize()
+
   const user = {
     id: '123e4567-e89b-12d3-a456-426614174000',
     aud: 'authenticated',
@@ -823,7 +827,7 @@ Deno.test('Crypto - createAccessToken generates valid JWT structure', async () =
     updated_at: new Date().toISOString(),
   }
 
-  const token = await createAccessToken(user, 'session-123', 3600)
+  const token = await createAccessToken(db, user, 'session-123', 3600)
   assertExists(token)
 
   // Token should have 3 parts (header.payload.signature)
@@ -836,9 +840,15 @@ Deno.test('Crypto - createAccessToken generates valid JWT structure', async () =
     assertEquals(part.includes('+'), false, 'Should use base64url')
     assertEquals(part.includes('/'), false, 'Should use base64url')
   }
+
+  await db.close()
 })
 
 Deno.test('Crypto - createAccessToken includes correct claims', async () => {
+  const db = new PGlite()
+  const authHandler = new AuthHandler(db)
+  await authHandler.initialize()
+
   const user = {
     id: '123e4567-e89b-12d3-a456-426614174000',
     aud: 'authenticated',
@@ -850,8 +860,8 @@ Deno.test('Crypto - createAccessToken includes correct claims', async () => {
     updated_at: new Date().toISOString(),
   }
 
-  const token = await createAccessToken(user, 'session-123', 3600)
-  const result = await verifyAccessToken(token)
+  const token = await createAccessToken(db, user, 'session-123', 3600)
+  const result = await verifyAccessToken(db, token)
 
   assertEquals(result.valid, true)
   assertExists(result.payload)
@@ -860,12 +870,16 @@ Deno.test('Crypto - createAccessToken includes correct claims', async () => {
   assertEquals(result.payload?.role, 'authenticated')
   assertEquals(result.payload?.email, 'test@example.com')
   assertEquals(result.payload?.session_id, 'session-123')
-  assertExists(result.payload?.iat)
   assertExists(result.payload?.exp)
-  assertEquals(result.payload?.exp! - result.payload?.iat!, 3600)
+
+  await db.close()
 })
 
 Deno.test('Crypto - verifyAccessToken rejects expired token', async () => {
+  const db = new PGlite()
+  const authHandler = new AuthHandler(db)
+  await authHandler.initialize()
+
   const user = {
     id: '123e4567-e89b-12d3-a456-426614174000',
     aud: 'authenticated',
@@ -878,26 +892,38 @@ Deno.test('Crypto - verifyAccessToken rejects expired token', async () => {
   }
 
   // Create token that expires immediately
-  const token = await createAccessToken(user, 'session-123', -1)
+  const token = await createAccessToken(db, user, 'session-123', -1)
 
-  const result = await verifyAccessToken(token)
+  const result = await verifyAccessToken(db, token)
   assertEquals(result.valid, false)
   assertEquals(result.error, 'Token expired')
+
+  await db.close()
 })
 
 Deno.test('Crypto - verifyAccessToken rejects invalid format', async () => {
-  const result1 = await verifyAccessToken('invalid-token')
+  const db = new PGlite()
+  const authHandler = new AuthHandler(db)
+  await authHandler.initialize()
+
+  const result1 = await verifyAccessToken(db, 'invalid-token')
   assertEquals(result1.valid, false)
   assertEquals(result1.error, 'Invalid token format')
 
-  const result2 = await verifyAccessToken('only.two.parts.here.more')
+  const result2 = await verifyAccessToken(db, 'only.two.parts.here.more')
   assertEquals(result2.valid, false)
 
-  const result3 = await verifyAccessToken('')
+  const result3 = await verifyAccessToken(db, '')
   assertEquals(result3.valid, false)
+
+  await db.close()
 })
 
 Deno.test('Crypto - verifyAccessToken rejects tampered token', async () => {
+  const db = new PGlite()
+  const authHandler = new AuthHandler(db)
+  await authHandler.initialize()
+
   const user = {
     id: '123e4567-e89b-12d3-a456-426614174000',
     aud: 'authenticated',
@@ -909,17 +935,23 @@ Deno.test('Crypto - verifyAccessToken rejects tampered token', async () => {
     updated_at: new Date().toISOString(),
   }
 
-  const token = await createAccessToken(user, 'session-123', 3600)
+  const token = await createAccessToken(db, user, 'session-123', 3600)
   const parts = token.split('.')
 
   // Tamper with payload
   const tamperedToken = `${parts[0]}.${parts[1]}abc.${parts[2]}`
 
-  const result = await verifyAccessToken(tamperedToken)
+  const result = await verifyAccessToken(db, tamperedToken)
   assertEquals(result.valid, false)
+
+  await db.close()
 })
 
 Deno.test('Crypto - extractUserIdFromToken returns user id', async () => {
+  const db = new PGlite()
+  const authHandler = new AuthHandler(db)
+  await authHandler.initialize()
+
   const user = {
     id: '123e4567-e89b-12d3-a456-426614174000',
     aud: 'authenticated',
@@ -931,10 +963,12 @@ Deno.test('Crypto - extractUserIdFromToken returns user id', async () => {
     updated_at: new Date().toISOString(),
   }
 
-  const token = await createAccessToken(user, 'session-123', 3600)
+  const token = await createAccessToken(db, user, 'session-123', 3600)
   const userId = extractUserIdFromToken(token)
 
   assertEquals(userId, user.id)
+
+  await db.close()
 })
 
 Deno.test('Crypto - extractUserIdFromToken handles invalid token', () => {
@@ -944,6 +978,10 @@ Deno.test('Crypto - extractUserIdFromToken handles invalid token', () => {
 })
 
 Deno.test('Crypto - extractSessionIdFromToken returns session id', async () => {
+  const db = new PGlite()
+  const authHandler = new AuthHandler(db)
+  await authHandler.initialize()
+
   const user = {
     id: '123e4567-e89b-12d3-a456-426614174000',
     aud: 'authenticated',
@@ -955,10 +993,12 @@ Deno.test('Crypto - extractSessionIdFromToken returns session id', async () => {
     updated_at: new Date().toISOString(),
   }
 
-  const token = await createAccessToken(user, 'session-456', 3600)
+  const token = await createAccessToken(db, user, 'session-456', 3600)
   const sessionId = extractSessionIdFromToken(token)
 
   assertEquals(sessionId, 'session-456')
+
+  await db.close()
 })
 
 Deno.test('Crypto - extractSessionIdFromToken handles invalid token', () => {

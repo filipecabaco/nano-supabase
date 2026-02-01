@@ -249,7 +249,7 @@ export class AuthHandler {
     const user = toPublicUser(storedUser)
 
     // Generate access token
-    const accessToken = await createAccessToken(user, session.id, ACCESS_TOKEN_EXPIRY)
+    const accessToken = await createAccessToken(this.db, user, session.id, ACCESS_TOKEN_EXPIRY)
 
     return {
       access_token: accessToken,
@@ -302,7 +302,7 @@ export class AuthHandler {
       const user = toPublicUser(storedUser)
 
       // Generate new access token
-      const accessToken = await createAccessToken(user, session_id, ACCESS_TOKEN_EXPIRY)
+      const accessToken = await createAccessToken(this.db, user, session_id, ACCESS_TOKEN_EXPIRY)
 
       const session: Session = {
         access_token: accessToken,
@@ -360,7 +360,7 @@ export class AuthHandler {
     await this.initialize()
 
     try {
-      const verified = await verifyAccessToken(accessToken)
+      const verified = await verifyAccessToken(this.db, accessToken)
 
       if (!verified.valid || !verified.payload) {
         return {
@@ -410,7 +410,7 @@ export class AuthHandler {
     await this.initialize()
 
     try {
-      const verified = await verifyAccessToken(accessToken)
+      const verified = await verifyAccessToken(this.db, accessToken)
 
       if (!verified.valid || !verified.payload) {
         return {
@@ -483,6 +483,7 @@ export class AuthHandler {
       let session = this.currentSession
       if (session) {
         const newAccessToken = await createAccessToken(
+          this.db,
           user,
           verified.payload.session_id,
           ACCESS_TOKEN_EXPIRY
@@ -530,6 +531,6 @@ export class AuthHandler {
    * Verify access token and return payload
    */
   async verifyToken(accessToken: string) {
-    return verifyAccessToken(accessToken)
+    return verifyAccessToken(this.db, accessToken)
   }
 }

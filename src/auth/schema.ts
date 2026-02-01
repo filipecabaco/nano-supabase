@@ -318,6 +318,175 @@ BEGIN
   DELETE FROM auth.sessions WHERE user_id = p_user_id;
 END;
 $$ LANGUAGE plpgsql;
+
+-- Config table for storing signing key
+CREATE TABLE IF NOT EXISTS auth.config (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Function to get or create the signing key
+CREATE OR REPLACE FUNCTION auth.get_signing_key() RETURNS TEXT AS $$
+DECLARE
+  v_key TEXT;
+BEGIN
+  SELECT value INTO v_key FROM auth.config WHERE key = 'jwt_signing_key';
+
+  IF v_key IS NULL THEN
+    v_key := encode(gen_random_bytes(32), 'hex');
+    INSERT INTO auth.config (key, value) VALUES ('jwt_signing_key', v_key);
+  END IF;
+
+  RETURN v_key;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Function to base64url encode
+CREATE OR REPLACE FUNCTION auth.base64url_encode(data BYTEA) RETURNS TEXT AS $$
+  SELECT replace(replace(rtrim(encode(data, 'base64'), '='), '+', '-'), '/', '_');
+$$ LANGUAGE SQL IMMUTABLE;
+
+-- Function to base64url decode
+CREATE OR REPLACE FUNCTION auth.base64url_decode(data TEXT) RETURNS BYTEA AS $$
+DECLARE
+  v_padded TEXT;
+  v_converted TEXT;
+BEGIN
+  v_converted := replace(replace(data, '-', '+'), '_', '/');
+  v_padded := v_converted || repeat('=', (4 - length(v_converted) % 4) % 4);
+  RETURN decode(v_padded, 'base64');
+END;
+$$ LANGUAGE plpgsql IMMUTABLE;
+
+-- Function to create an access token (JWT-like structure using HMAC)
+CREATE OR REPLACE FUNCTION auth.create_access_token(
+  p_user_id UUID,
+  p_session_id UUID,
+  p_email TEXT,
+  p_role TEXT DEFAULT 'authenticated',
+  p_user_metadata JSONB DEFAULT '{}'::jsonb,
+  p_app_metadata JSONB DEFAULT '{}'::jsonb,
+  p_expires_in INT DEFAULT 3600
+) RETURNS TEXT AS $$
+DECLARE
+  v_key TEXT;
+  v_now BIGINT;
+  v_exp BIGINT;
+  v_header TEXT;
+  v_payload TEXT;
+  v_header_b64 TEXT;
+  v_payload_b64 TEXT;
+  v_signature_input TEXT;
+  v_signature TEXT;
+BEGIN
+  v_key := auth.get_signing_key();
+  v_now := EXTRACT(EPOCH FROM NOW())::BIGINT;
+  v_exp := v_now + p_expires_in;
+
+  -- Create header
+  v_header := '{"alg":"HS256","typ":"JWT"}';
+  v_header_b64 := auth.base64url_encode(v_header::bytea);
+
+  -- Create payload
+  v_payload := json_build_object(
+    'sub', p_user_id,
+    'aud', 'authenticated',
+    'role', p_role,
+    'email', p_email,
+    'session_id', p_session_id,
+    'iat', v_now,
+    'exp', v_exp,
+    'user_metadata', p_user_metadata,
+    'app_metadata', p_app_metadata
+  )::text;
+  v_payload_b64 := auth.base64url_encode(v_payload::bytea);
+
+  -- Create signature
+  v_signature_input := v_header_b64 || '.' || v_payload_b64;
+  v_signature := auth.base64url_encode(
+    hmac(v_signature_input::bytea, decode(v_key, 'hex'), 'sha256')
+  );
+
+  RETURN v_signature_input || '.' || v_signature;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Function to verify an access token and return payload
+CREATE OR REPLACE FUNCTION auth.verify_access_token(p_token TEXT) RETURNS TABLE(
+  valid BOOLEAN,
+  user_id UUID,
+  session_id UUID,
+  email TEXT,
+  role TEXT,
+  exp BIGINT,
+  user_metadata JSONB,
+  app_metadata JSONB,
+  error TEXT
+) AS $$
+DECLARE
+  v_parts TEXT[];
+  v_header_b64 TEXT;
+  v_payload_b64 TEXT;
+  v_signature_b64 TEXT;
+  v_key TEXT;
+  v_signature_input TEXT;
+  v_expected_sig TEXT;
+  v_payload JSONB;
+  v_now BIGINT;
+BEGIN
+  -- Split token into parts
+  v_parts := string_to_array(p_token, '.');
+
+  IF array_length(v_parts, 1) != 3 THEN
+    RETURN QUERY SELECT false, NULL::UUID, NULL::UUID, NULL::TEXT, NULL::TEXT, NULL::BIGINT, NULL::JSONB, NULL::JSONB, 'Invalid token format'::TEXT;
+    RETURN;
+  END IF;
+
+  v_header_b64 := v_parts[1];
+  v_payload_b64 := v_parts[2];
+  v_signature_b64 := v_parts[3];
+
+  -- Verify signature
+  v_key := auth.get_signing_key();
+  v_signature_input := v_header_b64 || '.' || v_payload_b64;
+  v_expected_sig := auth.base64url_encode(
+    hmac(v_signature_input::bytea, decode(v_key, 'hex'), 'sha256')
+  );
+
+  IF v_signature_b64 != v_expected_sig THEN
+    RETURN QUERY SELECT false, NULL::UUID, NULL::UUID, NULL::TEXT, NULL::TEXT, NULL::BIGINT, NULL::JSONB, NULL::JSONB, 'Invalid signature'::TEXT;
+    RETURN;
+  END IF;
+
+  -- Decode payload
+  BEGIN
+    v_payload := convert_from(auth.base64url_decode(v_payload_b64), 'UTF8')::jsonb;
+  EXCEPTION WHEN OTHERS THEN
+    RETURN QUERY SELECT false, NULL::UUID, NULL::UUID, NULL::TEXT, NULL::TEXT, NULL::BIGINT, NULL::JSONB, NULL::JSONB, 'Invalid payload'::TEXT;
+    RETURN;
+  END;
+
+  -- Check expiration
+  v_now := EXTRACT(EPOCH FROM NOW())::BIGINT;
+  IF (v_payload->>'exp')::BIGINT < v_now THEN
+    RETURN QUERY SELECT false, NULL::UUID, NULL::UUID, NULL::TEXT, NULL::TEXT, NULL::BIGINT, NULL::JSONB, NULL::JSONB, 'Token expired'::TEXT;
+    RETURN;
+  END IF;
+
+  -- Return valid token data
+  RETURN QUERY SELECT
+    true,
+    (v_payload->>'sub')::UUID,
+    (v_payload->>'session_id')::UUID,
+    v_payload->>'email',
+    v_payload->>'role',
+    (v_payload->>'exp')::BIGINT,
+    COALESCE(v_payload->'user_metadata', '{}'::jsonb),
+    COALESCE(v_payload->'app_metadata', '{}'::jsonb),
+    NULL::TEXT;
+END;
+$$ LANGUAGE plpgsql;
 `
 
 /**

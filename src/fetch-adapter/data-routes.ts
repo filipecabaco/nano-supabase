@@ -57,7 +57,7 @@ async function setAuthContext(
     return { role: 'anon' }
   }
 
-  const verified = await verifyAccessToken(token)
+  const verified = await verifyAccessToken(db, token)
   if (!verified.valid || !verified.payload) {
     // Invalid token, treat as anonymous
     await db.exec(CLEAR_AUTH_CONTEXT_SQL)
