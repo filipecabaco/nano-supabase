@@ -12,7 +12,8 @@
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "@electric-sql/pglite": "^0.3.15",
-    "nano-supabase": "github:filipecabaco/nano-supabase#main"
+    "@supabase/supabase-js": "^2.45.0",
+    "nano-supabase": "link:../.."
   },
   "devDependencies": {
     "@types/react": "^18.2.43",

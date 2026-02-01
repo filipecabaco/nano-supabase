@@ -1,17 +1,11 @@
 import { useEffect, useState } from 'react'
-import { initDatabase, getSupabase } from './db'
+import { initDatabase, getSupabase, getAuthHandler } from './db'
+import type { User, Session, AuthHandler } from 'nano-supabase'
 import './App.css'
-
-interface User {
-  id: number
-  name: string
-  email: string
-  created_at: string
-}
 
 interface Task {
   id: number
-  user_id: number
+  user_id: string
   title: string
   description: string | null
   completed: boolean
@@ -20,14 +14,24 @@ interface Task {
   created_at: string
 }
 
+type AuthMode = 'signin' | 'signup'
+
 function App() {
   const [loading, setLoading] = useState(true)
-  const [users, setUsers] = useState<User[]>([])
+  const [user, setUser] = useState<User | null>(null)
+  const [session, setSession] = useState<Session | null>(null)
   const [tasks, setTasks] = useState<Task[]>([])
-  const [selectedUser, setSelectedUser] = useState<number | null>(null)
   const [newTaskTitle, setNewTaskTitle] = useState('')
   const [newTaskDescription, setNewTaskDescription] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [authHandler, setAuthHandler] = useState<AuthHandler | null>(null)
+
+  // Auth form state
+  const [authMode, setAuthMode] = useState<AuthMode>('signin')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [authLoading, setAuthLoading] = useState(false)
+  const [authError, setAuthError] = useState<string | null>(null)
 
   useEffect(() => {
     initialize()
@@ -36,9 +40,21 @@ function App() {
   async function initialize() {
     try {
       setLoading(true)
-      await initDatabase()
-      await loadUsers()
-      await loadTasks()
+      const { authHandler } = await initDatabase()
+      setAuthHandler(authHandler)
+
+      // Subscribe to auth state changes
+      authHandler.onAuthStateChange((event, session) => {
+        console.log('Auth event:', event)
+        setSession(session)
+        setUser(session?.user || null)
+
+        if (session) {
+          loadTasks()
+        } else {
+          setTasks([])
+        }
+      })
     } catch (err) {
       setError((err as Error).message)
     } finally {
@@ -46,46 +62,78 @@ function App() {
     }
   }
 
-  async function loadUsers() {
-    const supabase = getSupabase()
-    const { data, error } = await supabase.from<User>('users').select('*')
+  async function loadTasks() {
+    try {
+      const supabase = getSupabase()
+      const { data, error } = await supabase
+        .from('tasks')
+        .select('*')
+        .order('created_at', { ascending: false })
 
-    if (error) {
-      setError(error.message)
-      return
-    }
+      if (error) {
+        console.error('Error loading tasks:', error)
+        return
+      }
 
-    setUsers(data as User[])
-    if (data && data.length > 0) {
-      setSelectedUser((data as User[])[0]!.id)
+      setTasks((data as Task[]) || [])
+    } catch (err) {
+      console.error('Failed to load tasks:', err)
     }
   }
 
-  async function loadTasks() {
-    const supabase = getSupabase()
-    const { data, error } = await supabase
-      .from<Task>('tasks')
-      .select('*')
-      .order('created_at', { ascending: false })
+  async function handleAuth(e: React.FormEvent) {
+    e.preventDefault()
+    if (!authHandler) return
 
-    if (error) {
-      setError(error.message)
-      return
+    setAuthLoading(true)
+    setAuthError(null)
+
+    try {
+      if (authMode === 'signup') {
+        const result = await authHandler.signUp(email, password)
+        if (result.error) {
+          setAuthError(result.error.message)
+        } else {
+          // Auto sign in after signup
+          setEmail('')
+          setPassword('')
+        }
+      } else {
+        const result = await authHandler.signInWithPassword(email, password)
+        if (result.error) {
+          setAuthError(result.error.message)
+        } else {
+          setEmail('')
+          setPassword('')
+        }
+      }
+    } catch (err) {
+      setAuthError((err as Error).message)
+    } finally {
+      setAuthLoading(false)
     }
+  }
 
-    setTasks(data as Task[])
+  async function handleSignOut() {
+    if (!authHandler || !session) return
+
+    try {
+      await authHandler.signOut(session.access_token)
+    } catch (err) {
+      console.error('Sign out error:', err)
+    }
   }
 
   async function addTask() {
-    if (!newTaskTitle.trim() || !selectedUser) return
+    if (!newTaskTitle.trim() || !user) return
 
     const supabase = getSupabase()
     const { error } = await supabase.from('tasks').insert({
-      user_id: selectedUser,
+      user_id: user.id,
       title: newTaskTitle,
       description: newTaskDescription || null,
       completed: false,
-      priority: 'medium'
+      priority: 'medium',
     })
 
     if (error) {
@@ -125,75 +173,130 @@ function App() {
     await loadTasks()
   }
 
-  const userTasks = selectedUser
-    ? tasks.filter((t) => t.user_id === selectedUser)
-    : []
-
   if (loading) {
     return (
       <div className="app">
         <div className="loading">
-          <h2>🚀 Initializing PGlite + Supabase...</h2>
-          <p>Setting up in-browser database with schema introspection</p>
+          <h2>Initializing PGlite + Auth...</h2>
+          <p>Setting up in-browser database with authentication</p>
         </div>
       </div>
     )
   }
 
+  // Auth Screen
+  if (!user) {
+    return (
+      <div className="app">
+        <header>
+          <h1>Nano Supabase Demo</h1>
+          <p className="subtitle">
+            Full-stack app with auth running entirely in the browser
+          </p>
+        </header>
+
+        <div className="auth-container">
+          <div className="auth-card">
+            <div className="auth-tabs">
+              <button
+                className={`auth-tab ${authMode === 'signin' ? 'active' : ''}`}
+                onClick={() => { setAuthMode('signin'); setAuthError(null) }}
+              >
+                Sign In
+              </button>
+              <button
+                className={`auth-tab ${authMode === 'signup' ? 'active' : ''}`}
+                onClick={() => { setAuthMode('signup'); setAuthError(null) }}
+              >
+                Sign Up
+              </button>
+            </div>
+
+            <form onSubmit={handleAuth} className="auth-form">
+              <h2>{authMode === 'signin' ? 'Welcome Back' : 'Create Account'}</h2>
+
+              {authError && (
+                <div className="auth-error">{authError}</div>
+              )}
+
+              <div className="form-group">
+                <label htmlFor="email">Email</label>
+                <input
+                  id="email"
+                  type="email"
+                  placeholder="you@example.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                />
+              </div>
+
+              <div className="form-group">
+                <label htmlFor="password">Password</label>
+                <input
+                  id="password"
+                  type="password"
+                  placeholder="Enter password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                  minLength={6}
+                />
+              </div>
+
+              <button
+                type="submit"
+                className="auth-submit"
+                disabled={authLoading || !email || !password}
+              >
+                {authLoading
+                  ? 'Loading...'
+                  : authMode === 'signin'
+                  ? 'Sign In'
+                  : 'Create Account'}
+              </button>
+            </form>
+
+            <div className="auth-info">
+              <p>All data stored locally in your browser using PGlite</p>
+              <p>Passwords hashed with pgcrypto (bcrypt)</p>
+            </div>
+          </div>
+        </div>
+
+        <footer>
+          <p>
+            Running on <strong>PGlite</strong> with <strong>Auth Emulation</strong>
+          </p>
+        </footer>
+      </div>
+    )
+  }
+
+  // Main App (Authenticated)
   return (
     <div className="app">
       <header>
-        <h1>📋 Nano Supabase React Demo</h1>
+        <h1>Nano Supabase Demo</h1>
         <p className="subtitle">
-          Full-stack app running entirely in the browser with PGlite + PostgREST
+          Authenticated as <strong>{user.email}</strong>
         </p>
+        <button className="sign-out-btn" onClick={handleSignOut}>
+          Sign Out
+        </button>
       </header>
 
       {error && (
         <div className="error">
           <strong>Error:</strong> {error}
+          <button onClick={() => setError(null)}>Dismiss</button>
         </div>
       )}
 
-      <div className="container">
-        <div className="sidebar">
-          <h2>👥 Users</h2>
-          <div className="user-list">
-            {users.map((user) => (
-              <div
-                key={user.id}
-                className={`user-item ${selectedUser === user.id ? 'active' : ''}`}
-                onClick={() => setSelectedUser(user.id)}
-              >
-                <div className="user-name">{user.name}</div>
-                <div className="user-email">{user.email}</div>
-                <div className="user-tasks">
-                  {tasks.filter((t) => t.user_id === user.id).length} tasks
-                </div>
-              </div>
-            ))}
-          </div>
-
-          <div className="stats">
-            <h3>📊 Statistics</h3>
-            <div className="stat">
-              <span>Total Users:</span>
-              <strong>{users.length}</strong>
-            </div>
-            <div className="stat">
-              <span>Total Tasks:</span>
-              <strong>{tasks.length}</strong>
-            </div>
-            <div className="stat">
-              <span>Completed:</span>
-              <strong>{tasks.filter((t) => t.completed).length}</strong>
-            </div>
-          </div>
-        </div>
-
+      <div className="main-container">
         <div className="main">
           <div className="add-task">
-            <h2>➕ Add New Task</h2>
+            <h2>Add New Task</h2>
             <input
               type="text"
               placeholder="Task title"
@@ -214,13 +317,16 @@ function App() {
           </div>
 
           <div className="tasks">
-            <h2>✅ Tasks ({userTasks.length})</h2>
-            {userTasks.length === 0 ? (
+            <h2>Your Tasks ({tasks.length})</h2>
+            {tasks.length === 0 ? (
               <div className="empty">No tasks yet. Add one above!</div>
             ) : (
               <div className="task-list">
-                {userTasks.map((task) => (
-                  <div key={task.id} className={`task-item ${task.completed ? 'completed' : ''}`}>
+                {tasks.map((task) => (
+                  <div
+                    key={task.id}
+                    className={`task-item ${task.completed ? 'completed' : ''}`}
+                  >
                     <div className="task-checkbox">
                       <input
                         type="checkbox"
@@ -242,8 +348,11 @@ function App() {
                         </span>
                       </div>
                     </div>
-                    <button className="delete-btn" onClick={() => deleteTask(task.id)}>
-                      🗑️
+                    <button
+                      className="delete-btn"
+                      onClick={() => deleteTask(task.id)}
+                    >
+                      Delete
                     </button>
                   </div>
                 ))}
@@ -251,14 +360,62 @@ function App() {
             )}
           </div>
         </div>
+
+        <div className="sidebar">
+          <h2>User Info</h2>
+          <div className="user-info">
+            <div className="info-item">
+              <span className="label">Email:</span>
+              <span className="value">{user.email}</span>
+            </div>
+            <div className="info-item">
+              <span className="label">User ID:</span>
+              <span className="value">{user.id.slice(0, 8)}...</span>
+            </div>
+            <div className="info-item">
+              <span className="label">Role:</span>
+              <span className="value">{user.role}</span>
+            </div>
+            <div className="info-item">
+              <span className="label">Created:</span>
+              <span className="value">
+                {new Date(user.created_at).toLocaleDateString()}
+              </span>
+            </div>
+          </div>
+
+          <h2>Stats</h2>
+          <div className="stats">
+            <div className="stat">
+              <span>Total Tasks:</span>
+              <strong>{tasks.length}</strong>
+            </div>
+            <div className="stat">
+              <span>Completed:</span>
+              <strong>{tasks.filter((t) => t.completed).length}</strong>
+            </div>
+            <div className="stat">
+              <span>Pending:</span>
+              <strong>{tasks.filter((t) => !t.completed).length}</strong>
+            </div>
+          </div>
+
+          <div className="rls-info">
+            <h3>RLS Active</h3>
+            <p>
+              Row Level Security ensures you only see your own tasks.
+              Data is isolated per user using <code>auth.uid()</code>.
+            </p>
+          </div>
+        </div>
       </div>
 
       <footer>
         <p>
-          ✨ Running on <strong>PGlite</strong> with <strong>Supabase-compatible API</strong>
+          Running on <strong>PGlite</strong> with <strong>Supabase Auth Emulation</strong>
         </p>
         <p>
-          💾 All data stored in browser memory • 🔒 No server required • ⚡ Edge-ready
+          All data stored in browser memory with RLS protection
         </p>
       </footer>
     </div>
