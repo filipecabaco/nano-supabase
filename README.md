@@ -4,11 +4,19 @@ A TypeScript library that provides a Supabase-compatible API running entirely in
 
 ## Demo
 
-See [examples/react-demo](examples/react-demo) for a task management app running 100% client-side with full CRUD operations.
+See [examples/react-demo](examples/react-demo) for a full-featured task management app running 100% client-side with React and Vite.
+
+The demo uses the GitHub package directly and demonstrates:
+- Supabase-compatible API usage
+- CRUD operations with PostgREST query parsing
+- Type-safe queries with TypeScript
+- Zero network calls - everything runs in the browser
 
 ```bash
 cd examples/react-demo
-npm install && npm run dev
+pnpm install  # Installs from github:filipecabaco/nano-supabase#main
+pnpm run dev  # Start development server
+pnpm run build  # Build for production
 ```
 
 ## Overview
@@ -204,28 +212,66 @@ nano-supabase/
 
 ## Installation
 
-Not yet published to npm. For development:
+Install directly from GitHub - no npm/jsr publication needed. All dependencies are bundled into optimized ESM files.
 
+**Package Managers (Node.js/Bun/etc):**
 ```bash
-git clone <repo-url>
-cd nano-supabase
-npm install
-npm run build
+pnpm add github:filipecabaco/nano-supabase#main
+pnpm add @electric-sql/pglite
 ```
+
+**Deno:**
+```typescript
+import { createSupabaseClient } from "https://raw.githubusercontent.com/filipecabaco/nano-supabase/main/dist/index.js"
+import { PGlite } from "npm:@electric-sql/pglite"
+```
+
+**Browser/Vite/Webpack:**
+```typescript
+// For browser environments - use the slim bundle (excludes Node.js modules)
+import { createSupabaseClient } from 'nano-supabase/slim'
+import { PGlite } from '@electric-sql/pglite'
+```
+
+### Bundle Information
+
+The package includes pre-built ESM bundles with all dependencies bundled (except PGlite):
+
+| Bundle | Size | Contents | Use Case |
+|--------|------|----------|----------|
+| `dist/index.js` | ~26 KB | Full library + server + pooler + sockets | Node.js, Deno, Bun |
+| `dist/slim.js` | ~20 KB | Client + parser only | Browser, Edge Workers |
+| `dist/postgrest_parser_bg.wasm` | ~377 KB | PostgREST query parser | Included automatically |
+
+The WASM file is automatically bundled by Vite/Webpack and loaded at runtime.
 
 ## Development
 
 ```bash
+# Install dependencies
+pnpm install
+
+# Build bundles (creates dist/ with bundled JS + WASM)
+pnpm run build
+
 # Run examples
-npm run example:basic     # Pooler test
-npm run example:server    # TCP server
+pnpm run example:basic     # Pooler test
+pnpm run example:server    # TCP server
 
 # Run tests
 deno test
 
-# Build
-npm run build
+# Clean build
+pnpm run clean
 ```
+
+### Build Process
+
+The build script ([scripts/build.js](scripts/build.js)) creates single-file ESM bundles:
+1. Bundles all dependencies using esbuild (except PGlite and Node.js built-ins)
+2. Copies the PostgREST parser WASM file to dist/
+3. Generates TypeScript declarations
+4. Creates both full and slim bundles for different environments
 
 ## Testing TCP Server
 

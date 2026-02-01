@@ -1,25 +1,62 @@
 {
   "name": "nano-supabase",
   "version": "1.0.0",
-  "description": "A TypeScript library that provides a lightweight PostgREST-compatible server backed by [PGlite](https://github.com/electric-sql/pglite), featuring N-to-1 connection multiplexing with priority queues over TCP sockets.",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "description": "A lightweight Supabase-compatible client for PGlite - runs PostgreSQL entirely in the browser/edge",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./slim": {
+      "types": "./dist/slim.d.ts",
+      "import": "./dist/slim.js",
+      "default": "./dist/slim.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
   "scripts": {
-    "build": "tsc",
+    "build": "pnpm run build:bundle && pnpm run build:types",
+    "build:bundle": "node scripts/build.js",
+    "build:types": "tsc --emitDeclarationOnly",
+    "build:dev": "tsc",
+    "clean": "rm -rf dist",
     "example:basic": "tsx examples/basic.ts",
     "example:server": "tsx examples/tcp-server.ts",
     "example:parser": "tsx examples/postgrest-parser.ts"
   },
-  "keywords": ["pglite", "postgresql", "pooling", "postgrest"],
+  "keywords": [
+    "pglite",
+    "postgresql",
+    "supabase",
+    "postgrest",
+    "edge",
+    "webcontainer",
+    "deno",
+    "bun",
+    "cloudflare-workers"
+  ],
   "author": "",
   "license": "MIT",
-  "type": "module",
-  "dependencies": {
-    "@electric-sql/pglite": "^0.3.15",
-    "native_postgrest_parser": "github:filipecabaco/native_postgrest_parser"
+  "peerDependencies": {
+    "@electric-sql/pglite": ">=0.3.0"
+  },
+  "peerDependenciesMeta": {
+    "@electric-sql/pglite": {
+      "optional": false
+    }
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.3.15",
     "@types/node": "^25.1.0",
+    "esbuild": "^0.24.0",
+    "native_postgrest_parser": "github:filipecabaco/native_postgrest_parser",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3"
   }
