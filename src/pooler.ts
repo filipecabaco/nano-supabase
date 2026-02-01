@@ -2,8 +2,8 @@ import { randomUUID } from 'node:crypto'
 
 import type { PGlite } from '@electric-sql/pglite'
 
-import { PriorityQueue } from './queue.js'
-import type { PoolerConfig, QueuedQuery, QueryPriority, QueryResult } from './types.js'
+import { PriorityQueue } from './queue.ts'
+import type { PoolerConfig, QueuedQuery, QueryPriority, QueryResult } from './types.ts'
 
 /**
  * Connection pooler that manages N-to-1 query execution against PGlite
@@ -14,6 +14,7 @@ export class PGlitePooler {
   private readonly queue: PriorityQueue
   private running: boolean = false
   private readonly config: PoolerConfig
+  private sleepTimeoutId: number | null = null
 
   constructor(db: PGlite, config: Partial<PoolerConfig> = {}) {
     this.db = db
@@ -35,16 +36,16 @@ export class PGlitePooler {
     this.running = true
 
     // Start processing in background
-    // Use setImmediate to ensure it starts in next tick
-    setImmediate(() => {
+    // Use setTimeout(0) for cross-runtime compatibility (works in Node.js, Deno, Browser)
+    setTimeout(() => {
       this.processQueue().catch(err => {
         console.error('Queue processor error:', err)
         this.running = false
       })
-    })
+    }, 0)
 
     // Give the processor a chance to start
-    await new Promise(resolve => setImmediate(resolve))
+    await new Promise(resolve => setTimeout(resolve, 0))
   }
 
   /**
@@ -53,6 +54,15 @@ export class PGlitePooler {
    */
   async stop(): Promise<void> {
     this.running = false
+
+    // Cancel any pending sleep timer
+    if (this.sleepTimeoutId !== null) {
+      clearTimeout(this.sleepTimeoutId as unknown as number)
+      this.sleepTimeoutId = null
+    }
+
+    // Give time for the background loop to exit
+    await new Promise(r => setTimeout(r, 20))
   }
 
   /**
@@ -68,7 +78,7 @@ export class PGlitePooler {
       const query: QueuedQuery = {
         id: randomUUID(),
         sql,
-        params,
+        params: params ?? [],
         priority,
         enqueuedAt: Date.now(),
         resolve,
@@ -93,8 +103,15 @@ export class PGlitePooler {
       const query = this.queue.dequeue()
 
       if (!query) {
-        // No queries, sleep briefly
-        await new Promise(r => setTimeout(r, 10))
+        // No queries, sleep briefly then check if still running
+        await new Promise(r => {
+          const id = setTimeout(() => {
+            r(null)
+          }, 10)
+          // Store timeout ID so we can cancel it in stop()
+          this.sleepTimeoutId = id as unknown as number
+        })
+        this.sleepTimeoutId = null
         continue
       }
 
@@ -115,19 +132,19 @@ export class PGlitePooler {
   private async executeWithTimeout(query: QueuedQuery): Promise<QueryResult> {
     const timeoutMs = query.timeoutMs ?? this.config.defaultTimeout
 
-    let timeoutId: NodeJS.Timeout | null = null
+    let timeoutId: number | null = null
 
     const timeoutPromise = new Promise<never>((_, reject) => {
       timeoutId = setTimeout(() => {
         reject(new Error('Query timeout'))
-      }, timeoutMs)
+      }, timeoutMs) as unknown as number
     })
 
     // PGlite.query() already uses a mutex internally, no need for runExclusive
     const queryPromise = this.db.query(query.sql, query.params as unknown[])
       .finally(() => {
         // Cancel timeout if query completes
-        if (timeoutId) clearTimeout(timeoutId)
+        if (timeoutId) clearTimeout(timeoutId as unknown as number)
       })
 
     return Promise.race([queryPromise, timeoutPromise]) as Promise<QueryResult>

@@ -7,13 +7,14 @@
     "noImplicitReturns": true,
     "noFallthroughCasesInSwitch": true,
     "noUncheckedIndexedAccess": true,
-    "exactOptionalPropertyTypes": true,
+    "exactOptionalPropertyTypes": false,
 
     // Module Resolution
     "module": "ESNext",
     "moduleResolution": "bundler",
     "target": "ES2022",
     "lib": ["ES2022"],
+    "allowImportingTsExtensions": true,
 
     // Emit
     "declaration": true,

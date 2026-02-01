@@ -56,10 +56,10 @@ PGlite (PostgreSQL in WASM)
 ```
 
 **Current Status:**
-- Core infrastructure complete (priority queue, pooler, TCP server)
+- Core infrastructure complete (priority queue, pooler)
 - Supabase compatibility layer complete (PostgREST parser, query builder)
-- Node.js runtime adapter complete
-- 23 passing tests (Deno)
+- Cross-runtime compatible (Node.js, Deno, Browser)
+- 39 passing tests (Deno)
 
 **Planned:**
 - Additional runtime adapters (Deno, Bun, Cloudflare Workers)
@@ -91,28 +91,22 @@ const { data, error } = await supabase
   .eq('id', 1)
 ```
 
-### Lower-Level API (Pooler + TCP Server)
+### Direct Pooler Usage (Advanced)
 
 ```typescript
 import { PGlite } from '@electric-sql/pglite'
-import { PGlitePooler, PGliteServer } from 'nano-supabase'
+import { PGlitePooler, QueryPriority } from 'nano-supabase'
 
 const db = new PGlite()
-await db.exec(`CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT)`)
+const pooler = new PGlitePooler(db, { maxQueueSize: 1000 })
 
-const pooler = new PGlitePooler(db, {
-  maxQueueSize: 1000,
-  defaultTimeout: 30000
-})
-
-const server = new PGliteServer({
-  hostname: '127.0.0.1',
-  port: 5433,
-  pooler
-})
-
-await server.start()
-// Connect via: nc 127.0.0.1 5433
+await pooler.start()
+const result = await pooler.query(
+  'SELECT * FROM users WHERE id = $1',
+  [1],
+  QueryPriority.HIGH
+)
+await pooler.stop()
 ```
 
 ## Core Components
@@ -125,13 +119,9 @@ Array-based queue with 4 priority levels (CRITICAL, HIGH, MEDIUM, LOW). See [src
 
 Multiplexes N connections to a single PGlite instance with background queue processing and timeout protection. Calls `db.query()` directly to avoid deadlock with PGlite's internal mutex. See [src/pooler.ts](src/pooler.ts).
 
-### TCP Server
+### PostgreSQL Wire Protocol Support
 
-Newline-delimited TCP protocol for SQL queries. Send query + `\n`, receive JSON response. See [src/server.ts](src/server.ts).
-
-### Socket Abstraction
-
-WinterCG-compatible socket interface with runtime adapters. Currently supports Node.js. See [src/socket/](src/socket/).
+For full PostgreSQL compatibility (psql, pgAdmin, etc.), use PGlite's official `@pglite/socket` package which implements the complete wire protocol. See [examples/tcp-server.ts](examples/tcp-server.ts) for an example.
 
 ## Implementation Notes
 
@@ -193,20 +183,18 @@ const result = await pooler.query(
 ```
 nano-supabase/
 ├── src/
+│   ├── index.ts              # Main exports
+│   ├── supabase-client.ts    # Supabase-compatible client
+│   ├── postgrest-parser.ts   # PostgREST → SQL parser
 │   ├── types.ts              # Type definitions
 │   ├── queue.ts              # Priority queue
-│   ├── pooler.ts             # Connection pooler
-│   ├── server.ts             # TCP server
-│   ├── socket/               # Socket abstraction
-│   │   ├── types.ts
-│   │   ├── runtime.ts
-│   │   ├── index.ts
-│   │   └── adapters/node.ts
-│   └── index.ts
+│   └── pooler.ts             # Connection pooler
+├── dist/                     # Built bundles (git-distributable)
+├── scripts/build.js          # esbuild bundler
 ├── examples/
-│   ├── basic.ts
-│   ├── tcp-server.ts
-│   └── react-demo/
+│   ├── basic.ts              # Pooler example
+│   ├── tcp-server.ts         # @pglite/socket server example
+│   └── react-demo/           # Full React application
 └── tests/                    # Deno tests
 ```
 
@@ -228,22 +216,21 @@ import { PGlite } from "npm:@electric-sql/pglite"
 
 **Browser/Vite/Webpack:**
 ```typescript
-// For browser environments - use the slim bundle (excludes Node.js modules)
-import { createSupabaseClient } from 'nano-supabase/slim'
+// Modern bundlers automatically tree-shake unused code
+import { createSupabaseClient } from 'nano-supabase'
 import { PGlite } from '@electric-sql/pglite'
 ```
 
 ### Bundle Information
 
-The package includes pre-built ESM bundles with all dependencies bundled (except PGlite):
+The package includes a pre-built ESM bundle with all dependencies bundled (except PGlite):
 
 | Bundle | Size | Contents | Use Case |
 |--------|------|----------|----------|
-| `dist/index.js` | ~26 KB | Full library + server + pooler + sockets | Node.js, Deno, Bun |
-| `dist/slim.js` | ~20 KB | Client + parser only | Browser, Edge Workers |
+| `dist/index.js` | ~21 KB | Full library (pooler + client + parser) | All runtimes (Node.js, Deno, Bun, Browser) |
 | `dist/postgrest_parser_bg.wasm` | ~377 KB | PostgREST query parser | Included automatically |
 
-The WASM file is automatically bundled by Vite/Webpack and loaded at runtime.
+Modern bundlers (Vite, Webpack, esbuild) automatically tree-shake unused exports. If you only import `createSupabaseClient`, the pooler code won't be included in your final bundle.
 
 ## Development
 
@@ -258,8 +245,8 @@ pnpm run build
 pnpm run example:basic     # Pooler test
 pnpm run example:server    # TCP server
 
-# Run tests
-deno test
+# Run tests (requires read/env permissions for PGlite)
+deno test --allow-read --allow-env
 
 # Clean build
 pnpm run clean
@@ -267,24 +254,24 @@ pnpm run clean
 
 ### Build Process
 
-The build script ([scripts/build.js](scripts/build.js)) creates single-file ESM bundles:
+The build script ([scripts/build.js](scripts/build.js)) creates a single-file ESM bundle:
 1. Bundles all dependencies using esbuild (except PGlite and Node.js built-ins)
 2. Copies the PostgREST parser WASM file to dist/
 3. Generates TypeScript declarations
-4. Creates both full and slim bundles for different environments
+4. Relies on bundler tree-shaking for optimal bundle sizes
 
-## Testing TCP Server
+## PostgreSQL Wire Protocol Server
 
-Terminal 1:
+To run a full PostgreSQL-compatible server that works with `psql`, install `@pglite/socket`:
+
 ```bash
-npm run example:server
+pnpm add @pglite/socket
+pnpm run example:server
 ```
 
-Terminal 2:
+Then connect with any PostgreSQL client:
 ```bash
-nc 127.0.0.1 5433
-SELECT * FROM users
-INSERT INTO users (name, email) VALUES ('Alice', 'alice@example.com')
+psql "host=127.0.0.1 port=5433 user=postgres dbname=template1 sslmode=disable"
 ```
 
 ## Contributing
