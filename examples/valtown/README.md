@@ -2,11 +2,12 @@
 
 Deploy nano-supabase as a serverless API on [Val.town](https://val.town).
 
-## Quick Start
+## Quick Start (Web UI)
 
-1. Go to [val.town](https://val.town) and create a new **HTTP** val
+1. Go to [val.town](https://val.town) and create a new val
 2. Copy the contents of `index.ts` into the editor
-3. Your API is instantly live at `https://YOUR_USERNAME-YOUR_VAL_NAME.web.val.run`
+3. **Important**: Set the val type to **HTTP** using the dropdown near the val name
+4. Your API is instantly live at `https://YOUR_USERNAME-YOUR_VAL_NAME.web.val.run`
 
 ## Using the vt CLI
 
@@ -21,8 +22,9 @@ vt login
 cd examples/valtown
 vt create my-chat-api . --no-editor-files --upload-if-exists --public
 
-# Or clone and modify an existing one
-vt clone filipecabaco/nano-chat
+# IMPORTANT: After creating, go to the val's web page and set type to "HTTP"
+# The CLI doesn't have an option to set the val type
+vt browse
 ```
 
 ## API Endpoints
@@ -83,6 +85,8 @@ The example uses a chat schema, but you can modify `index.ts` to:
 - Connect to AI APIs for chat completions
 
 ## Troubleshooting
+
+**"Not found" response**: The val type isn't set to HTTP. Go to the val's page and change the type dropdown to "HTTP".
 
 **"Invalid version provided" error**: This usually means there's a caching issue. Try:
 1. Delete the val and create a new one with a different name
