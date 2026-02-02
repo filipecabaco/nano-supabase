@@ -75,12 +75,11 @@ export default async function handler(req: Request): Promise<Response> {
     // POST /conversations
     if (req.method === "POST" && path === "/conversations") {
       const body = await req.json();
-      const { data, error } = await supabase
-        .from("conversations")
-        .insert({ title: body.title || "New Chat" })
-        .select("*")
-        .single();
-      return Response.json({ data, error: error?.message }, { headers });
+      const result = await db.query(
+        `INSERT INTO conversations (title) VALUES ($1) RETURNING *`,
+        [body.title || "New Chat"]
+      );
+      return Response.json({ data: result.rows[0] }, { headers });
     }
 
     // GET /messages?conversation_id=xxx
@@ -100,17 +99,12 @@ export default async function handler(req: Request): Promise<Response> {
     // POST /messages
     if (req.method === "POST" && path === "/messages") {
       const body = await req.json();
-      const { data, error } = await supabase
-        .from("messages")
-        .insert({
-          conversation_id: body.conversation_id,
-          role: body.role,
-          content: body.content,
-          tokens: body.tokens,
-        })
-        .select("*")
-        .single();
-      return Response.json({ data, error: error?.message }, { headers });
+      const result = await db.query(
+        `INSERT INTO messages (conversation_id, role, content, tokens)
+         VALUES ($1, $2, $3, $4) RETURNING *`,
+        [body.conversation_id, body.role, body.content, body.tokens || null]
+      );
+      return Response.json({ data: result.rows[0] }, { headers });
     }
 
     // GET /stats
