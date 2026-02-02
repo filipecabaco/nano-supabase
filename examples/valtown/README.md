@@ -1,6 +1,13 @@
 # Val.town Example
 
-Deploy nano-supabase as a serverless API on [Val.town](https://val.town).
+Deploy nano-supabase as a serverless API on [Val.town](https://val.town) with **persistent storage**.
+
+## Features
+
+- Full PostgreSQL database running in WebAssembly
+- Supabase-compatible query API
+- **Persistent storage** using Val.town blob storage (data survives cold starts)
+- CORS enabled for browser access
 
 ## Quick Start (Web UI)
 
@@ -40,6 +47,15 @@ vt browse
 
 ## Testing
 
+Use the included test script:
+
+```bash
+# Run the full test suite
+./test.sh https://YOUR_USERNAME-YOUR_VAL_NAME.web.val.run
+```
+
+Or test manually:
+
 ```bash
 # Get API info
 curl https://YOUR_USERNAME-YOUR_VAL_NAME.web.val.run/
@@ -49,32 +65,25 @@ curl -X POST https://YOUR_USERNAME-YOUR_VAL_NAME.web.val.run/conversations \
   -H "Content-Type: application/json" \
   -d '{"title": "Test Chat"}'
 
-# Add a message
+# Add a message (replace YOUR_CONV_ID)
 curl -X POST https://YOUR_USERNAME-YOUR_VAL_NAME.web.val.run/messages \
   -H "Content-Type: application/json" \
-  -d '{"conversation_id": "YOUR_ID", "role": "user", "content": "Hello!"}'
+  -d '{"conversation_id": "YOUR_CONV_ID", "role": "user", "content": "Hello!"}'
+
+# Get messages
+curl "https://YOUR_USERNAME-YOUR_VAL_NAME.web.val.run/messages?conversation_id=YOUR_CONV_ID"
+
+# Check stats
+curl https://YOUR_USERNAME-YOUR_VAL_NAME.web.val.run/stats
 ```
 
-## Adding Persistence
+## Persistence
 
-Val.town workers are stateless - the database resets on cold starts. For persistence, use Val.town's blob storage:
+This example includes **built-in persistence** using Val.town's blob storage. Data is automatically:
+- Saved to blob storage after each write (POST) operation
+- Restored from blob storage on cold start
 
-```typescript
-import { blob } from "https://esm.town/v/std/blob";
-
-// Save state periodically
-async function saveState() {
-  const dump = await db.dumpDataDir();
-  await blob.setJSON("chat-db-state", dump);
-}
-
-// Restore on startup (in getDb function)
-const saved = await blob.getJSON("chat-db-state");
-if (saved) {
-  db = new PGlite();
-  await db.loadDataDir(saved);
-}
-```
+The blob key is `nano-supabase-chat-db`. You can view/manage it in your Val.town dashboard.
 
 ## Customization
 

@@ -1,27 +1,77 @@
 /**
  * Val.town Example: AI Chat History API with nano-supabase
  *
- * A local PostgreSQL-powered chat store - no external database needed!
- * Deploy this on Val.town to get an instant API for storing chat conversations.
+ * A local PostgreSQL-powered chat store with persistent storage.
+ * Data survives cold starts using Val.town's blob storage.
  *
  * To use:
- * 1. Go to https://val.town and create a new HTTP val
+ * 1. Go to https://val.town and create a new val
  * 2. Copy this code into the editor
- * 3. Your API is instantly live!
- *
- * Note: Each Val.town worker gets a fresh database on cold start.
- * For persistence, combine with Val.town's blob storage (see README).
+ * 3. Set the val type to HTTP
+ * 4. Your API is instantly live!
  */
 
 import { PGlite } from "npm:@electric-sql/pglite@0.2.17";
 import { createSupabaseClient } from "https://raw.githubusercontent.com/filipecabaco/nano-supabase/main/dist/index.js";
+import { blob } from "https://esm.town/v/std/blob";
+
+const BLOB_KEY = "nano-supabase-chat-db";
 
 let db: PGlite | null = null;
 let supabase: Awaited<ReturnType<typeof createSupabaseClient>> | null = null;
+let initialized = false;
 
-async function getDb() {
-  if (!db) {
+async function saveDb() {
+  if (!db) return;
+  try {
+    // Export all data as SQL statements
+    const conversations = await db.query("SELECT * FROM conversations");
+    const messages = await db.query("SELECT * FROM messages");
+    await blob.setJSON(BLOB_KEY, {
+      conversations: conversations.rows,
+      messages: messages.rows,
+      savedAt: new Date().toISOString(),
+    });
+    console.log("Saved database to blob storage");
+  } catch (e) {
+    console.error("Failed to save:", e);
+  }
+}
+
+async function restoreFromBlob(db: PGlite) {
+  try {
+    const saved = await blob.getJSON(BLOB_KEY) as {
+      conversations: Array<{ id: string; title: string; created_at: string }>;
+      messages: Array<{ id: string; conversation_id: string; role: string; content: string; tokens: number; created_at: string }>;
+    } | null;
+
+    if (saved?.conversations) {
+      for (const conv of saved.conversations) {
+        await db.query(
+          `INSERT INTO conversations (id, title, created_at) VALUES ($1, $2, $3) ON CONFLICT (id) DO NOTHING`,
+          [conv.id, conv.title, conv.created_at]
+        );
+      }
+    }
+    if (saved?.messages) {
+      for (const msg of saved.messages) {
+        await db.query(
+          `INSERT INTO messages (id, conversation_id, role, content, tokens, created_at) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (id) DO NOTHING`,
+          [msg.id, msg.conversation_id, msg.role, msg.content, msg.tokens, msg.created_at]
+        );
+      }
+    }
+    return saved !== null;
+  } catch {
+    return false;
+  }
+}
+
+async function initDb() {
+  if (!db || !initialized) {
     db = new PGlite();
+
+    // Create tables first
     await db.exec(`
       CREATE TABLE IF NOT EXISTS conversations (
         id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
@@ -41,7 +91,13 @@ async function getDb() {
       CREATE INDEX IF NOT EXISTS idx_messages_conversation
         ON messages(conversation_id, created_at);
     `);
+
+    // Then restore data from blob
+    const restored = await restoreFromBlob(db);
+    console.log(restored ? "Restored from blob storage" : "Starting fresh");
+
     supabase = await createSupabaseClient(db);
+    initialized = true;
   }
   return { db, supabase: supabase! };
 }
@@ -61,7 +117,7 @@ export default async function handler(req: Request): Promise<Response> {
   }
 
   try {
-    const { db, supabase } = await getDb();
+    const { db, supabase } = await initDb();
 
     // GET /conversations
     if (req.method === "GET" && path === "/conversations") {
@@ -79,6 +135,7 @@ export default async function handler(req: Request): Promise<Response> {
         `INSERT INTO conversations (title) VALUES ($1) RETURNING *`,
         [body.title || "New Chat"]
       );
+      await saveDb();
       return Response.json({ data: result.rows[0] }, { headers });
     }
 
@@ -104,6 +161,7 @@ export default async function handler(req: Request): Promise<Response> {
          VALUES ($1, $2, $3, $4) RETURNING *`,
         [body.conversation_id, body.role, body.content, body.tokens || null]
       );
+      await saveDb();
       return Response.json({ data: result.rows[0] }, { headers });
     }
 
@@ -119,7 +177,7 @@ export default async function handler(req: Request): Promise<Response> {
     }
 
     return Response.json({
-      message: "nano-supabase Chat API",
+      message: "nano-supabase Chat API (with persistence)",
       github: "https://github.com/filipecabaco/nano-supabase",
       endpoints: [
         "GET  /conversations",
