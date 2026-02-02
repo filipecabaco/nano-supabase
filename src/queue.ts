@@ -1,21 +1,21 @@
-import type { QueuedQuery, QueryPriority } from './types.ts'
+import type { QueuedQuery, QueryPriority } from "./types.ts";
 
 /**
  * Priority-based queue for managing query execution order
  * Uses separate queues for each priority level
  */
 export class PriorityQueue {
-  private readonly queues: Map<QueryPriority, QueuedQuery[]>
-  private readonly maxSize: number
+  private readonly queues: Map<QueryPriority, QueuedQuery[]>;
+  private readonly maxSize: number;
 
   constructor(maxSize: number = 1000) {
-    this.maxSize = maxSize
+    this.maxSize = maxSize;
     this.queues = new Map([
       [0, []], // QueryPriority.CRITICAL
       [1, []], // QueryPriority.HIGH
       [2, []], // QueryPriority.MEDIUM
       [3, []], // QueryPriority.LOW
-    ])
+    ]);
   }
 
   /**
@@ -23,16 +23,16 @@ export class PriorityQueue {
    * @throws {Error} if queue is full
    */
   enqueue(query: QueuedQuery): void {
-    const queue = this.queues.get(query.priority)
+    const queue = this.queues.get(query.priority);
     if (!queue) {
-      throw new Error(`Invalid priority: ${query.priority}`)
+      throw new Error(`Invalid priority: ${query.priority}`);
     }
 
     if (this.size() >= this.maxSize) {
-      throw new Error('Queue is full')
+      throw new Error("Queue is full");
     }
 
-    queue.push(query)
+    queue.push(query);
   }
 
   /**
@@ -42,27 +42,29 @@ export class PriorityQueue {
   dequeue(): QueuedQuery | null {
     // Check queues in priority order (CRITICAL = 0 to LOW = 3)
     for (const priority of [0, 1, 2, 3] as const) {
-      const queue = this.queues.get(priority)
+      const queue = this.queues.get(priority);
       if (queue && queue.length > 0) {
-        return queue.shift() ?? null
+        return queue.shift() ?? null;
       }
     }
-    return null
+    return null;
   }
 
   /**
    * Get total number of queued queries across all priorities
    */
   size(): number {
-    return Array.from(this.queues.values())
-      .reduce((sum, q) => sum + q.length, 0)
+    return Array.from(this.queues.values()).reduce(
+      (sum, q) => sum + q.length,
+      0,
+    );
   }
 
   /**
    * Check if queue is empty
    */
   isEmpty(): boolean {
-    return this.size() === 0
+    return this.size() === 0;
   }
 
   /**
@@ -70,7 +72,7 @@ export class PriorityQueue {
    */
   clear(): void {
     for (const queue of this.queues.values()) {
-      queue.length = 0
+      queue.length = 0;
     }
   }
 }

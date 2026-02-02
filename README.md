@@ -71,17 +71,20 @@ PGlite (PostgreSQL in WASM)
 ### Supabase-Compatible API
 
 ```typescript
-import { createLocalSupabaseClient } from 'nano-supabase'
+import { PGlite } from '@electric-sql/pglite'
+import { pgcrypto } from '@electric-sql/pglite/contrib/pgcrypto'
+import { createClient } from '@supabase/supabase-js'
+import { createFetchAdapter } from 'nano-supabase'
 
-const supabase = createLocalSupabaseClient({
-  schema: `
-    CREATE TABLE users (
-      id SERIAL PRIMARY KEY,
-      name TEXT NOT NULL,
-      email TEXT UNIQUE,
-      created_at TIMESTAMP DEFAULT NOW()
-    );
-  `
+// Create PGlite instance with pgcrypto extension (required for auth)
+const db = new PGlite({ extensions: { pgcrypto } })
+
+// Create fetch adapter with auth support
+const { localFetch, authHandler } = await createFetchAdapter({ db })
+
+// Create Supabase client with custom fetch
+const supabase = createClient('http://localhost:54321', 'local-anon-key', {
+  global: { fetch: localFetch }
 })
 
 // Use like regular Supabase - runs locally with no network calls
@@ -91,13 +94,17 @@ const { data, error } = await supabase
   .eq('id', 1)
 ```
 
+> **Note**: The `pgcrypto` extension is required for authentication features (password hashing and UUID generation). Always include it when creating your PGlite instance.
+
 ### Direct Pooler Usage (Advanced)
 
 ```typescript
 import { PGlite } from '@electric-sql/pglite'
+import { pgcrypto } from '@electric-sql/pglite/contrib/pgcrypto'
 import { PGlitePooler, QueryPriority } from 'nano-supabase'
 
-const db = new PGlite()
+// Create PGlite with pgcrypto (required for auth features)
+const db = new PGlite({ extensions: { pgcrypto } })
 const pooler = new PGlitePooler(db, { maxQueueSize: 1000 })
 
 await pooler.start()
@@ -142,10 +149,21 @@ Simple array-based implementation. Future optimizations may include query aging 
 ### Supabase-Compatible Client
 
 ```typescript
-import { createLocalSupabaseClient } from 'nano-supabase'
+import { PGlite } from '@electric-sql/pglite'
+import { pgcrypto } from '@electric-sql/pglite/contrib/pgcrypto'
+import { createClient } from '@supabase/supabase-js'
+import { createFetchAdapter } from 'nano-supabase'
 
-const supabase = createLocalSupabaseClient({
-  schema: `CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT, email TEXT UNIQUE);`
+// Create PGlite with pgcrypto (required for auth)
+const db = new PGlite({ extensions: { pgcrypto } })
+
+// Setup schema
+await db.exec(`CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT, email TEXT UNIQUE);`)
+
+// Create Supabase client with fetch adapter
+const { localFetch } = await createFetchAdapter({ db })
+const supabase = createClient('http://localhost:54321', 'local-anon-key', {
+  global: { fetch: localFetch }
 })
 
 // Select

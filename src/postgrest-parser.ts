@@ -3,33 +3,35 @@
  * Uses native_postgrest_parser WASM to convert PostgREST queries to SQL
  */
 
-import init, { initSchemaFromDb } from 'native_postgrest_parser/pkg/postgrest_parser.js'
-import { createClient } from 'native_postgrest_parser/pkg/client.js'
-import type { QueryResult as ParserQueryResult } from 'native_postgrest_parser/pkg/types.js'
+import init, {
+  initSchemaFromDb,
+} from "native_postgrest_parser/pkg/postgrest_parser.js";
+import { createClient } from "native_postgrest_parser/pkg/client.js";
+import type { QueryResult as ParserQueryResult } from "native_postgrest_parser/pkg/types.js";
 
 /**
  * Query executor function type for schema introspection
  */
-export type QueryExecutor = (sql: string) => Promise<{ rows: unknown[] }>
+export type QueryExecutor = (sql: string) => Promise<{ rows: unknown[] }>;
 
 /**
  * Parsed SQL query with parameters
  */
 export interface ParsedQuery {
-  readonly sql: string
-  readonly params: readonly unknown[]
-  readonly tables: readonly string[]
+  readonly sql: string;
+  readonly params: readonly unknown[];
+  readonly tables: readonly string[];
 }
 
 /**
  * PostgREST parser for converting REST queries to SQL
  */
 export class PostgrestParser {
-  private readonly client: ReturnType<typeof createClient>
-  private static initPromise: Promise<unknown> | null = null
+  private readonly client: ReturnType<typeof createClient>;
+  private static initPromise: Promise<unknown> | null = null;
 
   constructor() {
-    this.client = createClient()
+    this.client = createClient();
   }
 
   /**
@@ -41,9 +43,9 @@ export class PostgrestParser {
    */
   static async init(): Promise<void> {
     if (!PostgrestParser.initPromise) {
-      PostgrestParser.initPromise = init()
+      PostgrestParser.initPromise = init();
     }
-    await PostgrestParser.initPromise
+    await PostgrestParser.initPromise;
   }
 
   /**
@@ -68,8 +70,8 @@ export class PostgrestParser {
    * ```
    */
   static async initSchema(queryExecutor: QueryExecutor): Promise<void> {
-    await PostgrestParser.init()
-    await initSchemaFromDb(queryExecutor)
+    await PostgrestParser.init();
+    await initSchemaFromDb(queryExecutor);
   }
 
   /**
@@ -79,8 +81,8 @@ export class PostgrestParser {
    * parseSelect('users', 'id=eq.1&select=id,name')
    * // => { sql: 'SELECT "id", "name" FROM "users" WHERE "id" = $1', params: [1] }
    */
-  parseSelect(table: string, queryString: string = ''): ParsedQuery {
-    return this.parseRequest('GET', table, queryString)
+  parseSelect(table: string, queryString: string = ""): ParsedQuery {
+    return this.parseRequest("GET", table, queryString);
   }
 
   /**
@@ -93,9 +95,9 @@ export class PostgrestParser {
   parseInsert(
     table: string,
     data: Record<string, unknown>,
-    queryString: string = ''
+    queryString: string = "",
   ): ParsedQuery {
-    return this.parseRequest('POST', table, queryString, data)
+    return this.parseRequest("POST", table, queryString, data);
   }
 
   /**
@@ -108,9 +110,9 @@ export class PostgrestParser {
   parseUpdate(
     table: string,
     data: Record<string, unknown>,
-    queryString: string
+    queryString: string,
   ): ParsedQuery {
-    return this.parseRequest('PATCH', table, queryString, data)
+    return this.parseRequest("PATCH", table, queryString, data);
   }
 
   /**
@@ -121,7 +123,7 @@ export class PostgrestParser {
    * // => { sql: 'DELETE FROM "users" WHERE "id" = $1', params: [1] }
    */
   parseDelete(table: string, queryString: string): ParsedQuery {
-    return this.parseRequest('DELETE', table, queryString)
+    return this.parseRequest("DELETE", table, queryString);
   }
 
   /**
@@ -134,10 +136,10 @@ export class PostgrestParser {
   parseRpc(
     functionName: string,
     args?: Record<string, unknown>,
-    queryString: string = ''
+    queryString: string = "",
   ): ParsedQuery {
-    const path = `rpc/${functionName}`
-    return this.parseRequest('POST', path, queryString, args)
+    const path = `rpc/${functionName}`;
+    return this.parseRequest("POST", path, queryString, args);
   }
 
   /**
@@ -149,13 +151,19 @@ export class PostgrestParser {
    * @param body - Request body (for POST/PATCH)
    */
   parseRequest(
-    method: 'GET' | 'POST' | 'PATCH' | 'DELETE',
+    method: "GET" | "POST" | "PATCH" | "DELETE",
     path: string,
-    queryString: string = '',
-    body?: Record<string, unknown>
+    queryString: string = "",
+    body?: Record<string, unknown>,
   ): ParsedQuery {
-    const result = this.client.parseRequest(method, path, queryString, body ?? null, null)
-    return this.convertResult(result)
+    const result = this.client.parseRequest(
+      method,
+      path,
+      queryString,
+      body ?? null,
+      null,
+    );
+    return this.convertResult(result);
   }
 
   /**
@@ -166,6 +174,6 @@ export class PostgrestParser {
       sql: result.query,
       params: Array.isArray(result.params) ? result.params : [],
       tables: Array.isArray(result.tables) ? result.tables : [],
-    }
+    };
   }
 }

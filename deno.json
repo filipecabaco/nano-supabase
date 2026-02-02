@@ -1,11 +1,15 @@
 {
   "tasks": {
-    "test:parser": "deno test --allow-read --allow-net=raw.githubusercontent.com tests/postgrest-parser.test.ts",
-    "test:supabase": "deno test --allow-read --allow-net=raw.githubusercontent.com tests/supabase-client.test.ts",
-    "example:supabase": "deno run --allow-read --allow-net=raw.githubusercontent.com examples/supabase-client.ts"
+    "test": "deno test --allow-read --allow-net tests/",
+    "test:auth": "deno test --allow-read --allow-net tests/auth.test.ts tests/auth-integration.test.ts",
+    "test:integration": "deno test --allow-read --allow-net tests/integration.test.ts tests/auth-integration.test.ts",
+    "test:parser": "deno test --allow-read --allow-net tests/postgrest-parser.test.ts",
+    "test:pooler": "deno test --allow-read --allow-net tests/pooler.test.ts tests/queue.test.ts",
+    "example:supabase": "deno run --allow-read --allow-net examples/supabase-client.ts"
   },
   "imports": {
     "@electric-sql/pglite": "npm:@electric-sql/pglite@^0.3.15",
+    "@supabase/supabase-js": "npm:@supabase/supabase-js@^2.93.3",
     "native_postgrest_parser": "https://raw.githubusercontent.com/filipecabaco/native_postgrest_parser/main/pkg/client.ts",
     "native_postgrest_parser/wasm": "https://raw.githubusercontent.com/filipecabaco/native_postgrest_parser/main/pkg/postgrest_parser.js",
     "native_postgrest_parser/types": "https://raw.githubusercontent.com/filipecabaco/native_postgrest_parser/main/pkg/types.ts"

@@ -310,12 +310,226 @@ footer p {
   font-size: 0.875rem;
 }
 
+/* Auth Container */
+.auth-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 60vh;
+}
+
+.auth-card {
+  background: white;
+  border-radius: 8px;
+  padding: 2rem;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  border: 1px solid #e0e0e0;
+  width: 100%;
+  max-width: 400px;
+}
+
+.auth-tabs {
+  display: flex;
+  gap: 0;
+  margin-bottom: 1.5rem;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.auth-tab {
+  flex: 1;
+  padding: 0.75rem;
+  background: none;
+  border: none;
+  font-size: 1rem;
+  cursor: pointer;
+  color: #666;
+  border-bottom: 2px solid transparent;
+  transition: all 0.2s;
+}
+
+.auth-tab:hover {
+  color: #333;
+}
+
+.auth-tab.active {
+  color: #333;
+  border-bottom-color: #333;
+  font-weight: 600;
+}
+
+.auth-form h2 {
+  margin-bottom: 1.5rem;
+  text-align: center;
+  font-size: 1.25rem;
+}
+
+.auth-error {
+  background: #fee;
+  border: 1px solid #fcc;
+  color: #c00;
+  padding: 0.75rem;
+  border-radius: 4px;
+  margin-bottom: 1rem;
+  font-size: 0.9rem;
+}
+
+.form-group {
+  margin-bottom: 1rem;
+}
+
+.form-group label {
+  display: block;
+  margin-bottom: 0.5rem;
+  font-weight: 500;
+  color: #333;
+}
+
+.form-group input {
+  width: 100%;
+  padding: 0.75rem;
+  border: 1px solid #d0d0d0;
+  border-radius: 4px;
+  font-size: 1rem;
+}
+
+.form-group input:focus {
+  outline: none;
+  border-color: #666;
+}
+
+.auth-submit {
+  width: 100%;
+  padding: 0.875rem;
+  background: #333;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  font-size: 1rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.2s;
+  margin-top: 0.5rem;
+}
+
+.auth-submit:hover:not(:disabled) {
+  background: #1a1a1a;
+}
+
+.auth-submit:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.auth-info {
+  margin-top: 1.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid #e0e0e0;
+  text-align: center;
+}
+
+.auth-info p {
+  font-size: 0.8rem;
+  color: #999;
+  margin: 0.25rem 0;
+}
+
+/* Sign Out Button */
+.sign-out-btn {
+  padding: 0.5rem 1rem;
+  background: none;
+  border: 1px solid #666;
+  border-radius: 4px;
+  font-size: 0.875rem;
+  cursor: pointer;
+  color: #666;
+  transition: all 0.2s;
+}
+
+.sign-out-btn:hover {
+  background: #333;
+  border-color: #333;
+  color: white;
+}
+
+/* Main Container Layout */
+.main-container {
+  display: grid;
+  grid-template-columns: 1fr 300px;
+  gap: 2rem;
+}
+
+/* User Info */
+.user-info {
+  margin-bottom: 1.5rem;
+}
+
+.info-item {
+  display: flex;
+  justify-content: space-between;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid #f0f0f0;
+  font-size: 0.9rem;
+}
+
+.info-item .label {
+  color: #666;
+}
+
+.info-item .value {
+  font-weight: 500;
+  color: #333;
+}
+
+/* RLS Info Box */
+.rls-info {
+  margin-top: 1.5rem;
+  padding: 1rem;
+  background: #f9f9f9;
+  border-radius: 6px;
+  border: 1px solid #e0e0e0;
+}
+
+.rls-info h3 {
+  font-size: 0.875rem;
+  margin-bottom: 0.5rem;
+  color: #333;
+}
+
+.rls-info p {
+  font-size: 0.8rem;
+  color: #666;
+  margin: 0;
+  line-height: 1.5;
+}
+
+.rls-info code {
+  background: #e0e0e0;
+  padding: 0.1rem 0.3rem;
+  border-radius: 3px;
+  font-size: 0.75rem;
+}
+
+/* Error dismiss button */
+.error button {
+  margin-left: 1rem;
+  padding: 0.25rem 0.5rem;
+  background: none;
+  border: 1px solid #999;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
 @media (max-width: 768px) {
-  .container {
+  .container,
+  .main-container {
     grid-template-columns: 1fr;
   }
 
   header h1 {
     font-size: 1.5rem;
+  }
+
+  .auth-card {
+    margin: 0 1rem;
   }
 }
