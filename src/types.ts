@@ -13,40 +13,40 @@ export enum QueryPriority {
  * Result from PGlite query execution
  */
 export interface QueryResult {
-  readonly rows: readonly Record<string, unknown>[]
-  readonly fields?: readonly { name: string; dataTypeID: number }[]
-  readonly affectedRows?: number
+  readonly rows: readonly Record<string, unknown>[];
+  readonly fields?: readonly { name: string; dataTypeID: number }[];
+  readonly affectedRows?: number;
 }
 
 /**
  * Query queued for execution
  */
 export interface QueuedQuery {
-  readonly id: string
-  readonly sql: string
-  readonly params?: readonly unknown[]
-  priority: QueryPriority // Mutable for aging mechanism
-  readonly enqueuedAt: number
-  readonly resolve: (result: QueryResult) => void
-  readonly reject: (error: Error) => void
-  readonly timeoutMs?: number
+  readonly id: string;
+  readonly sql: string;
+  readonly params?: readonly unknown[];
+  priority: QueryPriority; // Mutable for aging mechanism
+  readonly enqueuedAt: number;
+  readonly resolve: (result: QueryResult) => void;
+  readonly reject: (error: Error) => void;
+  readonly timeoutMs?: number;
 }
 
 /**
  * Configuration for the connection pooler
  */
 export interface PoolerConfig {
-  readonly maxQueueSize: number
-  readonly defaultTimeout: number
+  readonly maxQueueSize: number;
+  readonly defaultTimeout: number;
 }
 
 /**
  * Queue metrics for monitoring
  */
 export interface QueueMetrics {
-  readonly totalEnqueued: number
-  readonly totalDequeued: number
-  readonly currentSize: number
-  readonly avgWaitTimeMs: number
-  readonly sizeByPriority: Readonly<Record<QueryPriority, number>>
+  readonly totalEnqueued: number;
+  readonly totalDequeued: number;
+  readonly currentSize: number;
+  readonly avgWaitTimeMs: number;
+  readonly sizeByPriority: Readonly<Record<QueryPriority, number>>;
 }

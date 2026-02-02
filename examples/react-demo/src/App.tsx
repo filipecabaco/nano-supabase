@@ -37,20 +37,11 @@ function App() {
 
   async function initialize() {
     try {
-      console.log('[DEBUG] Starting initialization...')
       setLoading(true)
       const { supabase } = await initDatabase()
-      console.log('[DEBUG] Database initialized')
 
       // Subscribe to Supabase client's auth state changes
       supabase.auth.onAuthStateChange((event, session) => {
-        console.log('🔐 [AUTH_STATE_CHANGE] Event:', event)
-        console.log('👤 [AUTH_STATE_CHANGE] Session:', session ? {
-          user: session.user?.id,
-          email: session.user?.email,
-          access_token: `${session.access_token?.slice(0, 20)}...`,
-        } : 'null')
-
         setUser(session?.user as User || null)
 
         if (session) {
@@ -69,7 +60,6 @@ function App() {
 
   async function loadTasks() {
     try {
-      console.log('🔄 [LOAD_TASKS] Starting to load tasks...')
       const supabase = getSupabase()
       const { data, error } = await supabase
         .from('tasks')
@@ -77,20 +67,13 @@ function App() {
         .order('created_at', { ascending: false })
 
       if (error) {
-        console.error('❌ [LOAD_TASKS] Error loading tasks:', error)
+        setError(error.message)
         return
       }
 
-      console.log('✅ [LOAD_TASKS] Tasks loaded:', data?.length, 'tasks')
-      console.log('📋 [LOAD_TASKS] Task data:', data)
       setTasks((data as Task[]) || [])
     } catch (err) {
-      console.error('[DEBUG] EXCEPTION loading tasks:', err)
-      console.error('[DEBUG] Exception type:', err instanceof Error ? err.constructor.name : typeof err)
-      console.error('[DEBUG] Exception details:', {
-        message: err instanceof Error ? err.message : String(err),
-        stack: err instanceof Error ? err.stack : undefined
-      })
+      setError(err instanceof Error ? err.message : 'Failed to load tasks')
     }
   }
 
@@ -155,17 +138,8 @@ function App() {
   async function addTask() {
     if (!newTaskTitle.trim() || !user) return
 
-    console.log('➕ [ADD_TASK] Creating task for user:', user.id)
-    console.log('📝 [ADD_TASK] Task data:', {
-      user_id: user.id,
-      title: newTaskTitle,
-      description: newTaskDescription || null,
-      completed: false,
-      priority: 'medium',
-    })
-
     const supabase = getSupabase()
-    const { data, error } = await supabase.from('tasks').insert([{
+    const { error } = await supabase.from('tasks').insert([{
       user_id: user.id,
       title: newTaskTitle,
       description: newTaskDescription || null,
@@ -174,17 +148,12 @@ function App() {
     }] as unknown as never).select()
 
     if (error) {
-      console.error('❌ [ADD_TASK] Insert failed:', error)
       setError(error.message)
       return
     }
 
-    console.log('✅ [ADD_TASK] Task created:', data)
-
     setNewTaskTitle('')
     setNewTaskDescription('')
-
-    console.log('🔄 [ADD_TASK] Now loading all tasks...')
     await loadTasks()
   }
 

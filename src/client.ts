@@ -5,16 +5,16 @@
  * All auth and data operations are handled in-browser/in-process using PGlite
  */
 
-import type { PGlite } from '@electric-sql/pglite'
-import { PostgrestParser } from './postgrest-parser.ts'
-import { AuthHandler } from './auth/handler.ts'
-import { createLocalFetch } from './fetch-adapter/index.ts'
+import type { PGlite } from "@electric-sql/pglite";
+import { PostgrestParser } from "./postgrest-parser.ts";
+import { AuthHandler } from "./auth/handler.ts";
+import { createLocalFetch } from "./fetch-adapter/index.ts";
 
 /**
  * Generic type for the Supabase client
  * This allows users to pass their own SupabaseClient type
  */
-type SupabaseJsClient = unknown
+type SupabaseJsClient = unknown;
 
 /**
  * Configuration for creating a local Supabase client
@@ -23,27 +23,27 @@ export interface LocalSupabaseClientConfig {
   /**
    * The PGlite database instance
    */
-  db: PGlite
+  db: PGlite;
   /**
    * URL to use for the local Supabase instance
    * This should be a fake URL that won't conflict with real requests
    * Defaults to 'http://localhost:54321'
    */
-  supabaseUrl?: string
+  supabaseUrl?: string;
   /**
    * Anon key to use (can be any string for local usage)
    * Defaults to 'local-anon-key'
    */
-  supabaseAnonKey?: string
+  supabaseAnonKey?: string;
   /**
    * Enable debug logging
    */
-  debug?: boolean
+  debug?: boolean;
   /**
    * Original fetch function to use for passthrough requests
    * Defaults to globalThis.fetch
    */
-  originalFetch?: typeof fetch
+  originalFetch?: typeof fetch;
 }
 
 /**
@@ -53,19 +53,19 @@ export interface LocalSupabaseClientResult<T = SupabaseJsClient> {
   /**
    * The Supabase client configured to use local emulation
    */
-  client: T
+  client: T;
   /**
    * The auth handler for direct access to auth operations
    */
-  authHandler: AuthHandler
+  authHandler: AuthHandler;
   /**
    * The PostgREST parser for direct SQL parsing
    */
-  parser: PostgrestParser
+  parser: PostgrestParser;
   /**
    * The custom fetch function (useful for custom integrations)
    */
-  localFetch: typeof fetch
+  localFetch: typeof fetch;
 }
 
 /**
@@ -101,28 +101,32 @@ export interface LocalSupabaseClientResult<T = SupabaseJsClient> {
  */
 export async function createLocalSupabaseClient<T = SupabaseJsClient>(
   config: LocalSupabaseClientConfig,
-  createClient: (url: string, key: string, options?: { global?: { fetch?: typeof fetch } }) => T
+  createClient: (
+    url: string,
+    key: string,
+    options?: { global?: { fetch?: typeof fetch } },
+  ) => T,
 ): Promise<LocalSupabaseClientResult<T>> {
   const {
     db,
-    supabaseUrl = 'http://localhost:54321',
-    supabaseAnonKey = 'local-anon-key',
+    supabaseUrl = "http://localhost:54321",
+    supabaseAnonKey = "local-anon-key",
     debug = false,
     originalFetch,
-  } = config
+  } = config;
 
   // Initialize PostgREST parser
-  await PostgrestParser.init()
+  await PostgrestParser.init();
   await PostgrestParser.initSchema(async (sql: string) => {
-    const result = await db.query(sql)
-    return { rows: result.rows }
-  })
+    const result = await db.query(sql);
+    return { rows: result.rows };
+  });
 
-  const parser = new PostgrestParser()
+  const parser = new PostgrestParser();
 
   // Initialize auth handler (creates auth schema)
-  const authHandler = new AuthHandler(db)
-  await authHandler.initialize()
+  const authHandler = new AuthHandler(db);
+  await authHandler.initialize();
 
   // Create the scoped fetch adapter
   const localFetch = createLocalFetch({
@@ -132,19 +136,19 @@ export async function createLocalSupabaseClient<T = SupabaseJsClient>(
     supabaseUrl,
     originalFetch,
     debug,
-  })
+  });
 
   // Create the Supabase client with our custom fetch
   const client = createClient(supabaseUrl, supabaseAnonKey, {
     global: { fetch: localFetch },
-  })
+  });
 
   return {
     client,
     authHandler,
     parser,
     localFetch,
-  }
+  };
 }
 
 /**
@@ -165,9 +169,9 @@ export async function createLocalSupabaseClient<T = SupabaseJsClient>(
  * ```
  */
 export async function initializeAuth(db: PGlite): Promise<AuthHandler> {
-  const authHandler = new AuthHandler(db)
-  await authHandler.initialize()
-  return authHandler
+  const authHandler = new AuthHandler(db);
+  await authHandler.initialize();
+  return authHandler;
 }
 
 /**
@@ -191,34 +195,34 @@ export async function initializeAuth(db: PGlite): Promise<AuthHandler> {
  * ```
  */
 export async function createFetchAdapter(config: {
-  db: PGlite
-  supabaseUrl?: string
-  debug?: boolean
-  originalFetch?: typeof fetch
+  db: PGlite;
+  supabaseUrl?: string;
+  debug?: boolean;
+  originalFetch?: typeof fetch;
 }): Promise<{
-  localFetch: typeof fetch
-  authHandler: AuthHandler
-  parser: PostgrestParser
+  localFetch: typeof fetch;
+  authHandler: AuthHandler;
+  parser: PostgrestParser;
 }> {
   const {
     db,
-    supabaseUrl = 'http://localhost:54321',
+    supabaseUrl = "http://localhost:54321",
     debug = false,
     originalFetch,
-  } = config
+  } = config;
 
   // Initialize PostgREST parser
-  await PostgrestParser.init()
+  await PostgrestParser.init();
   await PostgrestParser.initSchema(async (sql: string) => {
-    const result = await db.query(sql)
-    return { rows: result.rows }
-  })
+    const result = await db.query(sql);
+    return { rows: result.rows };
+  });
 
-  const parser = new PostgrestParser()
+  const parser = new PostgrestParser();
 
   // Initialize auth handler
-  const authHandler = new AuthHandler(db)
-  await authHandler.initialize()
+  const authHandler = new AuthHandler(db);
+  await authHandler.initialize();
 
   // Create the scoped fetch adapter
   const localFetch = createLocalFetch({
@@ -228,11 +232,11 @@ export async function createFetchAdapter(config: {
     supabaseUrl,
     originalFetch,
     debug,
-  })
+  });
 
   return {
     localFetch,
     authHandler,
     parser,
-  }
+  };
 }

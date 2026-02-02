@@ -278,28 +278,32 @@ CREATE OR REPLACE FUNCTION auth.refresh_token(
   session_id UUID
 ) AS $$
 DECLARE
-  v_old_token auth.refresh_tokens;
-  v_new_token auth.refresh_tokens;
+  v_old_token_id BIGINT;
+  v_old_user_id UUID;
+  v_old_session_id UUID;
+  v_old_token_value TEXT;
+  v_new_token TEXT;
 BEGIN
   -- Find and validate the old token
-  SELECT * INTO v_old_token
+  SELECT rt.id, rt.user_id, rt.session_id, rt.token
+  INTO v_old_token_id, v_old_user_id, v_old_session_id, v_old_token_value
   FROM auth.refresh_tokens rt
   WHERE rt.token = p_refresh_token
     AND rt.revoked = FALSE;
 
-  IF v_old_token IS NULL THEN
+  IF v_old_token_id IS NULL THEN
     RETURN;
   END IF;
 
   -- Revoke the old token
   UPDATE auth.refresh_tokens
   SET revoked = TRUE, updated_at = NOW()
-  WHERE id = v_old_token.id;
+  WHERE id = v_old_token_id;
 
   -- Update session refreshed_at
   UPDATE auth.sessions
   SET refreshed_at = NOW(), updated_at = NOW()
-  WHERE id = v_old_token.session_id;
+  WHERE id = v_old_session_id;
 
   -- Create new token
   INSERT INTO auth.refresh_tokens (
@@ -311,14 +315,15 @@ BEGIN
     updated_at
   ) VALUES (
     auth.generate_token(32),
-    v_old_token.user_id,
-    v_old_token.session_id,
-    v_old_token.token,
+    v_old_user_id,
+    v_old_session_id,
+    v_old_token_value,
     NOW(),
     NOW()
-  ) RETURNING * INTO v_new_token;
+  ) RETURNING token INTO v_new_token;
 
-  RETURN QUERY SELECT v_new_token.token, v_new_token.user_id, v_new_token.session_id;
+  -- Return the result
+  RETURN QUERY SELECT v_new_token, v_old_user_id, v_old_session_id;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
@@ -537,31 +542,35 @@ GRANT EXECUTE ON FUNCTION auth.sign_out_all(UUID) TO authenticated, service_role
 GRANT EXECUTE ON FUNCTION auth.get_signing_key() TO service_role;
 GRANT EXECUTE ON FUNCTION auth.create_access_token(UUID, UUID, TEXT, TEXT, JSONB, JSONB, INT) TO service_role;
 GRANT EXECUTE ON FUNCTION auth.verify_access_token(TEXT) TO service_role;
-`
+`;
 
 /**
  * Escape single quotes for SQL string literals
  */
 function escapeSqlString(value: string): string {
-  return value.replace(/'/g, "''")
+  return value.replace(/'/g, "''");
 }
 
 /**
  * SQL to set auth context for a request (called before each query when authenticated)
  */
-export function getSetAuthContextSQL(userId: string, role: string, email: string): string {
+export function getSetAuthContextSQL(
+  userId: string,
+  role: string,
+  email: string,
+): string {
   const claims = JSON.stringify({
     sub: userId,
     role: role,
     email: email,
-    aud: 'authenticated',
-  })
+    aud: "authenticated",
+  });
 
   // Properly escape all values for SQL
-  const escapedUserId = escapeSqlString(userId)
-  const escapedRole = escapeSqlString(role)
-  const escapedEmail = escapeSqlString(email)
-  const escapedClaims = escapeSqlString(claims)
+  const escapedUserId = escapeSqlString(userId);
+  const escapedRole = escapeSqlString(role);
+  const escapedEmail = escapeSqlString(email);
+  const escapedClaims = escapeSqlString(claims);
 
   // IMPORTANT: SET ROLE switches the database role to enforce RLS
   // Without this, queries run as superuser which bypasses RLS entirely
@@ -572,7 +581,7 @@ export function getSetAuthContextSQL(userId: string, role: string, email: string
     SELECT set_config('request.jwt.claim.role', '${escapedRole}', false);
     SELECT set_config('request.jwt.claim.email', '${escapedEmail}', false);
     SELECT set_config('request.jwt.claims', '${escapedClaims}', false);
-  `
+  `;
 }
 
 /**
@@ -584,4 +593,4 @@ export const CLEAR_AUTH_CONTEXT_SQL = `
   SELECT set_config('request.jwt.claim.role', 'anon', false);
   SELECT set_config('request.jwt.claim.email', '', false);
   SELECT set_config('request.jwt.claims', '{"role": "anon"}', false);
-`
+`;
