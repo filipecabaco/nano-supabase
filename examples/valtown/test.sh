@@ -1,8 +1,18 @@
 #!/bin/bash
 # Test script for nano-supabase Val.town API
-# Usage: ./test.sh [BASE_URL]
+# Usage: ./test.sh <BASE_URL>
 
-BASE="${1:-https://YOUR_USERNAME-YOUR_VAL_NAME.web.val.run}"
+set -e
+
+if [ -z "$1" ]; then
+  echo "Error: BASE_URL is required"
+  echo ""
+  echo "Usage: ./test.sh <BASE_URL>"
+  echo "Example: ./test.sh https://username-valname.web.val.run"
+  exit 1
+fi
+
+BASE="$1"
 
 echo "=== nano-supabase Val.town API Test ==="
 echo "Base URL: $BASE"
