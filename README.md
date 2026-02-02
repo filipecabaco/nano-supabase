@@ -212,7 +212,7 @@ nano-supabase/
 ├── examples/
 │   ├── basic.ts              # Pooler example
 │   ├── tcp-server.ts         # @pglite/socket server example
-│   ├── valtown-chat-api.ts   # Val.town HTTP API example
+│   ├── valtown/              # Val.town deployment example
 │   └── react-demo/           # Full React application
 └── tests/                    # Deno tests
 ```
@@ -242,14 +242,14 @@ import { PGlite } from '@electric-sql/pglite'
 
 **Val.town:**
 ```typescript
-import { PGlite } from "npm:@electric-sql/pglite";
+import { PGlite } from "npm:@electric-sql/pglite@0.2.17";
 import { createSupabaseClient } from "https://raw.githubusercontent.com/filipecabaco/nano-supabase/main/dist/index.js";
 
 const db = new PGlite();
 const supabase = await createSupabaseClient(db);
 ```
 
-See [examples/valtown-chat-api.ts](examples/valtown-chat-api.ts) for a complete HTTP API example, or try the [live demo on Val.town](https://www.val.town/x/filipecabaco/nano-supabase-chat).
+See [examples/valtown/](examples/valtown/) for a complete deployment guide and HTTP API example.
 
 ### Bundle Information
 
