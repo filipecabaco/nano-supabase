@@ -1,5 +1,3 @@
-import { randomUUID } from 'node:crypto'
-
 import type { PGlite } from '@electric-sql/pglite'
 
 import { PriorityQueue } from './queue.ts'
@@ -76,7 +74,7 @@ export class PGlitePooler {
   ): Promise<QueryResult> {
     return new Promise((resolve, reject) => {
       const query: QueuedQuery = {
-        id: randomUUID(),
+        id: crypto.randomUUID(),
         sql,
         params: params ?? [],
         priority,

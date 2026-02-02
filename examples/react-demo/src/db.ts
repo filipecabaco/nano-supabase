@@ -4,6 +4,7 @@
  */
 
 import { PGlite } from '@electric-sql/pglite'
+import { pgcrypto } from '@electric-sql/pglite/contrib/pgcrypto'
 import { createClient } from '@supabase/supabase-js'
 import { createFetchAdapter, type AuthHandler } from 'nano-supabase'
 
@@ -34,8 +35,10 @@ export async function initDatabase(): Promise<{ supabase: ReturnType<typeof crea
   initPromise = (async () => {
     console.log('Initializing PGlite database with auth...')
 
-    // Create PGlite instance (runs entirely in browser)
-    dbInstance = new PGlite()
+    // Create PGlite instance (runs entirely in browser) with pgcrypto extension
+    dbInstance = new PGlite({
+      extensions: { pgcrypto }
+    })
 
     // Create fetch adapter with auth
     const { localFetch, authHandler } = await createFetchAdapter({

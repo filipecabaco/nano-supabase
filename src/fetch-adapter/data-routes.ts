@@ -45,29 +45,27 @@ async function parseBody(request: Request): Promise<Record<string, unknown> | nu
 }
 
 /**
- * Set auth context for RLS policies
+ * Get auth context SQL for RLS policies (returns SQL without executing)
  */
-async function setAuthContext(
+async function getAuthContextSQL(
   db: PGlite,
   token: string | null
-): Promise<{ userId?: string; role: string; email?: string }> {
+): Promise<{ sql: string; userId?: string; role: string; email?: string }> {
   if (!token) {
     // Anonymous access
-    await db.exec(CLEAR_AUTH_CONTEXT_SQL)
-    return { role: 'anon' }
+    return { sql: CLEAR_AUTH_CONTEXT_SQL, role: 'anon' }
   }
 
   const verified = await verifyAccessToken(db, token)
   if (!verified.valid || !verified.payload) {
     // Invalid token, treat as anonymous
-    await db.exec(CLEAR_AUTH_CONTEXT_SQL)
-    return { role: 'anon' }
+    return { sql: CLEAR_AUTH_CONTEXT_SQL, role: 'anon' }
   }
 
   // Set authenticated context
   const { sub: userId, role, email } = verified.payload
-  await db.exec(getSetAuthContextSQL(userId, role, email || ''))
-  return { userId, role, email }
+  const sql = getSetAuthContextSQL(userId, role, email || '')
+  return { sql, userId, role, email }
 }
 
 /**
@@ -97,10 +95,10 @@ export async function handleDataRoute(
   const token = extractBearerToken(request.headers)
 
   try {
-    // Set auth context for RLS
-    await setAuthContext(db, token)
+    // Get auth context SQL for RLS (but don't execute yet)
+    const authContext = await getAuthContextSQL(db, token)
 
-    let parsed
+    let parsed: { sql: string; params: readonly unknown[] }
     let body: Record<string, unknown> | null = null
 
     // Parse body for POST/PATCH/PUT
@@ -133,7 +131,11 @@ export async function handleDataRoute(
         )
     }
 
-    // Execute query
+    // Set auth context for RLS (session-local settings)
+    // Using set_config(..., false) makes these persist for the entire session
+    await db.exec(authContext.sql)
+
+    // Execute the actual query with parameters
     const result = await db.query(parsed.sql, [...parsed.params])
 
     // Determine response format based on headers

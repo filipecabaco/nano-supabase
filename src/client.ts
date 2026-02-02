@@ -6,10 +6,15 @@
  */
 
 import type { PGlite } from '@electric-sql/pglite'
-import type { SupabaseClient as SupabaseJsClient } from '@supabase/supabase-js'
 import { PostgrestParser } from './postgrest-parser.ts'
 import { AuthHandler } from './auth/handler.ts'
 import { createLocalFetch } from './fetch-adapter/index.ts'
+
+/**
+ * Generic type for the Supabase client
+ * This allows users to pass their own SupabaseClient type
+ */
+type SupabaseJsClient = unknown
 
 /**
  * Configuration for creating a local Supabase client

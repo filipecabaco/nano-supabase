@@ -501,10 +501,10 @@ export function getSetAuthContextSQL(userId: string, role: string, email: string
   })
 
   return `
-    SELECT set_config('request.jwt.claim.sub', '${userId}', true);
-    SELECT set_config('request.jwt.claim.role', '${role}', true);
-    SELECT set_config('request.jwt.claim.email', '${email}', true);
-    SELECT set_config('request.jwt.claims', '${claims}', true);
+    SELECT set_config('request.jwt.claim.sub', '${userId}', false);
+    SELECT set_config('request.jwt.claim.role', '${role}', false);
+    SELECT set_config('request.jwt.claim.email', '${email}', false);
+    SELECT set_config('request.jwt.claims', '${claims}', false);
   `
 }
 
@@ -512,8 +512,8 @@ export function getSetAuthContextSQL(userId: string, role: string, email: string
  * SQL to clear auth context (for anonymous/unauthenticated requests)
  */
 export const CLEAR_AUTH_CONTEXT_SQL = `
-  SELECT set_config('request.jwt.claim.sub', '', true);
-  SELECT set_config('request.jwt.claim.role', 'anon', true);
-  SELECT set_config('request.jwt.claim.email', '', true);
-  SELECT set_config('request.jwt.claims', '{"role": "anon"}', true);
+  SELECT set_config('request.jwt.claim.sub', '', false);
+  SELECT set_config('request.jwt.claim.role', 'anon', false);
+  SELECT set_config('request.jwt.claim.email', '', false);
+  SELECT set_config('request.jwt.claims', '{"role": "anon"}', false);
 `

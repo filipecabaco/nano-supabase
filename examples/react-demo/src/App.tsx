@@ -39,13 +39,15 @@ function App() {
 
   async function initialize() {
     try {
+      console.log('[DEBUG] Starting initialization...')
       setLoading(true)
       const { authHandler } = await initDatabase()
+      console.log('[DEBUG] Database initialized, authHandler:', authHandler)
       setAuthHandler(authHandler)
 
       // Subscribe to auth state changes
       authHandler.onAuthStateChange((event, session) => {
-        console.log('Auth event:', event)
+        console.log('[DEBUG] Auth event:', event, 'Session:', session)
         setSession(session)
         setUser(session?.user || null)
 
@@ -55,7 +57,9 @@ function App() {
           setTasks([])
         }
       })
+      console.log('[DEBUG] Initialization complete!')
     } catch (err) {
+      console.error('[DEBUG] Initialization error:', err)
       setError((err as Error).message)
     } finally {
       setLoading(false)
@@ -83,31 +87,60 @@ function App() {
 
   async function handleAuth(e: React.FormEvent) {
     e.preventDefault()
-    if (!authHandler) return
+    console.log('[DEBUG] handleAuth called, mode:', authMode, 'email:', email, 'authHandler:', !!authHandler)
+
+    if (!authHandler) {
+      console.error('[DEBUG] No authHandler available!')
+      return
+    }
 
     setAuthLoading(true)
     setAuthError(null)
 
     try {
       if (authMode === 'signup') {
+        console.log('[DEBUG] Calling signUp...')
         const result = await authHandler.signUp(email, password)
+        console.log('[DEBUG] SignUp result:', result)
         if (result.error) {
+          console.error('[DEBUG] SignUp error:', result.error)
           setAuthError(result.error.message)
         } else {
-          // Auto sign in after signup
+          console.log('[DEBUG] SignUp success!')
+          // Set session on Supabase client for RLS to work
+          if (result.data.session) {
+            const supabase = getSupabase()
+            await supabase.auth.setSession({
+              access_token: result.data.session.access_token,
+              refresh_token: result.data.session.refresh_token
+            })
+          }
           setEmail('')
           setPassword('')
         }
       } else {
+        console.log('[DEBUG] Calling signInWithPassword...')
         const result = await authHandler.signInWithPassword(email, password)
+        console.log('[DEBUG] SignIn result:', result)
         if (result.error) {
+          console.error('[DEBUG] SignIn error:', result.error)
           setAuthError(result.error.message)
         } else {
+          console.log('[DEBUG] SignIn success!')
+          // Set session on Supabase client for RLS to work
+          if (result.data.session) {
+            const supabase = getSupabase()
+            await supabase.auth.setSession({
+              access_token: result.data.session.access_token,
+              refresh_token: result.data.session.refresh_token
+            })
+          }
           setEmail('')
           setPassword('')
         }
       }
     } catch (err) {
+      console.error('[DEBUG] Auth exception:', err)
       setAuthError((err as Error).message)
     } finally {
       setAuthLoading(false)

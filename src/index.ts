@@ -78,6 +78,3 @@ export type {
   QueueMetrics,
   QueryResult,
 } from './types.ts'
-
-// TCP Server
-export { PGliteServer } from './server.ts'
