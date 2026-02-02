@@ -24,7 +24,7 @@ pnpm run build  # Build for production
 Nano Supabase provides a Supabase-compatible query builder that executes queries against an embedded PostgreSQL database (PGlite) without any network calls. Queries are parsed using a PostgREST parser and executed locally.
 
 **Use cases:**
-- Edge runtimes (Cloudflare Workers, Vercel Edge, Deno Deploy)
+- Edge runtimes (Cloudflare Workers, Vercel Edge, Deno Deploy, Val.town)
 - Local development and testing
 - Offline-first applications
 - Low-latency local queries
@@ -212,6 +212,7 @@ nano-supabase/
 ├── examples/
 │   ├── basic.ts              # Pooler example
 │   ├── tcp-server.ts         # @pglite/socket server example
+│   ├── valtown-chat-api.ts   # Val.town HTTP API example
 │   └── react-demo/           # Full React application
 └── tests/                    # Deno tests
 ```
@@ -238,6 +239,17 @@ import { PGlite } from "npm:@electric-sql/pglite"
 import { createSupabaseClient } from 'nano-supabase'
 import { PGlite } from '@electric-sql/pglite'
 ```
+
+**Val.town:**
+```typescript
+import { PGlite } from "npm:@electric-sql/pglite";
+import { createSupabaseClient } from "https://raw.githubusercontent.com/filipecabaco/nano-supabase/main/dist/index.js";
+
+const db = new PGlite();
+const supabase = await createSupabaseClient(db);
+```
+
+See [examples/valtown-chat-api.ts](examples/valtown-chat-api.ts) for a complete HTTP API example, or try the [live demo on Val.town](https://www.val.town/x/filipecabaco/nano-supabase-chat).
 
 ### Bundle Information
 

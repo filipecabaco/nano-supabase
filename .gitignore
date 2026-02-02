@@ -5,8 +5,7 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
-# Build outputs
-dist/
+# Build outputs (dist/ is committed for git-based distribution)
 build/
 out/
 *.tsbuildinfo

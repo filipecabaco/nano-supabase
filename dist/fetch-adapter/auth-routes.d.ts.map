@@ -1,0 +1,1 @@
+{"version":3,"file":"auth-routes.d.ts","sourceRoot":"","sources":["../../src/fetch-adapter/auth-routes.ts"],"names":[],"mappings":"AAAA;;GAEG;AAEH,OAAO,KAAK,EAAE,WAAW,EAAE,MAAM,oBAAoB,CAAA;AAsCrD;;GAEG;AACH,wBAAsB,eAAe,CACnC,OAAO,EAAE,OAAO,EAChB,QAAQ,EAAE,MAAM,EAChB,WAAW,EAAE,WAAW,GACvB,OAAO,CAAC,QAAQ,CAAC,CA8MnB"}
