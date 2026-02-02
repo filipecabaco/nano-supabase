@@ -48,12 +48,49 @@ export async function initDatabase(): Promise<{ supabase: ReturnType<typeof crea
 
     authHandlerInstance = authHandler
 
-    // Create application schema
+    // Create application schema following Supabase best practices
+    // https://supabase.com/docs/guides/auth/managing-user-data
     await dbInstance.exec(`
-      -- Tasks table (linked to auth.users)
-      CREATE TABLE IF NOT EXISTS tasks (
+      -- Public profiles table (exposes user_id from auth.users)
+      CREATE TABLE IF NOT EXISTS public.profiles (
+        id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+        email TEXT,
+        updated_at TIMESTAMP DEFAULT NOW()
+      );
+
+      -- Enable RLS on profiles
+      ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+
+      -- Profiles are viewable by everyone (or restrict as needed)
+      CREATE POLICY "Public profiles are viewable by everyone"
+        ON public.profiles FOR SELECT
+        USING (true);
+
+      -- Users can update their own profile
+      CREATE POLICY "Users can update own profile"
+        ON public.profiles FOR UPDATE
+        USING (auth.uid() = id);
+
+      -- Function to create profile on user signup
+      CREATE OR REPLACE FUNCTION public.handle_new_user()
+      RETURNS TRIGGER AS $$
+      BEGIN
+        INSERT INTO public.profiles (id, email)
+        VALUES (NEW.id, NEW.email);
+        RETURN NEW;
+      END;
+      $$ LANGUAGE plpgsql SECURITY DEFINER;
+
+      -- Trigger to automatically create profile
+      DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+      CREATE TRIGGER on_auth_user_created
+        AFTER INSERT ON auth.users
+        FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+
+      -- Tasks table (linked to public.profiles)
+      CREATE TABLE IF NOT EXISTS public.tasks (
         id SERIAL PRIMARY KEY,
-        user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+        user_id UUID NOT NULL DEFAULT auth.uid() REFERENCES public.profiles(id) ON DELETE CASCADE,
         title TEXT NOT NULL,
         description TEXT,
         completed BOOLEAN DEFAULT false,
@@ -62,33 +99,34 @@ export async function initDatabase(): Promise<{ supabase: ReturnType<typeof crea
         created_at TIMESTAMP DEFAULT NOW()
       );
 
-      -- Enable RLS
-      ALTER TABLE tasks ENABLE ROW LEVEL SECURITY;
+      -- Enable RLS on tasks
+      ALTER TABLE public.tasks ENABLE ROW LEVEL SECURITY;
 
-      -- RLS policies for tasks
-      CREATE POLICY "Users can view their own tasks"
-        ON tasks FOR SELECT
+      -- Restrictive RLS policies: users can only access their own tasks
+      CREATE POLICY "Users can only view their own tasks"
+        ON public.tasks FOR SELECT
         USING (user_id = auth.uid());
 
-      CREATE POLICY "Users can insert their own tasks"
-        ON tasks FOR INSERT
+      CREATE POLICY "Users can only insert tasks as themselves"
+        ON public.tasks FOR INSERT
         WITH CHECK (user_id = auth.uid());
 
-      CREATE POLICY "Users can update their own tasks"
-        ON tasks FOR UPDATE
-        USING (user_id = auth.uid());
+      CREATE POLICY "Users can only update their own tasks"
+        ON public.tasks FOR UPDATE
+        USING (user_id = auth.uid())
+        WITH CHECK (user_id = auth.uid());
 
-      CREATE POLICY "Users can delete their own tasks"
-        ON tasks FOR DELETE
+      CREATE POLICY "Users can only delete their own tasks"
+        ON public.tasks FOR DELETE
         USING (user_id = auth.uid());
     `)
 
     console.log('Schema created with RLS policies')
 
     // Create Supabase client with custom fetch
+    // Use default localStorage-based storage for session persistence
     supabaseInstance = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
       auth: {
-        persistSession: false,
         autoRefreshToken: false,
       },
       global: {

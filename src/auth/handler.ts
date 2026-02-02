@@ -123,6 +123,9 @@ export class AuthHandler {
   ): Promise<AuthResponse> {
     await this.initialize()
 
+    // Reset role to default before auth operation
+    await this.db.exec('RESET ROLE')
+
     try {
       // Check if user already exists
       const existingUser = await this.db.query<StoredUser>(
@@ -186,6 +189,9 @@ export class AuthHandler {
     password: string
   ): Promise<AuthResponse> {
     await this.initialize()
+
+    // Reset role to default before auth operation
+    await this.db.exec('RESET ROLE')
 
     try {
       // Verify credentials using database function
@@ -334,17 +340,31 @@ export class AuthHandler {
   async signOut(accessToken?: string): Promise<{ error: AuthError | null }> {
     await this.initialize()
 
+    console.log('🔓 [AUTH_HANDLER] signOut called, has token:', !!accessToken)
+
     try {
       if (accessToken) {
         const sessionId = extractSessionIdFromToken(accessToken)
+        console.log('🔓 [AUTH_HANDLER] Extracted session ID:', sessionId)
         if (sessionId) {
+          console.log('🔓 [AUTH_HANDLER] Calling auth.sign_out() database function')
           await this.db.query('SELECT auth.sign_out($1::uuid)', [sessionId])
+          console.log('🔓 [AUTH_HANDLER] Database sign out completed')
         }
+      } else {
+        console.log('🔓 [AUTH_HANDLER] No access token provided')
       }
 
+      // Reset role to default after sign out
+      console.log('🔓 [AUTH_HANDLER] Resetting role to default')
+      await this.db.exec('RESET ROLE')
+
+      console.log('🔓 [AUTH_HANDLER] Emitting SIGNED_OUT event')
       this.emitAuthStateChange('SIGNED_OUT', null)
+      console.log('🔓 [AUTH_HANDLER] Sign out complete')
       return { error: null }
     } catch (err) {
+      console.error('🔓 [AUTH_HANDLER] Sign out error:', err)
       const message = err instanceof Error ? err.message : 'Sign out failed'
       return { error: authError(message, 500, 'sign_out_failed') }
     }

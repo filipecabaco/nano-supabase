@@ -79,7 +79,12 @@ export async function handleDataRoute(
 ): Promise<Response> {
   const method = request.method.toUpperCase()
   const url = new URL(request.url)
-  const queryString = url.search.slice(1) // Remove leading '?'
+
+  // Strip the 'columns' parameter that Supabase JS client adds
+  // The parser should derive columns from the body, not from query params
+  const params = new URLSearchParams(url.search)
+  params.delete('columns')
+  const queryString = params.toString()
 
   // Extract table/resource from path: /rest/v1/{table}
   const pathParts = pathname.split('/').filter(Boolean)
@@ -104,9 +109,19 @@ export async function handleDataRoute(
     // Parse body for POST/PATCH/PUT
     if (['POST', 'PATCH', 'PUT'].includes(method)) {
       body = await parseBody(request)
+      console.log('📦 [PARSE_BODY] Parsed body:', body)
+      console.log('📦 [PARSE_BODY] Body type:', typeof body, Array.isArray(body) ? '(array)' : '(object)')
     }
 
     // Convert HTTP method to PostgREST parser method
+    console.log('🔧 [PARSER] Calling parser with:', {
+      method,
+      resourcePath,
+      queryString,
+      body,
+      bodyType: typeof body
+    })
+
     switch (method) {
       case 'GET':
         parsed = parser.parseRequest('GET', resourcePath, queryString)
@@ -131,12 +146,60 @@ export async function handleDataRoute(
         )
     }
 
+    console.log('🔧 [PARSER] Parser returned:', {
+      sql: parsed.sql,
+      paramsCount: parsed.params.length,
+      params: parsed.params
+    })
+
+    // Fix parser bug: RETURNING "*" should be RETURNING *
+    parsed = {
+      sql: parsed.sql.replace(/RETURNING "\*"/g, 'RETURNING *'),
+      params: parsed.params
+    }
+
     // Set auth context for RLS (session-local settings)
     // Using set_config(..., false) makes these persist for the entire session
+    console.log('🔐 Setting auth context:', {
+      userId: authContext.userId,
+      role: authContext.role,
+      email: authContext.email,
+      sql: authContext.sql
+    })
     await db.exec(authContext.sql)
 
+    // Verify auth context was set correctly
+    const verifyResult = await db.query(`
+      SELECT
+        current_setting('request.jwt.claim.sub', true) as user_id,
+        current_setting('request.jwt.claim.role', true) as role,
+        current_setting('request.jwt.claim.email', true) as email
+    `)
+    console.log('🔍 Verified auth context after setting:', verifyResult.rows[0])
+
+    // Debug: Check what auth.uid() returns
+    const uidCheck = await db.query('SELECT auth.uid() as uid')
+    console.log('🔍 auth.uid() returns:', uidCheck.rows[0])
+
     // Execute the actual query with parameters
+    console.log('📝 Executing query:', {
+      sql: parsed.sql,
+      params: parsed.params
+    })
     const result = await db.query(parsed.sql, [...parsed.params])
+    console.log('✅ Query result:', {
+      rowCount: result.rows.length,
+      rows: result.rows
+    })
+
+    // Verify auth context is still set after query
+    const verifyAfter = await db.query(`
+      SELECT
+        current_setting('request.jwt.claim.sub', true) as user_id,
+        current_setting('request.jwt.claim.role', true) as role,
+        current_setting('request.jwt.claim.email', true) as email
+    `)
+    console.log('🔍 Auth context after query execution:', verifyAfter.rows[0])
 
     // Determine response format based on headers
     const prefer = request.headers.get('Prefer') || ''

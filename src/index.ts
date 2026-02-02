@@ -60,6 +60,9 @@ export {
   type TokenPair,
 } from './auth/index.ts'
 
+// JWT utilities (Web Crypto API - browser/edge compatible)
+export { signJWT, verifyJWT, decodeJWT, type JWTPayload } from './auth/jwt.ts'
+
 // PostgREST parser
 export { PostgrestParser } from './postgrest-parser.ts'
 export type { ParsedQuery, QueryExecutor } from './postgrest-parser.ts'

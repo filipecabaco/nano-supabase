@@ -136,19 +136,34 @@ export function createLocalFetch(config: FetchAdapterConfig): typeof fetch {
       return originalFetch(input, init)
     }
 
+    // Log all headers for debugging
+    const authHeader = request.headers.get('Authorization')
+    console.log('🌐 [FETCH_ADAPTER] Intercepting:', {
+      type: routeInfo.type,
+      method: request.method,
+      pathname: routeInfo.pathname,
+      hasAuth: !!authHeader,
+      authPreview: authHeader ? `${authHeader.slice(0, 30)}...` : 'none'
+    })
     log('Intercepting:', routeInfo.type, request.method, routeInfo.pathname)
+    log('Authorization header:', authHeader ? `${authHeader.slice(0, 20)}...` : 'none')
 
     try {
-      if (routeInfo.type === 'auth') {
-        return await handleAuthRoute(request, routeInfo.pathname!, authHandler)
+      let response: Response
+
+      if (routeInfo.type === 'auth' && routeInfo.pathname) {
+        response = await handleAuthRoute(request, routeInfo.pathname, authHandler)
+      } else if (routeInfo.type === 'data' && routeInfo.pathname) {
+        response = await handleDataRoute(request, routeInfo.pathname, db, parser)
+      } else {
+        // Should not reach here, but pass through just in case
+        return originalFetch(input, init)
       }
 
-      if (routeInfo.type === 'data') {
-        return await handleDataRoute(request, routeInfo.pathname!, db, parser)
-      }
+      // Log response status
+      log('Response status:', response.status)
 
-      // Should not reach here, but pass through just in case
-      return originalFetch(input, init)
+      return response
     } catch (err) {
       log('Error handling request:', err)
 

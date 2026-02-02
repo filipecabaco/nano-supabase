@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
-import { initDatabase, getSupabase, getAuthHandler } from './db'
-import type { User, Session, AuthHandler } from 'nano-supabase'
+import { initDatabase, getSupabase } from './db'
+import type { User } from 'nano-supabase'
 import './App.css'
 
 interface Task {
@@ -19,12 +19,10 @@ type AuthMode = 'signin' | 'signup'
 function App() {
   const [loading, setLoading] = useState(true)
   const [user, setUser] = useState<User | null>(null)
-  const [session, setSession] = useState<Session | null>(null)
   const [tasks, setTasks] = useState<Task[]>([])
   const [newTaskTitle, setNewTaskTitle] = useState('')
   const [newTaskDescription, setNewTaskDescription] = useState('')
   const [error, setError] = useState<string | null>(null)
-  const [authHandler, setAuthHandler] = useState<AuthHandler | null>(null)
 
   // Auth form state
   const [authMode, setAuthMode] = useState<AuthMode>('signin')
@@ -41,15 +39,19 @@ function App() {
     try {
       console.log('[DEBUG] Starting initialization...')
       setLoading(true)
-      const { authHandler } = await initDatabase()
-      console.log('[DEBUG] Database initialized, authHandler:', authHandler)
-      setAuthHandler(authHandler)
+      const { supabase } = await initDatabase()
+      console.log('[DEBUG] Database initialized')
 
-      // Subscribe to auth state changes
-      authHandler.onAuthStateChange((event, session) => {
-        console.log('[DEBUG] Auth event:', event, 'Session:', session)
-        setSession(session)
-        setUser(session?.user || null)
+      // Subscribe to Supabase client's auth state changes
+      supabase.auth.onAuthStateChange((event, session) => {
+        console.log('🔐 [AUTH_STATE_CHANGE] Event:', event)
+        console.log('👤 [AUTH_STATE_CHANGE] Session:', session ? {
+          user: session.user?.id,
+          email: session.user?.email,
+          access_token: `${session.access_token?.slice(0, 20)}...`,
+        } : 'null')
+
+        setUser(session?.user as User || null)
 
         if (session) {
           loadTasks()
@@ -57,9 +59,8 @@ function App() {
           setTasks([])
         }
       })
-      console.log('[DEBUG] Initialization complete!')
     } catch (err) {
-      console.error('[DEBUG] Initialization error:', err)
+      console.error('Initialization error:', err)
       setError((err as Error).message)
     } finally {
       setLoading(false)
@@ -68,6 +69,7 @@ function App() {
 
   async function loadTasks() {
     try {
+      console.log('🔄 [LOAD_TASKS] Starting to load tasks...')
       const supabase = getSupabase()
       const { data, error } = await supabase
         .from('tasks')
@@ -75,66 +77,60 @@ function App() {
         .order('created_at', { ascending: false })
 
       if (error) {
-        console.error('Error loading tasks:', error)
+        console.error('❌ [LOAD_TASKS] Error loading tasks:', error)
         return
       }
 
+      console.log('✅ [LOAD_TASKS] Tasks loaded:', data?.length, 'tasks')
+      console.log('📋 [LOAD_TASKS] Task data:', data)
       setTasks((data as Task[]) || [])
     } catch (err) {
-      console.error('Failed to load tasks:', err)
+      console.error('[DEBUG] EXCEPTION loading tasks:', err)
+      console.error('[DEBUG] Exception type:', err instanceof Error ? err.constructor.name : typeof err)
+      console.error('[DEBUG] Exception details:', {
+        message: err instanceof Error ? err.message : String(err),
+        stack: err instanceof Error ? err.stack : undefined
+      })
     }
   }
 
   async function handleAuth(e: React.FormEvent) {
     e.preventDefault()
-    console.log('[DEBUG] handleAuth called, mode:', authMode, 'email:', email, 'authHandler:', !!authHandler)
-
-    if (!authHandler) {
-      console.error('[DEBUG] No authHandler available!')
-      return
-    }
+    console.log('[DEBUG] handleAuth called, mode:', authMode, 'email:', email)
 
     setAuthLoading(true)
     setAuthError(null)
 
     try {
+      const supabase = getSupabase()
+
       if (authMode === 'signup') {
-        console.log('[DEBUG] Calling signUp...')
-        const result = await authHandler.signUp(email, password)
-        console.log('[DEBUG] SignUp result:', result)
-        if (result.error) {
-          console.error('[DEBUG] SignUp error:', result.error)
-          setAuthError(result.error.message)
+        console.log('[DEBUG] Calling supabase.auth.signUp...')
+        const { data, error } = await supabase.auth.signUp({
+          email,
+          password,
+        })
+        console.log('[DEBUG] SignUp result:', { data, error })
+        if (error) {
+          console.error('[DEBUG] SignUp error:', error)
+          setAuthError(error.message)
         } else {
           console.log('[DEBUG] SignUp success!')
-          // Set session on Supabase client for RLS to work
-          if (result.data.session) {
-            const supabase = getSupabase()
-            await supabase.auth.setSession({
-              access_token: result.data.session.access_token,
-              refresh_token: result.data.session.refresh_token
-            })
-          }
           setEmail('')
           setPassword('')
         }
       } else {
-        console.log('[DEBUG] Calling signInWithPassword...')
-        const result = await authHandler.signInWithPassword(email, password)
-        console.log('[DEBUG] SignIn result:', result)
-        if (result.error) {
-          console.error('[DEBUG] SignIn error:', result.error)
-          setAuthError(result.error.message)
+        console.log('[DEBUG] Calling supabase.auth.signInWithPassword...')
+        const { data, error } = await supabase.auth.signInWithPassword({
+          email,
+          password,
+        })
+        console.log('[DEBUG] SignIn result:', { data, error })
+        if (error) {
+          console.error('[DEBUG] SignIn error:', error)
+          setAuthError(error.message)
         } else {
           console.log('[DEBUG] SignIn success!')
-          // Set session on Supabase client for RLS to work
-          if (result.data.session) {
-            const supabase = getSupabase()
-            await supabase.auth.setSession({
-              access_token: result.data.session.access_token,
-              refresh_token: result.data.session.refresh_token
-            })
-          }
           setEmail('')
           setPassword('')
         }
@@ -148,10 +144,9 @@ function App() {
   }
 
   async function handleSignOut() {
-    if (!authHandler || !session) return
-
     try {
-      await authHandler.signOut(session.access_token)
+      const supabase = getSupabase()
+      await supabase.auth.signOut()
     } catch (err) {
       console.error('Sign out error:', err)
     }
@@ -160,8 +155,8 @@ function App() {
   async function addTask() {
     if (!newTaskTitle.trim() || !user) return
 
-    const supabase = getSupabase()
-    const { error } = await supabase.from('tasks').insert({
+    console.log('➕ [ADD_TASK] Creating task for user:', user.id)
+    console.log('📝 [ADD_TASK] Task data:', {
       user_id: user.id,
       title: newTaskTitle,
       description: newTaskDescription || null,
@@ -169,13 +164,27 @@ function App() {
       priority: 'medium',
     })
 
+    const supabase = getSupabase()
+    const { data, error } = await supabase.from('tasks').insert([{
+      user_id: user.id,
+      title: newTaskTitle,
+      description: newTaskDescription || null,
+      completed: false,
+      priority: 'medium',
+    }] as unknown as never).select()
+
     if (error) {
+      console.error('❌ [ADD_TASK] Insert failed:', error)
       setError(error.message)
       return
     }
 
+    console.log('✅ [ADD_TASK] Task created:', data)
+
     setNewTaskTitle('')
     setNewTaskDescription('')
+
+    console.log('🔄 [ADD_TASK] Now loading all tasks...')
     await loadTasks()
   }
 
@@ -183,7 +192,7 @@ function App() {
     const supabase = getSupabase()
     const { error } = await supabase
       .from('tasks')
-      .update({ completed: !completed })
+      .update({ completed: !completed } as unknown as never)
       .eq('id', taskId)
 
     if (error) {

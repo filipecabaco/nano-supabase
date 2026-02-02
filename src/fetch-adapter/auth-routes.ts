@@ -75,7 +75,22 @@ export async function handleAuthRoute(
       )
     }
 
-    return jsonResponse(result.data)
+    if (!result.data.session) {
+      return jsonResponse(
+        { error: 'session_creation_failed', error_description: 'Failed to create session' },
+        500
+      )
+    }
+
+    // Return token response format (same as sign in)
+    return jsonResponse({
+      access_token: result.data.session.access_token,
+      token_type: 'bearer',
+      expires_in: result.data.session.expires_in,
+      expires_at: result.data.session.expires_at,
+      refresh_token: result.data.session.refresh_token,
+      user: result.data.user,
+    })
   }
 
   // POST /auth/v1/token?grant_type=password (sign in)
@@ -153,15 +168,20 @@ export async function handleAuthRoute(
   // POST /auth/v1/logout
   if (method === 'POST' && pathname === '/auth/v1/logout') {
     const token = extractBearerToken(request.headers)
+    console.log('🚪 [LOGOUT] Starting sign out process, has token:', !!token)
+
     const result = await authHandler.signOut(token || undefined)
+    console.log('🚪 [LOGOUT] Sign out result:', result.error ? 'ERROR' : 'SUCCESS')
 
     if (result.error) {
+      console.error('🚪 [LOGOUT] Error:', result.error)
       return jsonResponse(
         { error: result.error.code, error_description: result.error.message },
         result.error.status
       )
     }
 
+    console.log('🚪 [LOGOUT] Sign out completed successfully')
     return jsonResponse({})
   }
 

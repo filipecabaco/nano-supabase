@@ -10,6 +10,35 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 -- Create auth schema
 CREATE SCHEMA IF NOT EXISTS auth;
 
+-- Create PostgreSQL roles for RLS
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'anon') THEN
+    CREATE ROLE anon NOLOGIN NOINHERIT;
+  END IF;
+  IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'authenticated') THEN
+    CREATE ROLE authenticated NOLOGIN NOINHERIT;
+  END IF;
+  IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'service_role') THEN
+    CREATE ROLE service_role NOLOGIN NOINHERIT BYPASSRLS;
+  END IF;
+END
+$$;
+
+-- Grant necessary permissions to roles
+GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
+GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated, service_role;
+GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated, service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO anon, authenticated, service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO anon, authenticated, service_role;
+
+-- Grant service_role full access to auth schema (needed for auth operations)
+GRANT USAGE ON SCHEMA auth TO service_role;
+GRANT ALL ON ALL TABLES IN SCHEMA auth TO service_role;
+GRANT ALL ON ALL SEQUENCES IN SCHEMA auth TO service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA auth GRANT ALL ON TABLES TO service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA auth GRANT ALL ON SEQUENCES TO service_role;
+
 -- Users table
 CREATE TABLE IF NOT EXISTS auth.users (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -152,7 +181,7 @@ BEGIN
 
   RETURN v_user;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- Function to verify user credentials and return user if valid
 CREATE OR REPLACE FUNCTION auth.verify_user_credentials(
@@ -183,7 +212,7 @@ BEGIN
 
   RETURN v_user;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- Function to create a session for a user
 CREATE OR REPLACE FUNCTION auth.create_session(
@@ -212,7 +241,7 @@ BEGIN
 
   RETURN v_session;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- Function to create a refresh token for a session
 CREATE OR REPLACE FUNCTION auth.create_refresh_token(
@@ -238,7 +267,7 @@ BEGIN
 
   RETURN v_refresh_token;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- Function to refresh a token (revoke old, create new)
 CREATE OR REPLACE FUNCTION auth.refresh_token(
@@ -291,7 +320,7 @@ BEGIN
 
   RETURN QUERY SELECT v_new_token.token, v_new_token.user_id, v_new_token.session_id;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- Function to revoke all sessions for a user (sign out)
 CREATE OR REPLACE FUNCTION auth.sign_out(p_session_id UUID) RETURNS VOID AS $$
@@ -304,7 +333,7 @@ BEGIN
   -- Delete the session
   DELETE FROM auth.sessions WHERE id = p_session_id;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- Function to sign out all sessions for a user
 CREATE OR REPLACE FUNCTION auth.sign_out_all(p_user_id UUID) RETURNS VOID AS $$
@@ -317,7 +346,7 @@ BEGIN
   -- Delete all sessions
   DELETE FROM auth.sessions WHERE user_id = p_user_id;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- Config table for storing signing key
 CREATE TABLE IF NOT EXISTS auth.config (
@@ -340,7 +369,7 @@ BEGIN
 
   RETURN v_key;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- Function to base64url encode
 CREATE OR REPLACE FUNCTION auth.base64url_encode(data BYTEA) RETURNS TEXT AS $$
@@ -410,7 +439,7 @@ BEGIN
 
   RETURN v_signature_input || '.' || v_signature;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- Function to verify an access token and return payload
 CREATE OR REPLACE FUNCTION auth.verify_access_token(p_token TEXT) RETURNS TABLE(
@@ -486,8 +515,36 @@ BEGIN
     COALESCE(v_payload->'app_metadata', '{}'::jsonb),
     NULL::TEXT;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Grant execute permissions on auth schema functions to roles
+-- This allows RLS policies and DEFAULT values to use these functions
+GRANT USAGE ON SCHEMA auth TO anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION auth.uid() TO anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION auth.role() TO anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION auth.email() TO anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION auth.jwt() TO anon, authenticated, service_role;
+
+-- Grant execute on auth management functions
+-- These have SECURITY DEFINER so they run with elevated privileges
+GRANT EXECUTE ON FUNCTION auth.create_user(TEXT, TEXT, JSONB, JSONB) TO anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION auth.verify_user_credentials(TEXT, TEXT) TO anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION auth.create_session(UUID, TEXT, TEXT) TO anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION auth.create_refresh_token(UUID, UUID) TO anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION auth.refresh_token(TEXT) TO anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION auth.sign_out(UUID) TO anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION auth.sign_out_all(UUID) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION auth.get_signing_key() TO service_role;
+GRANT EXECUTE ON FUNCTION auth.create_access_token(UUID, UUID, TEXT, TEXT, JSONB, JSONB, INT) TO service_role;
+GRANT EXECUTE ON FUNCTION auth.verify_access_token(TEXT) TO service_role;
 `
+
+/**
+ * Escape single quotes for SQL string literals
+ */
+function escapeSqlString(value: string): string {
+  return value.replace(/'/g, "''")
+}
 
 /**
  * SQL to set auth context for a request (called before each query when authenticated)
@@ -500,11 +557,21 @@ export function getSetAuthContextSQL(userId: string, role: string, email: string
     aud: 'authenticated',
   })
 
+  // Properly escape all values for SQL
+  const escapedUserId = escapeSqlString(userId)
+  const escapedRole = escapeSqlString(role)
+  const escapedEmail = escapeSqlString(email)
+  const escapedClaims = escapeSqlString(claims)
+
+  // IMPORTANT: SET ROLE switches the database role to enforce RLS
+  // Without this, queries run as superuser which bypasses RLS entirely
+  // Note: Using SET ROLE (not SET LOCAL ROLE) because each db call may be in a separate transaction
   return `
-    SELECT set_config('request.jwt.claim.sub', '${userId}', false);
-    SELECT set_config('request.jwt.claim.role', '${role}', false);
-    SELECT set_config('request.jwt.claim.email', '${email}', false);
-    SELECT set_config('request.jwt.claims', '${claims}', false);
+    SET ROLE ${escapedRole};
+    SELECT set_config('request.jwt.claim.sub', '${escapedUserId}', false);
+    SELECT set_config('request.jwt.claim.role', '${escapedRole}', false);
+    SELECT set_config('request.jwt.claim.email', '${escapedEmail}', false);
+    SELECT set_config('request.jwt.claims', '${escapedClaims}', false);
   `
 }
 
@@ -512,6 +579,7 @@ export function getSetAuthContextSQL(userId: string, role: string, email: string
  * SQL to clear auth context (for anonymous/unauthenticated requests)
  */
 export const CLEAR_AUTH_CONTEXT_SQL = `
+  SET ROLE anon;
   SELECT set_config('request.jwt.claim.sub', '', false);
   SELECT set_config('request.jwt.claim.role', 'anon', false);
   SELECT set_config('request.jwt.claim.email', '', false);
