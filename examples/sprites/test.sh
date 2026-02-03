@@ -5,12 +5,11 @@ if [ -z "$1" ]; then
   echo "Error: BASE_URL is required"
   echo ""
   echo "Usage: ./test.sh <BASE_URL>"
-  echo "Example: ./test.sh https://username-valname.web.val.run"
+  echo "Example: ./test.sh https://nano-flags.sprites.app"
   exit 1
 fi
 
 BASE="$1"
-FMT="python3 -m json.tool 2>/dev/null"
 
 pp() { python3 -m json.tool 2>/dev/null || cat; }
 
@@ -101,5 +100,5 @@ echo ""
 
 echo "=== Test Complete ==="
 echo ""
-echo "To verify persistence, wait for a cold start and run:"
+echo "Data persists on sprite filesystem. To verify persistence after hibernation:"
 echo "  curl $BASE/flags"

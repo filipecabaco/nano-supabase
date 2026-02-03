@@ -1,4 +1,4 @@
-import type { PGlite } from "npm:@electric-sql/pglite@0.2.17";
+import type { PGlite } from "@electric-sql/pglite";
 
 export async function createSchema(db: PGlite) {
   await db.exec(`

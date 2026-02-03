@@ -1,4 +1,6 @@
-import { initDb, saveSnapshot } from "./persistence.ts";
+import { initDb } from "./persistence.ts";
+
+const PORT = 8080;
 
 const HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -74,17 +76,14 @@ async function handleListFlags(supabase: any, url: URL) {
 
 async function handleCreateFlag(supabase: any, req: Request) {
   const body = await req.json();
-  const { error } = await supabase
-    .from("feature_flags")
-    .insert({
-      name: body.name,
-      description: body.description ?? "",
-      enabled: body.enabled ?? false,
-      rollout_percentage: body.rollout_percentage ?? 100,
-    });
+  const { error } = await supabase.from("feature_flags").insert({
+    name: body.name,
+    description: body.description ?? "",
+    enabled: body.enabled ?? false,
+    rollout_percentage: body.rollout_percentage ?? 100,
+  });
 
   if (error) return json({ error: error.message }, 400);
-  await saveSnapshot();
 
   const created = await getFlag(supabase, body.name);
   return json({ data: created }, 201);
@@ -104,15 +103,20 @@ async function handleGetFlag(supabase: any, name: string) {
     .select("*")
     .eq("flag_id", flag.id);
 
-  return json({ data: { ...flag, environments: environments ?? [], apps: apps ?? [] } });
+  return json({
+    data: { ...flag, environments: environments ?? [], apps: apps ?? [] },
+  });
 }
 
 async function handleUpdateFlag(supabase: any, name: string, req: Request) {
   const body = await req.json();
-  const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
+  const updates: Record<string, unknown> = {
+    updated_at: new Date().toISOString(),
+  };
   if (body.description !== undefined) updates.description = body.description;
   if (body.enabled !== undefined) updates.enabled = body.enabled;
-  if (body.rollout_percentage !== undefined) updates.rollout_percentage = body.rollout_percentage;
+  if (body.rollout_percentage !== undefined)
+    updates.rollout_percentage = body.rollout_percentage;
 
   const { error } = await supabase
     .from("feature_flags")
@@ -120,7 +124,6 @@ async function handleUpdateFlag(supabase: any, name: string, req: Request) {
     .eq("name", name);
 
   if (error) return json({ error: error.message }, 400);
-  await saveSnapshot();
 
   const updated = await getFlag(supabase, name);
   return json({ data: updated });
@@ -136,7 +139,6 @@ async function handleDeleteFlag(supabase: any, name: string) {
     .eq("name", name);
 
   if (error) return json({ error: error.message }, 400);
-  await saveSnapshot();
   return json({ data: { deleted: true } });
 }
 
@@ -150,7 +152,6 @@ async function handleToggleFlag(supabase: any, name: string) {
     .eq("name", name);
 
   if (error) return json({ error: error.message }, 400);
-  await saveSnapshot();
 
   const toggled = await getFlag(supabase, name);
   return json({ data: toggled });
@@ -164,7 +165,10 @@ async function handleEvaluateFlag(supabase: any, name: string, url: URL) {
   }
 
   const flag = await getFlag(supabase, name);
-  if (!flag) return json({ data: { flag_name: name, active: false, reason: "flag_not_found" } });
+  if (!flag)
+    return json({
+      data: { flag_name: name, active: false, reason: "flag_not_found" },
+    });
 
   const { data: scopedApps } = await supabase
     .from("flag_apps")
@@ -174,7 +178,9 @@ async function handleEvaluateFlag(supabase: any, name: string, url: URL) {
   if (scopedApps?.length) {
     const isScoped = scopedApps.some((a: any) => a.app_name === app);
     if (!isScoped) {
-      return json({ data: { flag_name: name, active: false, reason: "app_not_scoped" } });
+      return json({
+        data: { flag_name: name, active: false, reason: "app_not_scoped" },
+      });
     }
   }
 
@@ -192,14 +198,20 @@ async function handleEvaluateFlag(supabase: any, name: string, url: URL) {
   }
 
   if (!enabled) {
-    return json({ data: { flag_name: name, active: false, reason: "disabled" } });
+    return json({
+      data: { flag_name: name, active: false, reason: "disabled" },
+    });
   }
 
   if (flag.rollout_percentage < 100) {
     const identifier = url.searchParams.get("identifier");
-    const roll = identifier ? hashString(identifier) : Math.floor(Math.random() * 100);
+    const roll = identifier
+      ? hashString(identifier)
+      : Math.floor(Math.random() * 100);
     if (roll >= flag.rollout_percentage) {
-      return json({ data: { flag_name: name, active: false, reason: "rollout_excluded" } });
+      return json({
+        data: { flag_name: name, active: false, reason: "rollout_excluded" },
+      });
     }
   }
 
@@ -211,12 +223,13 @@ async function handleAddEnvironment(supabase: any, name: string, req: Request) {
   if (!flag) return json({ error: "Flag not found" }, 404);
 
   const body = await req.json();
-  const { error } = await supabase
-    .from("flag_environments")
-    .insert({ flag_id: flag.id, environment: body.environment, enabled: body.enabled ?? false });
+  const { error } = await supabase.from("flag_environments").insert({
+    flag_id: flag.id,
+    environment: body.environment,
+    enabled: body.enabled ?? false,
+  });
 
   if (error) return json({ error: error.message }, 400);
-  await saveSnapshot();
 
   const { data: created } = await supabase
     .from("flag_environments")
@@ -238,7 +251,6 @@ async function handleAddApp(supabase: any, name: string, req: Request) {
     .insert({ flag_id: flag.id, app_name: body.app_name });
 
   if (error) return json({ error: error.message }, 400);
-  await saveSnapshot();
 
   const { data: created } = await supabase
     .from("flag_apps")
@@ -250,7 +262,7 @@ async function handleAddApp(supabase: any, name: string, req: Request) {
   return json({ data: created }, 201);
 }
 
-export default async function handler(req: Request): Promise<Response> {
+async function handler(req: Request): Promise<Response> {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: HEADERS });
   }
@@ -293,18 +305,29 @@ export default async function handler(req: Request): Promise<Response> {
 
     if (!action) {
       if (req.method === "GET") return handleGetFlag(supabase, flagName);
-      if (req.method === "PATCH") return handleUpdateFlag(supabase, flagName, req);
+      if (req.method === "PATCH")
+        return handleUpdateFlag(supabase, flagName, req);
       if (req.method === "DELETE") return handleDeleteFlag(supabase, flagName);
       return json({ error: "Method not allowed" }, 405);
     }
 
-    if (action === "toggle" && req.method === "POST") return handleToggleFlag(supabase, flagName);
-    if (action === "evaluate" && req.method === "GET") return handleEvaluateFlag(supabase, flagName, url);
-    if (action === "environments" && req.method === "POST") return handleAddEnvironment(supabase, flagName, req);
-    if (action === "apps" && req.method === "POST") return handleAddApp(supabase, flagName, req);
+    if (action === "toggle" && req.method === "POST")
+      return handleToggleFlag(supabase, flagName);
+    if (action === "evaluate" && req.method === "GET")
+      return handleEvaluateFlag(supabase, flagName, url);
+    if (action === "environments" && req.method === "POST")
+      return handleAddEnvironment(supabase, flagName, req);
+    if (action === "apps" && req.method === "POST")
+      return handleAddApp(supabase, flagName, req);
 
     return json({ error: "Not found" }, 404);
   } catch (error) {
-    return json({ error: error instanceof Error ? error.message : "Unknown error" }, 500);
+    return json(
+      { error: error instanceof Error ? error.message : "Unknown error" },
+      500
+    );
   }
 }
+
+console.log(`Feature Flag Service listening on port ${PORT}`);
+Bun.serve({ port: PORT, fetch: handler });

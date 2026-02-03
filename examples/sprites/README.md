@@ -1,35 +1,63 @@
-# Val.town Example: Feature Flag Service
+# Sprites.dev Example: Feature Flag Service
 
-Deploy a feature flag service on [Val.town](https://val.town) powered by nano-supabase with **persistent storage**.
+Deploy a feature flag service on [sprites.dev](https://sprites.dev) powered by nano-supabase with **persistent storage**.
 
 ## Features
 
-- Full PostgreSQL database running in WebAssembly
+- Full PostgreSQL database running via PGlite
 - Supabase-compatible query API
 - Per-environment overrides and app scoping
 - Percentage-based rollouts with deterministic hashing
-- **Persistent storage** via PGlite's `dumpDataDir`/`loadDataDir` (data survives cold starts)
+- **Persistent storage** via sprites.dev's persistent filesystem
 - CORS enabled for browser access
 
-## Quick Start (Web UI)
+## Quick Start
 
-1. Go to [val.town](https://val.town) and create a new val
-2. Copy the contents of all `.ts` files (`index.ts`, `persistence.ts`, `schema.ts`) into the editor
-3. **Important**: Set the val type to **HTTP** using the dropdown near the val name
-4. Your API is instantly live at `https://YOUR_USERNAME-YOUR_VAL_NAME.web.val.run`
-
-## Using the vt CLI
+### 1. Install the Sprites CLI
 
 ```bash
-npm install -g @valtown/vt
+npm install -g @anthropic/sprites
+```
 
-vt login
+### 2. Login and Deploy
 
-cd examples/valtown
-vt create my-flags . --no-editor-files --upload-if-exists --public
+```bash
+sprite login
 
-# Set the val type to HTTP on the web page
-vt browse
+cd examples/sprites
+./deploy.sh nano-flags
+```
+
+### 3. Start the Server
+
+```bash
+sprite exec -s nano-flags -dir /app bun run index.ts
+```
+
+Or run detached (keeps running after you disconnect):
+
+```bash
+sprite exec -s nano-flags -tty -dir /app bun run index.ts
+# Press Ctrl+\ to detach
+```
+
+### 4. Test It
+
+Your API is now live at `https://nano-flags-XXXX.sprites.app` (check your sprite's URL).
+
+```bash
+# Check API info
+curl https://nano-flags-XXXX.sprites.app/
+
+# Run full test suite
+./test.sh https://nano-flags-XXXX.sprites.app
+```
+
+## Running Locally
+
+```bash
+bun install
+bun run index.ts
 ```
 
 ## API Endpoints
@@ -50,32 +78,32 @@ vt browse
 ## Testing
 
 ```bash
-./test.sh https://YOUR_USERNAME-YOUR_VAL_NAME.web.val.run
+./test.sh https://nano-flags-XXXX.sprites.app
 ```
 
 Or test manually:
 
 ```bash
 # Create a flag with 50% rollout
-curl -X POST https://YOUR_URL/flags \
+curl -X POST https://nano-flags-XXXX.sprites.app/flags \
   -H "Content-Type: application/json" \
   -d '{"name": "dark-mode", "enabled": true, "rollout_percentage": 50}'
 
 # Add a production override (disabled)
-curl -X POST https://YOUR_URL/flags/dark-mode/environments \
+curl -X POST https://nano-flags-XXXX.sprites.app/flags/dark-mode/environments \
   -H "Content-Type: application/json" \
   -d '{"environment": "production", "enabled": false}'
 
 # Scope to a specific app
-curl -X POST https://YOUR_URL/flags/dark-mode/apps \
+curl -X POST https://nano-flags-XXXX.sprites.app/flags/dark-mode/apps \
   -H "Content-Type: application/json" \
   -d '{"app_name": "web-app"}'
 
 # Evaluate: is this flag active for web-app in staging?
-curl "https://YOUR_URL/flags/dark-mode/evaluate?app=web-app&environment=staging&identifier=user-123"
+curl "https://nano-flags-XXXX.sprites.app/flags/dark-mode/evaluate?app=web-app&environment=staging&identifier=user-123"
 
 # Toggle a flag
-curl -X POST https://YOUR_URL/flags/dark-mode/toggle
+curl -X POST https://nano-flags-XXXX.sprites.app/flags/dark-mode/toggle
 ```
 
 ## Evaluation Logic
@@ -91,20 +119,22 @@ When evaluating a flag (`GET /flags/:name/evaluate?app=x&environment=y`):
 
 ## Persistence
 
-The database is persisted using PGlite's built-in `dumpDataDir`/`loadDataDir`. On each write operation, the entire database is serialized as a gzipped tarball and stored in Val.town's blob storage. On cold start, the snapshot is loaded back, restoring all tables, indexes, and data atomically.
-
-The blob key is `nano-supabase-flags-db`.
+The database is stored on sprites.dev's persistent filesystem at `./data/pglite`. This filesystem survives sprite hibernation - when your sprite wakes from sleep, all data is intact.
 
 ## File Structure
 
-- `index.ts` - HTTP handler with all feature flag endpoints
-- `persistence.ts` - Database initialization and snapshot persistence
+- `index.ts` - HTTP server with all feature flag endpoints
+- `persistence.ts` - Database initialization with filesystem persistence
 - `schema.ts` - Table definitions (feature_flags, flag_environments, flag_apps)
+- `package.json` - Dependencies (only @electric-sql/pglite, nano-supabase is loaded via URL)
+- `deploy.sh` - Deployment script for sprites.dev
+- `test.sh` - API test script
 
-## Troubleshooting
+## Sprites Lifecycle
 
-**"Not found" response**: The val type isn't set to HTTP. Go to the val's page and change the type dropdown to "HTTP".
+Sprites automatically hibernate when idle and wake on incoming requests:
 
-**"Invalid version provided" error**: Try deleting the val and creating a new one with a different name, or clear Val.town's module cache by changing the import URL (add `?v=2`).
+- **Warm resume**: ~100-500ms when sprite was recently active
+- **Cold resume**: 1-2s for longer hibernation periods
 
-**Import errors**: Make sure you're using the exact versions specified in the import statements.
+Running processes stop during hibernation, but the database files persist. On wake, the server restarts and PGlite reloads from disk automatically.

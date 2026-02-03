@@ -1,0 +1,13 @@
+{
+  "name": "nano-supabase-sprites-example",
+  "version": "1.0.0",
+  "description": "Feature flag service on sprites.dev using nano-supabase",
+  "type": "module",
+  "scripts": {
+    "start": "bun run index.ts"
+  },
+  "dependencies": {
+    "@electric-sql/pglite": "^0.2.17",
+    "nano-supabase": "github:filipecabaco/nano-supabase"
+  }
+}
