@@ -28,20 +28,7 @@ cd examples/sprites
 ./deploy.sh nano-flags
 ```
 
-### 3. Start the Server
-
-```bash
-sprite exec -s nano-flags -dir /app bun run index.ts
-```
-
-Or run detached (keeps running after you disconnect):
-
-```bash
-sprite exec -s nano-flags -tty -dir /app bun run index.ts
-# Press Ctrl+\ to detach
-```
-
-### 4. Test It
+### 3. Test It
 
 Your API is now live at `https://nano-flags-XXXX.sprites.app` (check your sprite's URL).
 
@@ -126,7 +113,7 @@ The database is stored on sprites.dev's persistent filesystem at `./data/pglite`
 - `index.ts` - HTTP server with all feature flag endpoints
 - `persistence.ts` - Database initialization with filesystem persistence
 - `schema.ts` - Table definitions (feature_flags, flag_environments, flag_apps)
-- `package.json` - Dependencies (only @electric-sql/pglite, nano-supabase is loaded via URL)
+- `package.json` - Dependencies (@electric-sql/pglite, nano-supabase from GitHub)
 - `deploy.sh` - Deployment script for sprites.dev
 - `test.sh` - API test script
 
@@ -137,4 +124,34 @@ Sprites automatically hibernate when idle and wake on incoming requests:
 - **Warm resume**: ~100-500ms when sprite was recently active
 - **Cold resume**: 1-2s for longer hibernation periods
 
-Running processes stop during hibernation, but the database files persist. On wake, the server restarts and PGlite reloads from disk automatically.
+### How Auto-Wake Works
+
+1. Sprite goes to sleep when idle (no active connections)
+2. HTTP request arrives at `https://your-sprite.sprites.app`
+3. Sprite wakes up automatically
+4. The `flags-api` service starts (configured with `--http-port 8080`)
+5. Request is processed and response returned
+
+Running processes stop during hibernation, but:
+- **Database files persist** on the filesystem
+- **Service configuration persists** and auto-restarts on wake
+- **No manual intervention needed** - just send requests!
+
+## Managing the Service
+
+```bash
+# List services
+sprite exec -s nano-flags sprite-env services list
+
+# View service status
+sprite exec -s nano-flags sprite-env services get flags-api
+
+# View logs
+sprite exec -s nano-flags cat /.sprite/logs/services/flags-api.log
+
+# Restart the service
+sprite exec -s nano-flags sprite-env services restart flags-api
+
+# Stop the service
+sprite exec -s nano-flags sprite-env services stop flags-api
+```

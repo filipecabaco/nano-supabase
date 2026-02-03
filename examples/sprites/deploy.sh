@@ -23,18 +23,25 @@ echo "   Done"
 echo "4. Installing dependencies..."
 sprite exec -s "$SPRITE_NAME" -dir /app bun install
 
-echo "5. Making URL public..."
+echo "5. Creating auto-start service..."
+sprite exec -s "$SPRITE_NAME" sprite-env services delete flags-api 2>/dev/null || true
+sprite exec -s "$SPRITE_NAME" sprite-env services create flags-api \
+  --cmd /bin/bash \
+  --args "-c,cd /app && bun run index.ts" \
+  --http-port 8080 \
+  --no-stream
+
+echo "6. Making URL public..."
 sprite url update -s "$SPRITE_NAME" --auth public 2>/dev/null || echo "   Already public"
 
 echo ""
 echo "=== Deployment complete ==="
 echo ""
-echo "Start the server with:"
-echo "  sprite exec -s $SPRITE_NAME -dir /app bun run index.ts"
+echo "The service 'flags-api' will auto-start on HTTP requests."
 echo ""
-echo "Or run in background (detached):"
-echo "  sprite exec -s $SPRITE_NAME -tty -dir /app bun run index.ts"
-echo "  (then press Ctrl+\\ to detach)"
+echo "Manage the service with:"
+echo "  sprite exec -s $SPRITE_NAME sprite-env services list"
+echo "  sprite exec -s $SPRITE_NAME sprite-env services restart flags-api"
 echo ""
 echo "Your API will be at: https://$SPRITE_NAME-XXXX.sprites.app"
 echo "Check exact URL with: sprite list"
