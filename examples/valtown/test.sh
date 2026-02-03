@@ -1,7 +1,4 @@
 #!/bin/bash
-# Test script for nano-supabase Val.town API
-# Usage: ./test.sh <BASE_URL>
-
 set -e
 
 if [ -z "$1" ]; then
@@ -13,73 +10,96 @@ if [ -z "$1" ]; then
 fi
 
 BASE="$1"
+FMT="python3 -m json.tool 2>/dev/null"
 
-echo "=== nano-supabase Val.town API Test ==="
+pp() { python3 -m json.tool 2>/dev/null || cat; }
+
+echo "=== nano-supabase Feature Flag Service Test ==="
 echo "Base URL: $BASE"
 echo ""
 
-# Check API info
 echo "1. API Info:"
-curl -s "$BASE/" | python3 -m json.tool 2>/dev/null || curl -s "$BASE/"
+curl -s "$BASE/" | pp
 echo ""
 
-# Get current stats
-echo "2. Current Stats:"
-curl -s "$BASE/stats" | python3 -m json.tool 2>/dev/null || curl -s "$BASE/stats"
-echo ""
-
-# Create a conversation
-echo "3. Creating conversation..."
-CONV_RESPONSE=$(curl -s -X POST "$BASE/conversations" \
+echo "2. Creating feature flag 'dark-mode'..."
+FLAG_RESPONSE=$(curl -s -X POST "$BASE/flags" \
   -H "Content-Type: application/json" \
-  -d '{"title": "Test Conversation"}')
-echo "$CONV_RESPONSE" | python3 -m json.tool 2>/dev/null || echo "$CONV_RESPONSE"
-
-# Extract conversation ID
-CONV_ID=$(echo "$CONV_RESPONSE" | python3 -c "import sys,json; print(json.load(sys.stdin)['data']['id'])" 2>/dev/null)
-
-if [ -z "$CONV_ID" ]; then
-  echo "Failed to create conversation"
-  exit 1
-fi
-
-echo ""
-echo "Conversation ID: $CONV_ID"
+  -d '{"name": "dark-mode", "description": "Enable dark mode UI", "enabled": false, "rollout_percentage": 50}')
+echo "$FLAG_RESPONSE" | pp
 echo ""
 
-# Add user message
-echo "4. Adding user message..."
-curl -s -X POST "$BASE/messages" \
+echo "3. Creating feature flag 'new-checkout'..."
+curl -s -X POST "$BASE/flags" \
   -H "Content-Type: application/json" \
-  -d "{\"conversation_id\": \"$CONV_ID\", \"role\": \"user\", \"content\": \"Hello! How are you?\", \"tokens\": 6}" \
-  | python3 -m json.tool 2>/dev/null
+  -d '{"name": "new-checkout", "description": "Redesigned checkout flow", "enabled": true}' | pp
 echo ""
 
-# Add assistant message
-echo "5. Adding assistant message..."
-curl -s -X POST "$BASE/messages" \
+echo "4. Listing all flags..."
+curl -s "$BASE/flags" | pp
+echo ""
+
+echo "5. Getting 'dark-mode' details..."
+curl -s "$BASE/flags/dark-mode" | pp
+echo ""
+
+echo "6. Toggling 'dark-mode' on..."
+curl -s -X POST "$BASE/flags/dark-mode/toggle" | pp
+echo ""
+
+echo "7. Adding environment override (production=disabled)..."
+curl -s -X POST "$BASE/flags/dark-mode/environments" \
   -H "Content-Type: application/json" \
-  -d "{\"conversation_id\": \"$CONV_ID\", \"role\": \"assistant\", \"content\": \"I'm doing great! How can I help you today?\", \"tokens\": 10}" \
-  | python3 -m json.tool 2>/dev/null
+  -d '{"environment": "production", "enabled": false}' | pp
 echo ""
 
-# Get all messages for conversation
-echo "6. Getting conversation messages..."
-curl -s "$BASE/messages?conversation_id=$CONV_ID" | python3 -m json.tool 2>/dev/null
+echo "8. Adding environment override (staging=enabled)..."
+curl -s -X POST "$BASE/flags/dark-mode/environments" \
+  -H "Content-Type: application/json" \
+  -d '{"environment": "staging", "enabled": true}' | pp
 echo ""
 
-# List all conversations
-echo "7. Listing all conversations..."
-curl -s "$BASE/conversations" | python3 -m json.tool 2>/dev/null
+echo "9. Scoping 'dark-mode' to app 'web-app'..."
+curl -s -X POST "$BASE/flags/dark-mode/apps" \
+  -H "Content-Type: application/json" \
+  -d '{"app_name": "web-app"}' | pp
 echo ""
 
-# Final stats
-echo "8. Final Stats:"
-curl -s "$BASE/stats" | python3 -m json.tool 2>/dev/null
+echo "10. Evaluating 'dark-mode' for web-app/staging..."
+curl -s "$BASE/flags/dark-mode/evaluate?app=web-app&environment=staging&identifier=user-123" | pp
+echo ""
+
+echo "11. Evaluating 'dark-mode' for web-app/production (should be disabled)..."
+curl -s "$BASE/flags/dark-mode/evaluate?app=web-app&environment=production&identifier=user-123" | pp
+echo ""
+
+echo "12. Evaluating 'dark-mode' for mobile-app (not scoped, should fail)..."
+curl -s "$BASE/flags/dark-mode/evaluate?app=mobile-app&environment=staging&identifier=user-456" | pp
+echo ""
+
+echo "13. Updating 'dark-mode' rollout to 100%..."
+curl -s -X PATCH "$BASE/flags/dark-mode" \
+  -H "Content-Type: application/json" \
+  -d '{"rollout_percentage": 100}' | pp
+echo ""
+
+echo "14. Listing enabled flags only..."
+curl -s "$BASE/flags?enabled=true" | pp
+echo ""
+
+echo "15. Getting full 'dark-mode' details (with environments and apps)..."
+curl -s "$BASE/flags/dark-mode" | pp
+echo ""
+
+echo "16. Deleting 'new-checkout'..."
+curl -s -X DELETE "$BASE/flags/new-checkout" | pp
+echo ""
+
+echo "17. Final flag list..."
+curl -s "$BASE/flags" | pp
 echo ""
 
 echo "=== Test Complete ==="
 echo ""
-echo "To verify persistence, wait a few minutes and run:"
-echo "  curl $BASE/conversations"
-echo "  curl $BASE/stats"
+echo "To verify persistence, wait for a cold start and run:"
+echo "  curl $BASE/flags"

@@ -1,196 +1,310 @@
-/**
- * Val.town Example: AI Chat History API with nano-supabase
- *
- * A local PostgreSQL-powered chat store with persistent storage.
- * Data survives cold starts using Val.town's blob storage.
- *
- * To use:
- * 1. Go to https://val.town and create a new val
- * 2. Copy this code into the editor
- * 3. Set the val type to HTTP
- * 4. Your API is instantly live!
- */
+import { initDb, saveSnapshot } from "./persistence.ts";
 
-import { PGlite } from "npm:@electric-sql/pglite@0.2.17";
-import { createSupabaseClient } from "https://raw.githubusercontent.com/filipecabaco/nano-supabase/main/dist/index.js";
-import { blob } from "https://esm.town/v/std/blob";
+const HEADERS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type",
+};
 
-const BLOB_KEY = "nano-supabase-chat-db";
+function json(data: unknown, status = 200) {
+  return Response.json(data, { status, headers: HEADERS });
+}
 
-let db: PGlite | null = null;
-let supabase: Awaited<ReturnType<typeof createSupabaseClient>> | null = null;
-let initialized = false;
+function parseSegments(path: string) {
+  return path.split("/").filter(Boolean);
+}
 
-async function saveDb() {
-  if (!db) return;
-  try {
-    // Export all data as SQL statements
-    const conversations = await db.query("SELECT * FROM conversations");
-    const messages = await db.query("SELECT * FROM messages");
-    await blob.setJSON(BLOB_KEY, {
-      conversations: conversations.rows,
-      messages: messages.rows,
-      savedAt: new Date().toISOString(),
+function hashString(str: string): number {
+  let hash = 5381;
+  for (let i = 0; i < str.length; i++) {
+    hash = ((hash << 5) + hash + str.charCodeAt(i)) >>> 0;
+  }
+  return hash % 100;
+}
+
+async function getFlag(supabase: any, name: string) {
+  const { data, error } = await supabase
+    .from("feature_flags")
+    .select("*")
+    .eq("name", name)
+    .single();
+
+  if (error || !data) return null;
+  return data;
+}
+
+async function handleListFlags(supabase: any, url: URL) {
+  let query = supabase
+    .from("feature_flags")
+    .select("*")
+    .order("created_at", { ascending: false });
+
+  const enabled = url.searchParams.get("enabled");
+  if (enabled !== null) {
+    query = query.is("enabled", enabled === "true");
+  }
+
+  const app = url.searchParams.get("app");
+  if (app) {
+    const { data: appFlags } = await supabase
+      .from("flag_apps")
+      .select("*")
+      .eq("app_name", app);
+
+    if (appFlags?.length) {
+      query = query.in("id", appFlags.map((f: any) => f.flag_id));
+    }
+  }
+
+  const environment = url.searchParams.get("environment");
+  if (environment) {
+    const { data: envFlags } = await supabase
+      .from("flag_environments")
+      .select("*")
+      .eq("environment", environment);
+
+    if (envFlags?.length) {
+      query = query.in("id", envFlags.map((f: any) => f.flag_id));
+    }
+  }
+
+  const { data, error } = await query;
+  return json({ data, error: error?.message });
+}
+
+async function handleCreateFlag(supabase: any, req: Request) {
+  const body = await req.json();
+  const { error } = await supabase
+    .from("feature_flags")
+    .insert({
+      name: body.name,
+      description: body.description ?? "",
+      enabled: body.enabled ?? false,
+      rollout_percentage: body.rollout_percentage ?? 100,
     });
-    console.log("Saved database to blob storage");
-  } catch (e) {
-    console.error("Failed to save:", e);
-  }
+
+  if (error) return json({ error: error.message }, 400);
+  await saveSnapshot();
+
+  const created = await getFlag(supabase, body.name);
+  return json({ data: created }, 201);
 }
 
-async function restoreFromBlob(db: PGlite) {
-  try {
-    const saved = await blob.getJSON(BLOB_KEY) as {
-      conversations: Array<{ id: string; title: string; created_at: string }>;
-      messages: Array<{ id: string; conversation_id: string; role: string; content: string; tokens: number; created_at: string }>;
-    } | null;
+async function handleGetFlag(supabase: any, name: string) {
+  const flag = await getFlag(supabase, name);
+  if (!flag) return json({ error: "Flag not found" }, 404);
 
-    if (saved?.conversations) {
-      for (const conv of saved.conversations) {
-        await db.query(
-          `INSERT INTO conversations (id, title, created_at) VALUES ($1, $2, $3) ON CONFLICT (id) DO NOTHING`,
-          [conv.id, conv.title, conv.created_at]
-        );
-      }
-    }
-    if (saved?.messages) {
-      for (const msg of saved.messages) {
-        await db.query(
-          `INSERT INTO messages (id, conversation_id, role, content, tokens, created_at) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (id) DO NOTHING`,
-          [msg.id, msg.conversation_id, msg.role, msg.content, msg.tokens, msg.created_at]
-        );
-      }
-    }
-    return saved !== null;
-  } catch {
-    return false;
-  }
+  const { data: environments } = await supabase
+    .from("flag_environments")
+    .select("*")
+    .eq("flag_id", flag.id);
+
+  const { data: apps } = await supabase
+    .from("flag_apps")
+    .select("*")
+    .eq("flag_id", flag.id);
+
+  return json({ data: { ...flag, environments: environments ?? [], apps: apps ?? [] } });
 }
 
-async function initDb() {
-  if (!db || !initialized) {
-    db = new PGlite();
+async function handleUpdateFlag(supabase: any, name: string, req: Request) {
+  const body = await req.json();
+  const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
+  if (body.description !== undefined) updates.description = body.description;
+  if (body.enabled !== undefined) updates.enabled = body.enabled;
+  if (body.rollout_percentage !== undefined) updates.rollout_percentage = body.rollout_percentage;
 
-    // Create tables first
-    await db.exec(`
-      CREATE TABLE IF NOT EXISTS conversations (
-        id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
-        title TEXT,
-        created_at TIMESTAMPTZ DEFAULT now()
-      );
+  const { error } = await supabase
+    .from("feature_flags")
+    .update(updates)
+    .eq("name", name);
 
-      CREATE TABLE IF NOT EXISTS messages (
-        id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
-        conversation_id TEXT REFERENCES conversations(id),
-        role TEXT CHECK (role IN ('user', 'assistant', 'system')),
-        content TEXT NOT NULL,
-        tokens INTEGER,
-        created_at TIMESTAMPTZ DEFAULT now()
-      );
+  if (error) return json({ error: error.message }, 400);
+  await saveSnapshot();
 
-      CREATE INDEX IF NOT EXISTS idx_messages_conversation
-        ON messages(conversation_id, created_at);
-    `);
+  const updated = await getFlag(supabase, name);
+  return json({ data: updated });
+}
 
-    // Then restore data from blob
-    const restored = await restoreFromBlob(db);
-    console.log(restored ? "Restored from blob storage" : "Starting fresh");
+async function handleDeleteFlag(supabase: any, name: string) {
+  const flag = await getFlag(supabase, name);
+  if (!flag) return json({ error: "Flag not found" }, 404);
 
-    supabase = await createSupabaseClient(db);
-    initialized = true;
+  const { error } = await supabase
+    .from("feature_flags")
+    .delete()
+    .eq("name", name);
+
+  if (error) return json({ error: error.message }, 400);
+  await saveSnapshot();
+  return json({ data: { deleted: true } });
+}
+
+async function handleToggleFlag(supabase: any, name: string) {
+  const flag = await getFlag(supabase, name);
+  if (!flag) return json({ error: "Flag not found" }, 404);
+
+  const { error } = await supabase
+    .from("feature_flags")
+    .update({ enabled: !flag.enabled, updated_at: new Date().toISOString() })
+    .eq("name", name);
+
+  if (error) return json({ error: error.message }, 400);
+  await saveSnapshot();
+
+  const toggled = await getFlag(supabase, name);
+  return json({ data: toggled });
+}
+
+async function handleEvaluateFlag(supabase: any, name: string, url: URL) {
+  const app = url.searchParams.get("app");
+  const environment = url.searchParams.get("environment");
+  if (!app || !environment) {
+    return json({ error: "app and environment query params required" }, 400);
   }
-  return { db, supabase: supabase! };
+
+  const flag = await getFlag(supabase, name);
+  if (!flag) return json({ data: { flag_name: name, active: false, reason: "flag_not_found" } });
+
+  const { data: scopedApps } = await supabase
+    .from("flag_apps")
+    .select("*")
+    .eq("flag_id", flag.id);
+
+  if (scopedApps?.length) {
+    const isScoped = scopedApps.some((a: any) => a.app_name === app);
+    if (!isScoped) {
+      return json({ data: { flag_name: name, active: false, reason: "app_not_scoped" } });
+    }
+  }
+
+  let enabled = flag.enabled;
+
+  const { data: envOverride } = await supabase
+    .from("flag_environments")
+    .select("*")
+    .eq("flag_id", flag.id)
+    .eq("environment", environment)
+    .maybeSingle();
+
+  if (envOverride) {
+    enabled = envOverride.enabled;
+  }
+
+  if (!enabled) {
+    return json({ data: { flag_name: name, active: false, reason: "disabled" } });
+  }
+
+  if (flag.rollout_percentage < 100) {
+    const identifier = url.searchParams.get("identifier");
+    const roll = identifier ? hashString(identifier) : Math.floor(Math.random() * 100);
+    if (roll >= flag.rollout_percentage) {
+      return json({ data: { flag_name: name, active: false, reason: "rollout_excluded" } });
+    }
+  }
+
+  return json({ data: { flag_name: name, active: true } });
+}
+
+async function handleAddEnvironment(supabase: any, name: string, req: Request) {
+  const flag = await getFlag(supabase, name);
+  if (!flag) return json({ error: "Flag not found" }, 404);
+
+  const body = await req.json();
+  const { error } = await supabase
+    .from("flag_environments")
+    .insert({ flag_id: flag.id, environment: body.environment, enabled: body.enabled ?? false });
+
+  if (error) return json({ error: error.message }, 400);
+  await saveSnapshot();
+
+  const { data: created } = await supabase
+    .from("flag_environments")
+    .select("*")
+    .eq("flag_id", flag.id)
+    .eq("environment", body.environment)
+    .single();
+
+  return json({ data: created }, 201);
+}
+
+async function handleAddApp(supabase: any, name: string, req: Request) {
+  const flag = await getFlag(supabase, name);
+  if (!flag) return json({ error: "Flag not found" }, 404);
+
+  const body = await req.json();
+  const { error } = await supabase
+    .from("flag_apps")
+    .insert({ flag_id: flag.id, app_name: body.app_name });
+
+  if (error) return json({ error: error.message }, 400);
+  await saveSnapshot();
+
+  const { data: created } = await supabase
+    .from("flag_apps")
+    .select("*")
+    .eq("flag_id", flag.id)
+    .eq("app_name", body.app_name)
+    .single();
+
+  return json({ data: created }, 201);
 }
 
 export default async function handler(req: Request): Promise<Response> {
-  const url = new URL(req.url);
-  const path = url.pathname;
-
-  const headers = {
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type",
-  };
-
   if (req.method === "OPTIONS") {
-    return new Response(null, { headers });
+    return new Response(null, { headers: HEADERS });
   }
 
   try {
-    const { db, supabase } = await initDb();
+    const { supabase } = await initDb();
+    const url = new URL(req.url);
+    const segments = parseSegments(url.pathname);
 
-    // GET /conversations
-    if (req.method === "GET" && path === "/conversations") {
-      const { data, error } = await supabase
-        .from("conversations")
-        .select("*")
-        .order("created_at", { ascending: false });
-      return Response.json({ data, error: error?.message }, { headers });
+    if (segments.length === 0) {
+      return json({
+        message: "nano-supabase Feature Flag Service",
+        github: "https://github.com/filipecabaco/nano-supabase",
+        endpoints: [
+          "GET    /flags                              List flags (?enabled, ?app, ?environment)",
+          "POST   /flags                              Create flag { name, description?, enabled?, rollout_percentage? }",
+          "GET    /flags/:name                        Get flag details",
+          "PATCH  /flags/:name                        Update flag { description?, enabled?, rollout_percentage? }",
+          "DELETE /flags/:name                        Delete flag",
+          "POST   /flags/:name/toggle                 Toggle flag on/off",
+          "GET    /flags/:name/evaluate               Evaluate flag ?app=x&environment=y&identifier=z",
+          "POST   /flags/:name/environments           Add env override { environment, enabled }",
+          "POST   /flags/:name/apps                   Add app scope { app_name }",
+        ],
+      });
     }
 
-    // POST /conversations
-    if (req.method === "POST" && path === "/conversations") {
-      const body = await req.json();
-      const result = await db.query(
-        `INSERT INTO conversations (title) VALUES ($1) RETURNING *`,
-        [body.title || "New Chat"]
-      );
-      await saveDb();
-      return Response.json({ data: result.rows[0] }, { headers });
+    if (segments[0] !== "flags") {
+      return json({ error: "Not found" }, 404);
     }
 
-    // GET /messages?conversation_id=xxx
-    if (req.method === "GET" && path === "/messages") {
-      const conversationId = url.searchParams.get("conversation_id");
-      if (!conversationId) {
-        return Response.json({ error: "conversation_id required" }, { status: 400, headers });
-      }
-      const { data, error } = await supabase
-        .from("messages")
-        .select("*")
-        .eq("conversation_id", conversationId)
-        .order("created_at", { ascending: true });
-      return Response.json({ data, error: error?.message }, { headers });
+    if (segments.length === 1) {
+      if (req.method === "GET") return handleListFlags(supabase, url);
+      if (req.method === "POST") return handleCreateFlag(supabase, req);
+      return json({ error: "Method not allowed" }, 405);
     }
 
-    // POST /messages
-    if (req.method === "POST" && path === "/messages") {
-      const body = await req.json();
-      const result = await db.query(
-        `INSERT INTO messages (conversation_id, role, content, tokens)
-         VALUES ($1, $2, $3, $4) RETURNING *`,
-        [body.conversation_id, body.role, body.content, body.tokens || null]
-      );
-      await saveDb();
-      return Response.json({ data: result.rows[0] }, { headers });
+    const flagName = decodeURIComponent(segments[1]);
+    const action = segments[2];
+
+    if (!action) {
+      if (req.method === "GET") return handleGetFlag(supabase, flagName);
+      if (req.method === "PATCH") return handleUpdateFlag(supabase, flagName, req);
+      if (req.method === "DELETE") return handleDeleteFlag(supabase, flagName);
+      return json({ error: "Method not allowed" }, 405);
     }
 
-    // GET /stats
-    if (req.method === "GET" && path === "/stats") {
-      const result = await db.query(`
-        SELECT COUNT(*) as total_messages,
-               COALESCE(SUM(tokens), 0) as total_tokens,
-               COUNT(DISTINCT conversation_id) as conversations
-        FROM messages
-      `);
-      return Response.json({ data: result.rows[0] }, { headers });
-    }
+    if (action === "toggle" && req.method === "POST") return handleToggleFlag(supabase, flagName);
+    if (action === "evaluate" && req.method === "GET") return handleEvaluateFlag(supabase, flagName, url);
+    if (action === "environments" && req.method === "POST") return handleAddEnvironment(supabase, flagName, req);
+    if (action === "apps" && req.method === "POST") return handleAddApp(supabase, flagName, req);
 
-    return Response.json({
-      message: "nano-supabase Chat API (with persistence)",
-      github: "https://github.com/filipecabaco/nano-supabase",
-      endpoints: [
-        "GET  /conversations",
-        "POST /conversations { title }",
-        "GET  /messages?conversation_id=xxx",
-        "POST /messages { conversation_id, role, content, tokens? }",
-        "GET  /stats",
-      ],
-    }, { headers });
+    return json({ error: "Not found" }, 404);
   } catch (error) {
-    return Response.json(
-      { error: error instanceof Error ? error.message : "Unknown error" },
-      { status: 500, headers }
-    );
+    return json({ error: error instanceof Error ? error.message : "Unknown error" }, 500);
   }
 }
