@@ -22,6 +22,12 @@
     "build:types": "tsc --emitDeclarationOnly",
     "build:dev": "tsc",
     "clean": "rm -rf dist",
+    "test:bun": "bun test tests/",
+    "test:bun:auth": "bun test tests/auth.test.ts tests/auth-integration.test.ts",
+    "test:bun:integration": "bun test tests/integration.test.ts tests/auth-integration.test.ts",
+    "test:bun:parser": "bun test tests/postgrest-parser.test.ts",
+    "test:bun:storage": "bun test tests/storage.test.ts tests/storage-flow.test.ts",
+    "test:bun:pooler": "bun test tests/pooler.test.ts tests/queue.test.ts",
     "example:basic": "tsx examples/basic.ts",
     "example:server": "tsx examples/tcp-server.ts",
     "example:parser": "tsx examples/postgrest-parser.ts"

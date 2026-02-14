@@ -10,9 +10,11 @@ import { PGlite } from "@electric-sql/pglite";
 import { pgcrypto } from "@electric-sql/pglite/contrib/pgcrypto";
 import { createFetchAdapter } from "../src/client.ts";
 import {
+  test,
+  describe,
   assertEquals,
   assertExists,
-} from "https://deno.land/std@0.224.0/assert/mod.ts";
+} from "./compat.ts";
 
 const SUPABASE_URL = "http://localhost:54321";
 
@@ -37,521 +39,522 @@ async function signUp(
 // Bucket CRUD
 // ============================================================================
 
-Deno.test("Storage Buckets - Create bucket", async () => {
-  const db = new PGlite({ extensions: { pgcrypto } });
-  const { localFetch } = await createFetchAdapter({
-    db,
-    supabaseUrl: SUPABASE_URL,
-  });
-  const auth = await signUp(localFetch);
+describe("Storage Buckets", () => {
+  test("Create bucket", async () => {
+    const db = new PGlite({ extensions: { pgcrypto } });
+    const { localFetch } = await createFetchAdapter({
+      db,
+      supabaseUrl: SUPABASE_URL,
+    });
+    const auth = await signUp(localFetch);
 
-  const res = await localFetch(`${SUPABASE_URL}/storage/v1/bucket`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${auth.access_token}`,
-    },
-    body: JSON.stringify({ name: "avatars", public: false }),
-  });
+    const res = await localFetch(`${SUPABASE_URL}/storage/v1/bucket`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${auth.access_token}`,
+      },
+      body: JSON.stringify({ name: "avatars", public: false }),
+    });
 
-  assertEquals(res.status, 200);
-  const data = await res.json();
-  assertEquals(data.name, "avatars");
+    assertEquals(res.status, 200);
+    const data = await res.json();
+    assertEquals(data.name, "avatars");
 
-  await db.close();
-});
-
-Deno.test("Storage Buckets - Create public bucket", async () => {
-  const db = new PGlite({ extensions: { pgcrypto } });
-  const { localFetch } = await createFetchAdapter({
-    db,
-    supabaseUrl: SUPABASE_URL,
-  });
-  const auth = await signUp(localFetch);
-
-  const res = await localFetch(`${SUPABASE_URL}/storage/v1/bucket`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${auth.access_token}`,
-    },
-    body: JSON.stringify({ name: "public-assets", public: true }),
+    await db.close();
   });
 
-  assertEquals(res.status, 200);
+  test("Create public bucket", async () => {
+    const db = new PGlite({ extensions: { pgcrypto } });
+    const { localFetch } = await createFetchAdapter({
+      db,
+      supabaseUrl: SUPABASE_URL,
+    });
+    const auth = await signUp(localFetch);
 
-  // Verify it's public
-  const getRes = await localFetch(
-    `${SUPABASE_URL}/storage/v1/bucket/public-assets`,
-    {
+    const res = await localFetch(`${SUPABASE_URL}/storage/v1/bucket`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${auth.access_token}`,
+      },
+      body: JSON.stringify({ name: "public-assets", public: true }),
+    });
+
+    assertEquals(res.status, 200);
+
+    // Verify it's public
+    const getRes = await localFetch(
+      `${SUPABASE_URL}/storage/v1/bucket/public-assets`,
+      {
+        method: "GET",
+        headers: { Authorization: `Bearer ${auth.access_token}` },
+      },
+    );
+    const bucket = await getRes.json();
+    assertEquals(bucket.public, true);
+
+    await db.close();
+  });
+
+  test("List buckets", async () => {
+    const db = new PGlite({ extensions: { pgcrypto } });
+    const { localFetch } = await createFetchAdapter({
+      db,
+      supabaseUrl: SUPABASE_URL,
+    });
+    const auth = await signUp(localFetch);
+
+    // Create two buckets
+    for (const name of ["bucket-a", "bucket-b"]) {
+      await localFetch(`${SUPABASE_URL}/storage/v1/bucket`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${auth.access_token}`,
+        },
+        body: JSON.stringify({ name }),
+      });
+    }
+
+    const res = await localFetch(`${SUPABASE_URL}/storage/v1/bucket`, {
       method: "GET",
       headers: { Authorization: `Bearer ${auth.access_token}` },
-    },
-  );
-  const bucket = await getRes.json();
-  assertEquals(bucket.public, true);
+    });
 
-  await db.close();
-});
+    assertEquals(res.status, 200);
+    const buckets = await res.json();
+    assertEquals(buckets.length, 2);
 
-Deno.test("Storage Buckets - List buckets", async () => {
-  const db = new PGlite({ extensions: { pgcrypto } });
-  const { localFetch } = await createFetchAdapter({
-    db,
-    supabaseUrl: SUPABASE_URL,
+    await db.close();
   });
-  const auth = await signUp(localFetch);
 
-  // Create two buckets
-  for (const name of ["bucket-a", "bucket-b"]) {
+  test("Get bucket by ID", async () => {
+    const db = new PGlite({ extensions: { pgcrypto } });
+    const { localFetch } = await createFetchAdapter({
+      db,
+      supabaseUrl: SUPABASE_URL,
+    });
+    const auth = await signUp(localFetch);
+
     await localFetch(`${SUPABASE_URL}/storage/v1/bucket`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${auth.access_token}`,
       },
-      body: JSON.stringify({ name }),
+      body: JSON.stringify({ name: "my-bucket" }),
     });
-  }
 
-  const res = await localFetch(`${SUPABASE_URL}/storage/v1/bucket`, {
-    method: "GET",
-    headers: { Authorization: `Bearer ${auth.access_token}` },
-  });
-
-  assertEquals(res.status, 200);
-  const buckets = await res.json();
-  assertEquals(buckets.length, 2);
-
-  await db.close();
-});
-
-Deno.test("Storage Buckets - Get bucket by ID", async () => {
-  const db = new PGlite({ extensions: { pgcrypto } });
-  const { localFetch } = await createFetchAdapter({
-    db,
-    supabaseUrl: SUPABASE_URL,
-  });
-  const auth = await signUp(localFetch);
-
-  await localFetch(`${SUPABASE_URL}/storage/v1/bucket`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${auth.access_token}`,
-    },
-    body: JSON.stringify({ name: "my-bucket" }),
-  });
-
-  const res = await localFetch(`${SUPABASE_URL}/storage/v1/bucket/my-bucket`, {
-    method: "GET",
-    headers: { Authorization: `Bearer ${auth.access_token}` },
-  });
-
-  assertEquals(res.status, 200);
-  const bucket = await res.json();
-  assertEquals(bucket.name, "my-bucket");
-  assertEquals(bucket.public, false);
-
-  await db.close();
-});
-
-Deno.test("Storage Buckets - Get nonexistent bucket returns 404", async () => {
-  const db = new PGlite({ extensions: { pgcrypto } });
-  const { localFetch } = await createFetchAdapter({
-    db,
-    supabaseUrl: SUPABASE_URL,
-  });
-  const auth = await signUp(localFetch);
-
-  const res = await localFetch(
-    `${SUPABASE_URL}/storage/v1/bucket/nonexistent`,
-    {
+    const res = await localFetch(`${SUPABASE_URL}/storage/v1/bucket/my-bucket`, {
       method: "GET",
       headers: { Authorization: `Bearer ${auth.access_token}` },
-    },
-  );
+    });
 
-  assertEquals(res.status, 404);
+    assertEquals(res.status, 200);
+    const bucket = await res.json();
+    assertEquals(bucket.name, "my-bucket");
+    assertEquals(bucket.public, false);
 
-  await db.close();
-});
-
-Deno.test("Storage Buckets - Update bucket", async () => {
-  const db = new PGlite({ extensions: { pgcrypto } });
-  const { localFetch } = await createFetchAdapter({
-    db,
-    supabaseUrl: SUPABASE_URL,
-  });
-  const auth = await signUp(localFetch);
-
-  await localFetch(`${SUPABASE_URL}/storage/v1/bucket`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${auth.access_token}`,
-    },
-    body: JSON.stringify({ name: "update-me" }),
+    await db.close();
   });
 
-  const res = await localFetch(
-    `${SUPABASE_URL}/storage/v1/bucket/update-me`,
-    {
-      method: "PUT",
+  test("Get nonexistent bucket returns 404", async () => {
+    const db = new PGlite({ extensions: { pgcrypto } });
+    const { localFetch } = await createFetchAdapter({
+      db,
+      supabaseUrl: SUPABASE_URL,
+    });
+    const auth = await signUp(localFetch);
+
+    const res = await localFetch(
+      `${SUPABASE_URL}/storage/v1/bucket/nonexistent`,
+      {
+        method: "GET",
+        headers: { Authorization: `Bearer ${auth.access_token}` },
+      },
+    );
+
+    assertEquals(res.status, 404);
+
+    await db.close();
+  });
+
+  test("Update bucket", async () => {
+    const db = new PGlite({ extensions: { pgcrypto } });
+    const { localFetch } = await createFetchAdapter({
+      db,
+      supabaseUrl: SUPABASE_URL,
+    });
+    const auth = await signUp(localFetch);
+
+    await localFetch(`${SUPABASE_URL}/storage/v1/bucket`, {
+      method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${auth.access_token}`,
       },
-      body: JSON.stringify({ public: true, file_size_limit: 5242880 }),
-    },
-  );
+      body: JSON.stringify({ name: "update-me" }),
+    });
 
-  assertEquals(res.status, 200);
+    const res = await localFetch(
+      `${SUPABASE_URL}/storage/v1/bucket/update-me`,
+      {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${auth.access_token}`,
+        },
+        body: JSON.stringify({ public: true, file_size_limit: 5242880 }),
+      },
+    );
 
-  // Verify update
-  const getRes = await localFetch(
-    `${SUPABASE_URL}/storage/v1/bucket/update-me`,
-    {
-      method: "GET",
-      headers: { Authorization: `Bearer ${auth.access_token}` },
-    },
-  );
-  const bucket = await getRes.json();
-  assertEquals(bucket.public, true);
-  assertEquals(bucket.file_size_limit, 5242880);
+    assertEquals(res.status, 200);
 
-  await db.close();
-});
+    // Verify update
+    const getRes = await localFetch(
+      `${SUPABASE_URL}/storage/v1/bucket/update-me`,
+      {
+        method: "GET",
+        headers: { Authorization: `Bearer ${auth.access_token}` },
+      },
+    );
+    const bucket = await getRes.json();
+    assertEquals(bucket.public, true);
+    assertEquals(bucket.file_size_limit, 5242880);
 
-Deno.test("Storage Buckets - Delete empty bucket", async () => {
-  const db = new PGlite({ extensions: { pgcrypto } });
-  const { localFetch } = await createFetchAdapter({
-    db,
-    supabaseUrl: SUPABASE_URL,
-  });
-  const auth = await signUp(localFetch);
-
-  await localFetch(`${SUPABASE_URL}/storage/v1/bucket`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${auth.access_token}`,
-    },
-    body: JSON.stringify({ name: "delete-me" }),
+    await db.close();
   });
 
-  const res = await localFetch(
-    `${SUPABASE_URL}/storage/v1/bucket/delete-me`,
-    {
-      method: "DELETE",
-      headers: { Authorization: `Bearer ${auth.access_token}` },
-    },
-  );
+  test("Delete empty bucket", async () => {
+    const db = new PGlite({ extensions: { pgcrypto } });
+    const { localFetch } = await createFetchAdapter({
+      db,
+      supabaseUrl: SUPABASE_URL,
+    });
+    const auth = await signUp(localFetch);
 
-  assertEquals(res.status, 200);
+    await localFetch(`${SUPABASE_URL}/storage/v1/bucket`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${auth.access_token}`,
+      },
+      body: JSON.stringify({ name: "delete-me" }),
+    });
 
-  // Verify deleted
-  const getRes = await localFetch(
-    `${SUPABASE_URL}/storage/v1/bucket/delete-me`,
-    {
-      method: "GET",
-      headers: { Authorization: `Bearer ${auth.access_token}` },
-    },
-  );
-  assertEquals(getRes.status, 404);
+    const res = await localFetch(
+      `${SUPABASE_URL}/storage/v1/bucket/delete-me`,
+      {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${auth.access_token}` },
+      },
+    );
 
-  await db.close();
-});
+    assertEquals(res.status, 200);
 
-Deno.test("Storage Buckets - Cannot delete non-empty bucket", async () => {
-  const db = new PGlite({ extensions: { pgcrypto } });
-  const { localFetch } = await createFetchAdapter({
-    db,
-    supabaseUrl: SUPABASE_URL,
-  });
-  const auth = await signUp(localFetch);
+    // Verify deleted
+    const getRes = await localFetch(
+      `${SUPABASE_URL}/storage/v1/bucket/delete-me`,
+      {
+        method: "GET",
+        headers: { Authorization: `Bearer ${auth.access_token}` },
+      },
+    );
+    assertEquals(getRes.status, 404);
 
-  await localFetch(`${SUPABASE_URL}/storage/v1/bucket`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${auth.access_token}`,
-    },
-    body: JSON.stringify({ name: "has-files" }),
-  });
-
-  // Upload a file
-  await localFetch(`${SUPABASE_URL}/storage/v1/object/has-files/test.txt`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "text/plain",
-      Authorization: `Bearer ${auth.access_token}`,
-    },
-    body: "hello",
+    await db.close();
   });
 
-  // Try to delete - should fail
-  const res = await localFetch(
-    `${SUPABASE_URL}/storage/v1/bucket/has-files`,
-    {
-      method: "DELETE",
-      headers: { Authorization: `Bearer ${auth.access_token}` },
-    },
-  );
+  test("Cannot delete non-empty bucket", async () => {
+    const db = new PGlite({ extensions: { pgcrypto } });
+    const { localFetch } = await createFetchAdapter({
+      db,
+      supabaseUrl: SUPABASE_URL,
+    });
+    const auth = await signUp(localFetch);
 
-  assertEquals(res.status, 500);
-  const data = await res.json();
-  assertExists(data.message);
+    await localFetch(`${SUPABASE_URL}/storage/v1/bucket`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${auth.access_token}`,
+      },
+      body: JSON.stringify({ name: "has-files" }),
+    });
 
-  await db.close();
-});
-
-Deno.test("Storage Buckets - Empty bucket removes all objects", async () => {
-  const db = new PGlite({ extensions: { pgcrypto } });
-  const { localFetch } = await createFetchAdapter({
-    db,
-    supabaseUrl: SUPABASE_URL,
-  });
-  const auth = await signUp(localFetch);
-
-  await localFetch(`${SUPABASE_URL}/storage/v1/bucket`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${auth.access_token}`,
-    },
-    body: JSON.stringify({ name: "to-empty" }),
-  });
-
-  // Upload files
-  for (const name of ["a.txt", "b.txt"]) {
-    await localFetch(`${SUPABASE_URL}/storage/v1/object/to-empty/${name}`, {
+    // Upload a file
+    await localFetch(`${SUPABASE_URL}/storage/v1/object/has-files/test.txt`, {
       method: "POST",
       headers: {
         "Content-Type": "text/plain",
         Authorization: `Bearer ${auth.access_token}`,
       },
-      body: `content of ${name}`,
+      body: "hello",
     });
-  }
 
-  // Empty bucket
-  const emptyRes = await localFetch(
-    `${SUPABASE_URL}/storage/v1/bucket/to-empty/empty`,
-    {
+    // Try to delete - should fail
+    const res = await localFetch(
+      `${SUPABASE_URL}/storage/v1/bucket/has-files`,
+      {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${auth.access_token}` },
+      },
+    );
+
+    assertEquals(res.status, 500);
+    const data = await res.json();
+    assertExists(data.message);
+
+    await db.close();
+  });
+
+  test("Empty bucket removes all objects", async () => {
+    const db = new PGlite({ extensions: { pgcrypto } });
+    const { localFetch } = await createFetchAdapter({
+      db,
+      supabaseUrl: SUPABASE_URL,
+    });
+    const auth = await signUp(localFetch);
+
+    await localFetch(`${SUPABASE_URL}/storage/v1/bucket`, {
       method: "POST",
-      headers: { Authorization: `Bearer ${auth.access_token}` },
-    },
-  );
-  assertEquals(emptyRes.status, 200);
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${auth.access_token}`,
+      },
+      body: JSON.stringify({ name: "to-empty" }),
+    });
 
-  // Now delete should work
-  const deleteRes = await localFetch(
-    `${SUPABASE_URL}/storage/v1/bucket/to-empty`,
-    {
-      method: "DELETE",
-      headers: { Authorization: `Bearer ${auth.access_token}` },
-    },
-  );
-  assertEquals(deleteRes.status, 200);
+    // Upload files
+    for (const name of ["a.txt", "b.txt"]) {
+      await localFetch(`${SUPABASE_URL}/storage/v1/object/to-empty/${name}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "text/plain",
+          Authorization: `Bearer ${auth.access_token}`,
+        },
+        body: `content of ${name}`,
+      });
+    }
 
-  await db.close();
-});
+    // Empty bucket
+    const emptyRes = await localFetch(
+      `${SUPABASE_URL}/storage/v1/bucket/to-empty/empty`,
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${auth.access_token}` },
+      },
+    );
+    assertEquals(emptyRes.status, 200);
 
-Deno.test("Storage Buckets - Duplicate bucket returns error", async () => {
-  const db = new PGlite({ extensions: { pgcrypto } });
-  const { localFetch } = await createFetchAdapter({
-    db,
-    supabaseUrl: SUPABASE_URL,
-  });
-  const auth = await signUp(localFetch);
+    // Now delete should work
+    const deleteRes = await localFetch(
+      `${SUPABASE_URL}/storage/v1/bucket/to-empty`,
+      {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${auth.access_token}` },
+      },
+    );
+    assertEquals(deleteRes.status, 200);
 
-  await localFetch(`${SUPABASE_URL}/storage/v1/bucket`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${auth.access_token}`,
-    },
-    body: JSON.stringify({ name: "unique-name" }),
-  });
-
-  const res = await localFetch(`${SUPABASE_URL}/storage/v1/bucket`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${auth.access_token}`,
-    },
-    body: JSON.stringify({ name: "unique-name" }),
+    await db.close();
   });
 
-  assertEquals(res.status, 409);
+  test("Duplicate bucket returns error", async () => {
+    const db = new PGlite({ extensions: { pgcrypto } });
+    const { localFetch } = await createFetchAdapter({
+      db,
+      supabaseUrl: SUPABASE_URL,
+    });
+    const auth = await signUp(localFetch);
 
-  await db.close();
+    await localFetch(`${SUPABASE_URL}/storage/v1/bucket`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${auth.access_token}`,
+      },
+      body: JSON.stringify({ name: "unique-name" }),
+    });
+
+    const res = await localFetch(`${SUPABASE_URL}/storage/v1/bucket`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${auth.access_token}`,
+      },
+      body: JSON.stringify({ name: "unique-name" }),
+    });
+
+    assertEquals(res.status, 409);
+
+    await db.close();
+  });
 });
 
 // ============================================================================
 // Object Upload & Download
 // ============================================================================
 
-Deno.test("Storage Objects - Upload and download file", async () => {
-  const db = new PGlite({ extensions: { pgcrypto } });
-  const { localFetch } = await createFetchAdapter({
-    db,
-    supabaseUrl: SUPABASE_URL,
-  });
-  const auth = await signUp(localFetch);
+describe("Storage Objects", () => {
+  test("Upload and download file", async () => {
+    const db = new PGlite({ extensions: { pgcrypto } });
+    const { localFetch } = await createFetchAdapter({
+      db,
+      supabaseUrl: SUPABASE_URL,
+    });
+    const auth = await signUp(localFetch);
 
-  await localFetch(`${SUPABASE_URL}/storage/v1/bucket`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${auth.access_token}`,
-    },
-    body: JSON.stringify({ name: "files" }),
-  });
-
-  // Upload
-  const uploadRes = await localFetch(
-    `${SUPABASE_URL}/storage/v1/object/files/hello.txt`,
-    {
+    await localFetch(`${SUPABASE_URL}/storage/v1/bucket`, {
       method: "POST",
       headers: {
-        "Content-Type": "text/plain",
+        "Content-Type": "application/json",
         Authorization: `Bearer ${auth.access_token}`,
       },
-      body: "Hello, world!",
-    },
-  );
+      body: JSON.stringify({ name: "files" }),
+    });
 
-  assertEquals(uploadRes.status, 200);
-  const uploadData = await uploadRes.json();
-  assertExists(uploadData.Key);
-  assertEquals(uploadData.Key, "files/hello.txt");
+    // Upload
+    const uploadRes = await localFetch(
+      `${SUPABASE_URL}/storage/v1/object/files/hello.txt`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "text/plain",
+          Authorization: `Bearer ${auth.access_token}`,
+        },
+        body: "Hello, world!",
+      },
+    );
 
-  // Download
-  const downloadRes = await localFetch(
-    `${SUPABASE_URL}/storage/v1/object/files/hello.txt`,
-    {
-      method: "GET",
-      headers: { Authorization: `Bearer ${auth.access_token}` },
-    },
-  );
+    assertEquals(uploadRes.status, 200);
+    const uploadData = await uploadRes.json();
+    assertExists(uploadData.Key);
+    assertEquals(uploadData.Key, "files/hello.txt");
 
-  assertEquals(downloadRes.status, 200);
-  assertEquals(downloadRes.headers.get("Content-Type"), "text/plain");
-  const text = await downloadRes.text();
-  assertEquals(text, "Hello, world!");
+    // Download
+    const downloadRes = await localFetch(
+      `${SUPABASE_URL}/storage/v1/object/files/hello.txt`,
+      {
+        method: "GET",
+        headers: { Authorization: `Bearer ${auth.access_token}` },
+      },
+    );
 
-  await db.close();
-});
+    assertEquals(downloadRes.status, 200);
+    assertEquals(downloadRes.headers.get("Content-Type"), "text/plain");
+    const text = await downloadRes.text();
+    assertEquals(text, "Hello, world!");
 
-Deno.test("Storage Objects - Upload binary file", async () => {
-  const db = new PGlite({ extensions: { pgcrypto } });
-  const { localFetch } = await createFetchAdapter({
-    db,
-    supabaseUrl: SUPABASE_URL,
-  });
-  const auth = await signUp(localFetch);
-
-  await localFetch(`${SUPABASE_URL}/storage/v1/bucket`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${auth.access_token}`,
-    },
-    body: JSON.stringify({ name: "binaries" }),
+    await db.close();
   });
 
-  const binaryData = new Uint8Array([0, 1, 2, 3, 255, 254, 253]);
+  test("Upload binary file", async () => {
+    const db = new PGlite({ extensions: { pgcrypto } });
+    const { localFetch } = await createFetchAdapter({
+      db,
+      supabaseUrl: SUPABASE_URL,
+    });
+    const auth = await signUp(localFetch);
 
-  const uploadRes = await localFetch(
-    `${SUPABASE_URL}/storage/v1/object/binaries/data.bin`,
-    {
+    await localFetch(`${SUPABASE_URL}/storage/v1/bucket`, {
       method: "POST",
       headers: {
-        "Content-Type": "application/octet-stream",
+        "Content-Type": "application/json",
         Authorization: `Bearer ${auth.access_token}`,
       },
-      body: binaryData,
-    },
-  );
+      body: JSON.stringify({ name: "binaries" }),
+    });
 
-  assertEquals(uploadRes.status, 200);
+    const binaryData = new Uint8Array([0, 1, 2, 3, 255, 254, 253]);
 
-  // Download and verify
-  const downloadRes = await localFetch(
-    `${SUPABASE_URL}/storage/v1/object/binaries/data.bin`,
-    {
-      method: "GET",
-      headers: { Authorization: `Bearer ${auth.access_token}` },
-    },
-  );
+    const uploadRes = await localFetch(
+      `${SUPABASE_URL}/storage/v1/object/binaries/data.bin`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/octet-stream",
+          Authorization: `Bearer ${auth.access_token}`,
+        },
+        body: binaryData,
+      },
+    );
 
-  assertEquals(downloadRes.status, 200);
-  const downloaded = new Uint8Array(await downloadRes.arrayBuffer());
-  assertEquals(downloaded, binaryData);
+    assertEquals(uploadRes.status, 200);
 
-  await db.close();
-});
+    // Download and verify
+    const downloadRes = await localFetch(
+      `${SUPABASE_URL}/storage/v1/object/binaries/data.bin`,
+      {
+        method: "GET",
+        headers: { Authorization: `Bearer ${auth.access_token}` },
+      },
+    );
 
-Deno.test("Storage Objects - Upload to nonexistent bucket fails", async () => {
-  const db = new PGlite({ extensions: { pgcrypto } });
-  const { localFetch } = await createFetchAdapter({
-    db,
-    supabaseUrl: SUPABASE_URL,
+    assertEquals(downloadRes.status, 200);
+    const downloaded = new Uint8Array(await downloadRes.arrayBuffer());
+    assertEquals(downloaded, binaryData);
+
+    await db.close();
   });
-  const auth = await signUp(localFetch);
 
-  const res = await localFetch(
-    `${SUPABASE_URL}/storage/v1/object/no-bucket/file.txt`,
-    {
+  test("Upload to nonexistent bucket fails", async () => {
+    const db = new PGlite({ extensions: { pgcrypto } });
+    const { localFetch } = await createFetchAdapter({
+      db,
+      supabaseUrl: SUPABASE_URL,
+    });
+    const auth = await signUp(localFetch);
+
+    const res = await localFetch(
+      `${SUPABASE_URL}/storage/v1/object/no-bucket/file.txt`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "text/plain",
+          Authorization: `Bearer ${auth.access_token}`,
+        },
+        body: "test",
+      },
+    );
+
+    assertEquals(res.status, 500);
+
+    await db.close();
+  });
+
+  test("Download nonexistent file returns 404", async () => {
+    const db = new PGlite({ extensions: { pgcrypto } });
+    const { localFetch } = await createFetchAdapter({
+      db,
+      supabaseUrl: SUPABASE_URL,
+    });
+    const auth = await signUp(localFetch);
+
+    await localFetch(`${SUPABASE_URL}/storage/v1/bucket`, {
       method: "POST",
       headers: {
-        "Content-Type": "text/plain",
+        "Content-Type": "application/json",
         Authorization: `Bearer ${auth.access_token}`,
       },
-      body: "test",
-    },
-  );
+      body: JSON.stringify({ name: "empty-bucket" }),
+    });
 
-  assertEquals(res.status, 500);
+    const res = await localFetch(
+      `${SUPABASE_URL}/storage/v1/object/empty-bucket/nope.txt`,
+      {
+        method: "GET",
+        headers: { Authorization: `Bearer ${auth.access_token}` },
+      },
+    );
 
-  await db.close();
-});
+    assertEquals(res.status, 404);
 
-Deno.test("Storage Objects - Download nonexistent file returns 404", async () => {
-  const db = new PGlite({ extensions: { pgcrypto } });
-  const { localFetch } = await createFetchAdapter({
-    db,
-    supabaseUrl: SUPABASE_URL,
-  });
-  const auth = await signUp(localFetch);
-
-  await localFetch(`${SUPABASE_URL}/storage/v1/bucket`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${auth.access_token}`,
-    },
-    body: JSON.stringify({ name: "empty-bucket" }),
+    await db.close();
   });
 
-  const res = await localFetch(
-    `${SUPABASE_URL}/storage/v1/object/empty-bucket/nope.txt`,
-    {
-      method: "GET",
-      headers: { Authorization: `Bearer ${auth.access_token}` },
-    },
-  );
-
-  assertEquals(res.status, 404);
-
-  await db.close();
-});
-
-Deno.test(
-  "Storage Objects - Duplicate upload without upsert fails",
-  async () => {
+  test("Duplicate upload without upsert fails", async () => {
     const db = new PGlite({ extensions: { pgcrypto } });
     const { localFetch } = await createFetchAdapter({
       db,
@@ -594,170 +597,169 @@ Deno.test(
     assertEquals(res.status, 409);
 
     await db.close();
-  },
-);
-
-Deno.test("Storage Objects - Upsert via x-upsert header", async () => {
-  const db = new PGlite({ extensions: { pgcrypto } });
-  const { localFetch } = await createFetchAdapter({
-    db,
-    supabaseUrl: SUPABASE_URL,
-  });
-  const auth = await signUp(localFetch);
-
-  await localFetch(`${SUPABASE_URL}/storage/v1/bucket`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${auth.access_token}`,
-    },
-    body: JSON.stringify({ name: "upsert-test" }),
   });
 
-  // First upload
-  await localFetch(
-    `${SUPABASE_URL}/storage/v1/object/upsert-test/file.txt`,
-    {
+  test("Upsert via x-upsert header", async () => {
+    const db = new PGlite({ extensions: { pgcrypto } });
+    const { localFetch } = await createFetchAdapter({
+      db,
+      supabaseUrl: SUPABASE_URL,
+    });
+    const auth = await signUp(localFetch);
+
+    await localFetch(`${SUPABASE_URL}/storage/v1/bucket`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${auth.access_token}`,
+      },
+      body: JSON.stringify({ name: "upsert-test" }),
+    });
+
+    // First upload
+    await localFetch(
+      `${SUPABASE_URL}/storage/v1/object/upsert-test/file.txt`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "text/plain",
+          Authorization: `Bearer ${auth.access_token}`,
+        },
+        body: "original",
+      },
+    );
+
+    // Upsert with x-upsert header
+    const res = await localFetch(
+      `${SUPABASE_URL}/storage/v1/object/upsert-test/file.txt`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "text/plain",
+          "x-upsert": "true",
+          Authorization: `Bearer ${auth.access_token}`,
+        },
+        body: "updated",
+      },
+    );
+
+    assertEquals(res.status, 200);
+
+    // Verify content was updated
+    const downloadRes = await localFetch(
+      `${SUPABASE_URL}/storage/v1/object/upsert-test/file.txt`,
+      {
+        method: "GET",
+        headers: { Authorization: `Bearer ${auth.access_token}` },
+      },
+    );
+    const text = await downloadRes.text();
+    assertEquals(text, "updated");
+
+    await db.close();
+  });
+
+  test("Update via PUT (upsert)", async () => {
+    const db = new PGlite({ extensions: { pgcrypto } });
+    const { localFetch } = await createFetchAdapter({
+      db,
+      supabaseUrl: SUPABASE_URL,
+    });
+    const auth = await signUp(localFetch);
+
+    await localFetch(`${SUPABASE_URL}/storage/v1/bucket`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${auth.access_token}`,
+      },
+      body: JSON.stringify({ name: "put-test" }),
+    });
+
+    // First upload via POST
+    await localFetch(`${SUPABASE_URL}/storage/v1/object/put-test/file.txt`, {
       method: "POST",
       headers: {
         "Content-Type": "text/plain",
         Authorization: `Bearer ${auth.access_token}`,
       },
-      body: "original",
-    },
-  );
+      body: "v1",
+    });
 
-  // Upsert with x-upsert header
-  const res = await localFetch(
-    `${SUPABASE_URL}/storage/v1/object/upsert-test/file.txt`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "text/plain",
-        "x-upsert": "true",
-        Authorization: `Bearer ${auth.access_token}`,
+    // Update via PUT
+    const res = await localFetch(
+      `${SUPABASE_URL}/storage/v1/object/put-test/file.txt`,
+      {
+        method: "PUT",
+        headers: {
+          "Content-Type": "text/plain",
+          Authorization: `Bearer ${auth.access_token}`,
+        },
+        body: "v2",
       },
-      body: "updated",
-    },
-  );
+    );
 
-  assertEquals(res.status, 200);
+    assertEquals(res.status, 200);
 
-  // Verify content was updated
-  const downloadRes = await localFetch(
-    `${SUPABASE_URL}/storage/v1/object/upsert-test/file.txt`,
-    {
-      method: "GET",
-      headers: { Authorization: `Bearer ${auth.access_token}` },
-    },
-  );
-  const text = await downloadRes.text();
-  assertEquals(text, "updated");
-
-  await db.close();
-});
-
-Deno.test("Storage Objects - Update via PUT (upsert)", async () => {
-  const db = new PGlite({ extensions: { pgcrypto } });
-  const { localFetch } = await createFetchAdapter({
-    db,
-    supabaseUrl: SUPABASE_URL,
-  });
-  const auth = await signUp(localFetch);
-
-  await localFetch(`${SUPABASE_URL}/storage/v1/bucket`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${auth.access_token}`,
-    },
-    body: JSON.stringify({ name: "put-test" }),
-  });
-
-  // First upload via POST
-  await localFetch(`${SUPABASE_URL}/storage/v1/object/put-test/file.txt`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "text/plain",
-      Authorization: `Bearer ${auth.access_token}`,
-    },
-    body: "v1",
-  });
-
-  // Update via PUT
-  const res = await localFetch(
-    `${SUPABASE_URL}/storage/v1/object/put-test/file.txt`,
-    {
-      method: "PUT",
-      headers: {
-        "Content-Type": "text/plain",
-        Authorization: `Bearer ${auth.access_token}`,
+    // Verify
+    const downloadRes = await localFetch(
+      `${SUPABASE_URL}/storage/v1/object/put-test/file.txt`,
+      {
+        method: "GET",
+        headers: { Authorization: `Bearer ${auth.access_token}` },
       },
-      body: "v2",
-    },
-  );
+    );
+    assertEquals(await downloadRes.text(), "v2");
 
-  assertEquals(res.status, 200);
-
-  // Verify
-  const downloadRes = await localFetch(
-    `${SUPABASE_URL}/storage/v1/object/put-test/file.txt`,
-    {
-      method: "GET",
-      headers: { Authorization: `Bearer ${auth.access_token}` },
-    },
-  );
-  assertEquals(await downloadRes.text(), "v2");
-
-  await db.close();
+    await db.close();
+  });
 });
 
 // ============================================================================
 // Object Exists (HEAD)
 // ============================================================================
 
-Deno.test("Storage Objects - HEAD returns 200 for existing file", async () => {
-  const db = new PGlite({ extensions: { pgcrypto } });
-  const { localFetch } = await createFetchAdapter({
-    db,
-    supabaseUrl: SUPABASE_URL,
+describe("Object Exists (HEAD)", () => {
+  test("HEAD returns 200 for existing file", async () => {
+    const db = new PGlite({ extensions: { pgcrypto } });
+    const { localFetch } = await createFetchAdapter({
+      db,
+      supabaseUrl: SUPABASE_URL,
+    });
+    const auth = await signUp(localFetch);
+
+    await localFetch(`${SUPABASE_URL}/storage/v1/bucket`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${auth.access_token}`,
+      },
+      body: JSON.stringify({ name: "head-test" }),
+    });
+
+    await localFetch(`${SUPABASE_URL}/storage/v1/object/head-test/exists.txt`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "text/plain",
+        Authorization: `Bearer ${auth.access_token}`,
+      },
+      body: "I exist",
+    });
+
+    const res = await localFetch(
+      `${SUPABASE_URL}/storage/v1/object/head-test/exists.txt`,
+      {
+        method: "HEAD",
+        headers: { Authorization: `Bearer ${auth.access_token}` },
+      },
+    );
+
+    assertEquals(res.status, 200);
+
+    await db.close();
   });
-  const auth = await signUp(localFetch);
 
-  await localFetch(`${SUPABASE_URL}/storage/v1/bucket`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${auth.access_token}`,
-    },
-    body: JSON.stringify({ name: "head-test" }),
-  });
-
-  await localFetch(`${SUPABASE_URL}/storage/v1/object/head-test/exists.txt`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "text/plain",
-      Authorization: `Bearer ${auth.access_token}`,
-    },
-    body: "I exist",
-  });
-
-  const res = await localFetch(
-    `${SUPABASE_URL}/storage/v1/object/head-test/exists.txt`,
-    {
-      method: "HEAD",
-      headers: { Authorization: `Bearer ${auth.access_token}` },
-    },
-  );
-
-  assertEquals(res.status, 200);
-
-  await db.close();
-});
-
-Deno.test(
-  "Storage Objects - HEAD returns 404 for nonexistent file",
-  async () => {
+  test("HEAD returns 404 for nonexistent file", async () => {
     const db = new PGlite({ extensions: { pgcrypto } });
     const { localFetch } = await createFetchAdapter({
       db,
@@ -785,502 +787,509 @@ Deno.test(
     assertEquals(res.status, 404);
 
     await db.close();
-  },
-);
+  });
+});
 
 // ============================================================================
 // Object List
 // ============================================================================
 
-Deno.test("Storage Objects - List objects in bucket", async () => {
-  const db = new PGlite({ extensions: { pgcrypto } });
-  const { localFetch } = await createFetchAdapter({
-    db,
-    supabaseUrl: SUPABASE_URL,
-  });
-  const auth = await signUp(localFetch);
-
-  await localFetch(`${SUPABASE_URL}/storage/v1/bucket`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${auth.access_token}`,
-    },
-    body: JSON.stringify({ name: "list-test" }),
-  });
-
-  for (const name of ["alpha.txt", "beta.txt", "gamma.txt"]) {
-    await localFetch(`${SUPABASE_URL}/storage/v1/object/list-test/${name}`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "text/plain",
-        Authorization: `Bearer ${auth.access_token}`,
-      },
-      body: `content of ${name}`,
+describe("Object List", () => {
+  test("List objects in bucket", async () => {
+    const db = new PGlite({ extensions: { pgcrypto } });
+    const { localFetch } = await createFetchAdapter({
+      db,
+      supabaseUrl: SUPABASE_URL,
     });
-  }
+    const auth = await signUp(localFetch);
 
-  const res = await localFetch(
-    `${SUPABASE_URL}/storage/v1/object/list/list-test`,
-    {
+    await localFetch(`${SUPABASE_URL}/storage/v1/bucket`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${auth.access_token}`,
       },
-      body: JSON.stringify({ prefix: "", limit: 100, offset: 0 }),
-    },
-  );
+      body: JSON.stringify({ name: "list-test" }),
+    });
 
-  assertEquals(res.status, 200);
-  const items = await res.json();
-  assertEquals(items.length, 3);
-
-  await db.close();
-});
-
-Deno.test("Storage Objects - List with prefix filter", async () => {
-  const db = new PGlite({ extensions: { pgcrypto } });
-  const { localFetch } = await createFetchAdapter({
-    db,
-    supabaseUrl: SUPABASE_URL,
-  });
-  const auth = await signUp(localFetch);
-
-  await localFetch(`${SUPABASE_URL}/storage/v1/bucket`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${auth.access_token}`,
-    },
-    body: JSON.stringify({ name: "prefix-test" }),
-  });
-
-  // Upload files in different "folders"
-  for (const path of ["docs/readme.md", "docs/guide.md", "images/logo.png"]) {
-    await localFetch(
-      `${SUPABASE_URL}/storage/v1/object/prefix-test/${path}`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/octet-stream",
-          Authorization: `Bearer ${auth.access_token}`,
-        },
-        body: "data",
-      },
-    );
-  }
-
-  const res = await localFetch(
-    `${SUPABASE_URL}/storage/v1/object/list/prefix-test`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${auth.access_token}`,
-      },
-      body: JSON.stringify({ prefix: "docs/" }),
-    },
-  );
-
-  assertEquals(res.status, 200);
-  const items = await res.json();
-  assertEquals(items.length, 2);
-
-  await db.close();
-});
-
-Deno.test("Storage Objects - List with pagination", async () => {
-  const db = new PGlite({ extensions: { pgcrypto } });
-  const { localFetch } = await createFetchAdapter({
-    db,
-    supabaseUrl: SUPABASE_URL,
-  });
-  const auth = await signUp(localFetch);
-
-  await localFetch(`${SUPABASE_URL}/storage/v1/bucket`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${auth.access_token}`,
-    },
-    body: JSON.stringify({ name: "page-test" }),
-  });
-
-  for (let i = 0; i < 5; i++) {
-    await localFetch(
-      `${SUPABASE_URL}/storage/v1/object/page-test/file${i}.txt`,
-      {
+    for (const name of ["alpha.txt", "beta.txt", "gamma.txt"]) {
+      await localFetch(`${SUPABASE_URL}/storage/v1/object/list-test/${name}`, {
         method: "POST",
         headers: {
           "Content-Type": "text/plain",
           Authorization: `Bearer ${auth.access_token}`,
         },
-        body: `file ${i}`,
+        body: `content of ${name}`,
+      });
+    }
+
+    const res = await localFetch(
+      `${SUPABASE_URL}/storage/v1/object/list/list-test`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${auth.access_token}`,
+        },
+        body: JSON.stringify({ prefix: "", limit: 100, offset: 0 }),
       },
     );
-  }
 
-  // Page 1: limit 2
-  const res1 = await localFetch(
-    `${SUPABASE_URL}/storage/v1/object/list/page-test`,
-    {
+    assertEquals(res.status, 200);
+    const items = await res.json();
+    assertEquals(items.length, 3);
+
+    await db.close();
+  });
+
+  test("List with prefix filter", async () => {
+    const db = new PGlite({ extensions: { pgcrypto } });
+    const { localFetch } = await createFetchAdapter({
+      db,
+      supabaseUrl: SUPABASE_URL,
+    });
+    const auth = await signUp(localFetch);
+
+    await localFetch(`${SUPABASE_URL}/storage/v1/bucket`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${auth.access_token}`,
       },
-      body: JSON.stringify({ limit: 2, offset: 0 }),
-    },
-  );
-  const page1 = await res1.json();
-  assertEquals(page1.length, 2);
+      body: JSON.stringify({ name: "prefix-test" }),
+    });
 
-  // Page 2: offset 2, limit 2
-  const res2 = await localFetch(
-    `${SUPABASE_URL}/storage/v1/object/list/page-test`,
-    {
+    // Upload files in different "folders"
+    for (const path of ["docs/readme.md", "docs/guide.md", "images/logo.png"]) {
+      await localFetch(
+        `${SUPABASE_URL}/storage/v1/object/prefix-test/${path}`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/octet-stream",
+            Authorization: `Bearer ${auth.access_token}`,
+          },
+          body: "data",
+        },
+      );
+    }
+
+    const res = await localFetch(
+      `${SUPABASE_URL}/storage/v1/object/list/prefix-test`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${auth.access_token}`,
+        },
+        body: JSON.stringify({ prefix: "docs/" }),
+      },
+    );
+
+    assertEquals(res.status, 200);
+    const items = await res.json();
+    assertEquals(items.length, 2);
+
+    await db.close();
+  });
+
+  test("List with pagination", async () => {
+    const db = new PGlite({ extensions: { pgcrypto } });
+    const { localFetch } = await createFetchAdapter({
+      db,
+      supabaseUrl: SUPABASE_URL,
+    });
+    const auth = await signUp(localFetch);
+
+    await localFetch(`${SUPABASE_URL}/storage/v1/bucket`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${auth.access_token}`,
       },
-      body: JSON.stringify({ limit: 2, offset: 2 }),
-    },
-  );
-  const page2 = await res2.json();
-  assertEquals(page2.length, 2);
+      body: JSON.stringify({ name: "page-test" }),
+    });
 
-  // Page 3: offset 4
-  const res3 = await localFetch(
-    `${SUPABASE_URL}/storage/v1/object/list/page-test`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${auth.access_token}`,
+    for (let i = 0; i < 5; i++) {
+      await localFetch(
+        `${SUPABASE_URL}/storage/v1/object/page-test/file${i}.txt`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "text/plain",
+            Authorization: `Bearer ${auth.access_token}`,
+          },
+          body: `file ${i}`,
+        },
+      );
+    }
+
+    // Page 1: limit 2
+    const res1 = await localFetch(
+      `${SUPABASE_URL}/storage/v1/object/list/page-test`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${auth.access_token}`,
+        },
+        body: JSON.stringify({ limit: 2, offset: 0 }),
       },
-      body: JSON.stringify({ limit: 2, offset: 4 }),
-    },
-  );
-  const page3 = await res3.json();
-  assertEquals(page3.length, 1);
+    );
+    const page1 = await res1.json();
+    assertEquals(page1.length, 2);
 
-  await db.close();
+    // Page 2: offset 2, limit 2
+    const res2 = await localFetch(
+      `${SUPABASE_URL}/storage/v1/object/list/page-test`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${auth.access_token}`,
+        },
+        body: JSON.stringify({ limit: 2, offset: 2 }),
+      },
+    );
+    const page2 = await res2.json();
+    assertEquals(page2.length, 2);
+
+    // Page 3: offset 4
+    const res3 = await localFetch(
+      `${SUPABASE_URL}/storage/v1/object/list/page-test`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${auth.access_token}`,
+        },
+        body: JSON.stringify({ limit: 2, offset: 4 }),
+      },
+    );
+    const page3 = await res3.json();
+    assertEquals(page3.length, 1);
+
+    await db.close();
+  });
 });
 
 // ============================================================================
 // Object Remove
 // ============================================================================
 
-Deno.test("Storage Objects - Remove objects (batch delete)", async () => {
-  const db = new PGlite({ extensions: { pgcrypto } });
-  const { localFetch } = await createFetchAdapter({
-    db,
-    supabaseUrl: SUPABASE_URL,
-  });
-  const auth = await signUp(localFetch);
+describe("Object Remove", () => {
+  test("Remove objects (batch delete)", async () => {
+    const db = new PGlite({ extensions: { pgcrypto } });
+    const { localFetch } = await createFetchAdapter({
+      db,
+      supabaseUrl: SUPABASE_URL,
+    });
+    const auth = await signUp(localFetch);
 
-  await localFetch(`${SUPABASE_URL}/storage/v1/bucket`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${auth.access_token}`,
-    },
-    body: JSON.stringify({ name: "remove-test" }),
-  });
-
-  for (const name of ["a.txt", "b.txt", "c.txt"]) {
-    await localFetch(
-      `${SUPABASE_URL}/storage/v1/object/remove-test/${name}`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "text/plain",
-          Authorization: `Bearer ${auth.access_token}`,
-        },
-        body: "x",
-      },
-    );
-  }
-
-  // Remove a.txt and b.txt
-  const res = await localFetch(
-    `${SUPABASE_URL}/storage/v1/object/remove-test`,
-    {
-      method: "DELETE",
+    await localFetch(`${SUPABASE_URL}/storage/v1/bucket`, {
+      method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${auth.access_token}`,
       },
-      body: JSON.stringify({ prefixes: ["a.txt", "b.txt"] }),
-    },
-  );
+      body: JSON.stringify({ name: "remove-test" }),
+    });
 
-  assertEquals(res.status, 200);
-  const removed = await res.json();
-  assertEquals(removed.length, 2);
+    for (const name of ["a.txt", "b.txt", "c.txt"]) {
+      await localFetch(
+        `${SUPABASE_URL}/storage/v1/object/remove-test/${name}`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "text/plain",
+            Authorization: `Bearer ${auth.access_token}`,
+          },
+          body: "x",
+        },
+      );
+    }
 
-  // c.txt should still exist
-  const headRes = await localFetch(
-    `${SUPABASE_URL}/storage/v1/object/remove-test/c.txt`,
-    {
-      method: "HEAD",
-      headers: { Authorization: `Bearer ${auth.access_token}` },
-    },
-  );
-  assertEquals(headRes.status, 200);
+    // Remove a.txt and b.txt
+    const res = await localFetch(
+      `${SUPABASE_URL}/storage/v1/object/remove-test`,
+      {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${auth.access_token}`,
+        },
+        body: JSON.stringify({ prefixes: ["a.txt", "b.txt"] }),
+      },
+    );
 
-  await db.close();
+    assertEquals(res.status, 200);
+    const removed = await res.json();
+    assertEquals(removed.length, 2);
+
+    // c.txt should still exist
+    const headRes = await localFetch(
+      `${SUPABASE_URL}/storage/v1/object/remove-test/c.txt`,
+      {
+        method: "HEAD",
+        headers: { Authorization: `Bearer ${auth.access_token}` },
+      },
+    );
+    assertEquals(headRes.status, 200);
+
+    await db.close();
+  });
 });
 
 // ============================================================================
 // Object Move & Copy
 // ============================================================================
 
-Deno.test("Storage Objects - Move object to new path", async () => {
-  const db = new PGlite({ extensions: { pgcrypto } });
-  const { localFetch } = await createFetchAdapter({
-    db,
-    supabaseUrl: SUPABASE_URL,
-  });
-  const auth = await signUp(localFetch);
+describe("Object Move & Copy", () => {
+  test("Move object to new path", async () => {
+    const db = new PGlite({ extensions: { pgcrypto } });
+    const { localFetch } = await createFetchAdapter({
+      db,
+      supabaseUrl: SUPABASE_URL,
+    });
+    const auth = await signUp(localFetch);
 
-  await localFetch(`${SUPABASE_URL}/storage/v1/bucket`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${auth.access_token}`,
-    },
-    body: JSON.stringify({ name: "move-test" }),
-  });
+    await localFetch(`${SUPABASE_URL}/storage/v1/bucket`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${auth.access_token}`,
+      },
+      body: JSON.stringify({ name: "move-test" }),
+    });
 
-  await localFetch(`${SUPABASE_URL}/storage/v1/object/move-test/old.txt`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "text/plain",
-      Authorization: `Bearer ${auth.access_token}`,
-    },
-    body: "moveable content",
-  });
-
-  const res = await localFetch(`${SUPABASE_URL}/storage/v1/object/move`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${auth.access_token}`,
-    },
-    body: JSON.stringify({
-      bucketId: "move-test",
-      sourceKey: "old.txt",
-      destinationKey: "new.txt",
-    }),
-  });
-
-  assertEquals(res.status, 200);
-
-  // Old path should be gone
-  const oldRes = await localFetch(
-    `${SUPABASE_URL}/storage/v1/object/move-test/old.txt`,
-    {
-      method: "HEAD",
-      headers: { Authorization: `Bearer ${auth.access_token}` },
-    },
-  );
-  assertEquals(oldRes.status, 404);
-
-  // New path should have the content
-  const newRes = await localFetch(
-    `${SUPABASE_URL}/storage/v1/object/move-test/new.txt`,
-    {
-      method: "GET",
-      headers: { Authorization: `Bearer ${auth.access_token}` },
-    },
-  );
-  assertEquals(newRes.status, 200);
-  assertEquals(await newRes.text(), "moveable content");
-
-  await db.close();
-});
-
-Deno.test("Storage Objects - Copy object", async () => {
-  const db = new PGlite({ extensions: { pgcrypto } });
-  const { localFetch } = await createFetchAdapter({
-    db,
-    supabaseUrl: SUPABASE_URL,
-  });
-  const auth = await signUp(localFetch);
-
-  await localFetch(`${SUPABASE_URL}/storage/v1/bucket`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${auth.access_token}`,
-    },
-    body: JSON.stringify({ name: "copy-test" }),
-  });
-
-  await localFetch(
-    `${SUPABASE_URL}/storage/v1/object/copy-test/original.txt`,
-    {
+    await localFetch(`${SUPABASE_URL}/storage/v1/object/move-test/old.txt`, {
       method: "POST",
       headers: {
         "Content-Type": "text/plain",
         Authorization: `Bearer ${auth.access_token}`,
       },
-      body: "copy me",
-    },
-  );
+      body: "moveable content",
+    });
 
-  const res = await localFetch(`${SUPABASE_URL}/storage/v1/object/copy`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${auth.access_token}`,
-    },
-    body: JSON.stringify({
-      bucketId: "copy-test",
-      sourceKey: "original.txt",
-      destinationKey: "duplicate.txt",
-    }),
-  });
+    const res = await localFetch(`${SUPABASE_URL}/storage/v1/object/move`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${auth.access_token}`,
+      },
+      body: JSON.stringify({
+        bucketId: "move-test",
+        sourceKey: "old.txt",
+        destinationKey: "new.txt",
+      }),
+    });
 
-  assertEquals(res.status, 200);
-  const data = await res.json();
-  assertExists(data.Key);
+    assertEquals(res.status, 200);
 
-  // Both files should exist
-  for (const name of ["original.txt", "duplicate.txt"]) {
-    const headRes = await localFetch(
-      `${SUPABASE_URL}/storage/v1/object/copy-test/${name}`,
+    // Old path should be gone
+    const oldRes = await localFetch(
+      `${SUPABASE_URL}/storage/v1/object/move-test/old.txt`,
+      {
+        method: "HEAD",
+        headers: { Authorization: `Bearer ${auth.access_token}` },
+      },
+    );
+    assertEquals(oldRes.status, 404);
+
+    // New path should have the content
+    const newRes = await localFetch(
+      `${SUPABASE_URL}/storage/v1/object/move-test/new.txt`,
       {
         method: "GET",
         headers: { Authorization: `Bearer ${auth.access_token}` },
       },
     );
-    assertEquals(headRes.status, 200);
-    assertEquals(await headRes.text(), "copy me");
-  }
+    assertEquals(newRes.status, 200);
+    assertEquals(await newRes.text(), "moveable content");
 
-  await db.close();
+    await db.close();
+  });
+
+  test("Copy object", async () => {
+    const db = new PGlite({ extensions: { pgcrypto } });
+    const { localFetch } = await createFetchAdapter({
+      db,
+      supabaseUrl: SUPABASE_URL,
+    });
+    const auth = await signUp(localFetch);
+
+    await localFetch(`${SUPABASE_URL}/storage/v1/bucket`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${auth.access_token}`,
+      },
+      body: JSON.stringify({ name: "copy-test" }),
+    });
+
+    await localFetch(
+      `${SUPABASE_URL}/storage/v1/object/copy-test/original.txt`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "text/plain",
+          Authorization: `Bearer ${auth.access_token}`,
+        },
+        body: "copy me",
+      },
+    );
+
+    const res = await localFetch(`${SUPABASE_URL}/storage/v1/object/copy`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${auth.access_token}`,
+      },
+      body: JSON.stringify({
+        bucketId: "copy-test",
+        sourceKey: "original.txt",
+        destinationKey: "duplicate.txt",
+      }),
+    });
+
+    assertEquals(res.status, 200);
+    const data = await res.json();
+    assertExists(data.Key);
+
+    // Both files should exist
+    for (const name of ["original.txt", "duplicate.txt"]) {
+      const headRes = await localFetch(
+        `${SUPABASE_URL}/storage/v1/object/copy-test/${name}`,
+        {
+          method: "GET",
+          headers: { Authorization: `Bearer ${auth.access_token}` },
+        },
+      );
+      assertEquals(headRes.status, 200);
+      assertEquals(await headRes.text(), "copy me");
+    }
+
+    await db.close();
+  });
 });
 
 // ============================================================================
 // Object Info
 // ============================================================================
 
-Deno.test("Storage Objects - Get object info", async () => {
-  const db = new PGlite({ extensions: { pgcrypto } });
-  const { localFetch } = await createFetchAdapter({
-    db,
-    supabaseUrl: SUPABASE_URL,
+describe("Object Info", () => {
+  test("Get object info", async () => {
+    const db = new PGlite({ extensions: { pgcrypto } });
+    const { localFetch } = await createFetchAdapter({
+      db,
+      supabaseUrl: SUPABASE_URL,
+    });
+    const auth = await signUp(localFetch);
+
+    await localFetch(`${SUPABASE_URL}/storage/v1/bucket`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${auth.access_token}`,
+      },
+      body: JSON.stringify({ name: "info-test" }),
+    });
+
+    await localFetch(`${SUPABASE_URL}/storage/v1/object/info-test/doc.txt`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "text/plain",
+        Authorization: `Bearer ${auth.access_token}`,
+      },
+      body: "info content",
+    });
+
+    const res = await localFetch(
+      `${SUPABASE_URL}/storage/v1/object/info/info-test/doc.txt`,
+      {
+        method: "GET",
+        headers: { Authorization: `Bearer ${auth.access_token}` },
+      },
+    );
+
+    assertEquals(res.status, 200);
+    const info = await res.json();
+    assertExists(info.id);
+    assertEquals(info.name, "doc.txt");
+    assertEquals(info.bucketId, "info-test");
+    assertExists(info.createdAt);
+    assertExists(info.metadata);
+
+    await db.close();
   });
-  const auth = await signUp(localFetch);
-
-  await localFetch(`${SUPABASE_URL}/storage/v1/bucket`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${auth.access_token}`,
-    },
-    body: JSON.stringify({ name: "info-test" }),
-  });
-
-  await localFetch(`${SUPABASE_URL}/storage/v1/object/info-test/doc.txt`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "text/plain",
-      Authorization: `Bearer ${auth.access_token}`,
-    },
-    body: "info content",
-  });
-
-  const res = await localFetch(
-    `${SUPABASE_URL}/storage/v1/object/info/info-test/doc.txt`,
-    {
-      method: "GET",
-      headers: { Authorization: `Bearer ${auth.access_token}` },
-    },
-  );
-
-  assertEquals(res.status, 200);
-  const info = await res.json();
-  assertExists(info.id);
-  assertEquals(info.name, "doc.txt");
-  assertEquals(info.bucketId, "info-test");
-  assertExists(info.createdAt);
-  assertExists(info.metadata);
-
-  await db.close();
 });
 
 // ============================================================================
 // Signed URLs
 // ============================================================================
 
-Deno.test("Storage Signed URLs - Create and download via signed URL", async () => {
-  const db = new PGlite({ extensions: { pgcrypto } });
-  const { localFetch } = await createFetchAdapter({
-    db,
-    supabaseUrl: SUPABASE_URL,
-  });
-  const auth = await signUp(localFetch);
+describe("Storage Signed URLs", () => {
+  test("Create and download via signed URL", async () => {
+    const db = new PGlite({ extensions: { pgcrypto } });
+    const { localFetch } = await createFetchAdapter({
+      db,
+      supabaseUrl: SUPABASE_URL,
+    });
+    const auth = await signUp(localFetch);
 
-  await localFetch(`${SUPABASE_URL}/storage/v1/bucket`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${auth.access_token}`,
-    },
-    body: JSON.stringify({ name: "signed-test" }),
-  });
-
-  await localFetch(
-    `${SUPABASE_URL}/storage/v1/object/signed-test/secret.txt`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "text/plain",
-        Authorization: `Bearer ${auth.access_token}`,
-      },
-      body: "secret content",
-    },
-  );
-
-  // Create signed URL
-  const signRes = await localFetch(
-    `${SUPABASE_URL}/storage/v1/object/sign/signed-test/secret.txt`,
-    {
+    await localFetch(`${SUPABASE_URL}/storage/v1/bucket`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${auth.access_token}`,
       },
-      body: JSON.stringify({ expiresIn: 3600 }),
-    },
-  );
+      body: JSON.stringify({ name: "signed-test" }),
+    });
 
-  assertEquals(signRes.status, 200);
-  const signData = await signRes.json();
-  assertExists(signData.signedURL);
+    await localFetch(
+      `${SUPABASE_URL}/storage/v1/object/signed-test/secret.txt`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "text/plain",
+          Authorization: `Bearer ${auth.access_token}`,
+        },
+        body: "secret content",
+      },
+    );
 
-  // Download via signed URL (no auth header needed)
-  const downloadRes = await localFetch(
-    `${SUPABASE_URL}${signData.signedURL}`,
-    {
-      method: "GET",
-    },
-  );
+    // Create signed URL
+    const signRes = await localFetch(
+      `${SUPABASE_URL}/storage/v1/object/sign/signed-test/secret.txt`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${auth.access_token}`,
+        },
+        body: JSON.stringify({ expiresIn: 3600 }),
+      },
+    );
 
-  assertEquals(downloadRes.status, 200);
-  assertEquals(await downloadRes.text(), "secret content");
+    assertEquals(signRes.status, 200);
+    const signData = await signRes.json();
+    assertExists(signData.signedURL);
 
-  await db.close();
-});
+    // Download via signed URL (no auth header needed)
+    const downloadRes = await localFetch(
+      `${SUPABASE_URL}${signData.signedURL}`,
+      {
+        method: "GET",
+      },
+    );
 
-Deno.test(
-  "Storage Signed URLs - Batch create signed URLs",
-  async () => {
+    assertEquals(downloadRes.status, 200);
+    assertEquals(await downloadRes.text(), "secret content");
+
+    await db.close();
+  });
+
+  test("Batch create signed URLs", async () => {
     const db = new PGlite({ extensions: { pgcrypto } });
     const { localFetch } = await createFetchAdapter({
       db,
@@ -1335,57 +1344,56 @@ Deno.test(
     assertEquals(results[1].error, null);
 
     await db.close();
-  },
-);
+  });
+});
 
 // ============================================================================
 // Public Downloads
 // ============================================================================
 
-Deno.test("Storage Public - Download from public bucket", async () => {
-  const db = new PGlite({ extensions: { pgcrypto } });
-  const { localFetch } = await createFetchAdapter({
-    db,
-    supabaseUrl: SUPABASE_URL,
-  });
-  const auth = await signUp(localFetch);
+describe("Storage Public", () => {
+  test("Download from public bucket", async () => {
+    const db = new PGlite({ extensions: { pgcrypto } });
+    const { localFetch } = await createFetchAdapter({
+      db,
+      supabaseUrl: SUPABASE_URL,
+    });
+    const auth = await signUp(localFetch);
 
-  await localFetch(`${SUPABASE_URL}/storage/v1/bucket`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${auth.access_token}`,
-    },
-    body: JSON.stringify({ name: "public-bucket", public: true }),
-  });
-
-  await localFetch(
-    `${SUPABASE_URL}/storage/v1/object/public-bucket/readme.txt`,
-    {
+    await localFetch(`${SUPABASE_URL}/storage/v1/bucket`, {
       method: "POST",
       headers: {
-        "Content-Type": "text/plain",
+        "Content-Type": "application/json",
         Authorization: `Bearer ${auth.access_token}`,
       },
-      body: "public file",
-    },
-  );
+      body: JSON.stringify({ name: "public-bucket", public: true }),
+    });
 
-  // Download without auth via public endpoint
-  const res = await localFetch(
-    `${SUPABASE_URL}/storage/v1/object/public/public-bucket/readme.txt`,
-    { method: "GET" },
-  );
+    await localFetch(
+      `${SUPABASE_URL}/storage/v1/object/public-bucket/readme.txt`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "text/plain",
+          Authorization: `Bearer ${auth.access_token}`,
+        },
+        body: "public file",
+      },
+    );
 
-  assertEquals(res.status, 200);
-  assertEquals(await res.text(), "public file");
+    // Download without auth via public endpoint
+    const res = await localFetch(
+      `${SUPABASE_URL}/storage/v1/object/public/public-bucket/readme.txt`,
+      { method: "GET" },
+    );
 
-  await db.close();
-});
+    assertEquals(res.status, 200);
+    assertEquals(await res.text(), "public file");
 
-Deno.test(
-  "Storage Public - Private bucket rejects public download",
-  async () => {
+    await db.close();
+  });
+
+  test("Private bucket rejects public download", async () => {
     const db = new PGlite({ extensions: { pgcrypto } });
     const { localFetch } = await createFetchAdapter({
       db,
@@ -1423,16 +1431,15 @@ Deno.test(
     assertEquals(res.status, 400);
 
     await db.close();
-  },
-);
+  });
+});
 
 // ============================================================================
 // Bucket Constraints
 // ============================================================================
 
-Deno.test(
-  "Storage Constraints - File size limit enforced",
-  async () => {
+describe("Storage Constraints", () => {
+  test("File size limit enforced", async () => {
     const db = new PGlite({ extensions: { pgcrypto } });
     const { localFetch } = await createFetchAdapter({
       db,
@@ -1479,12 +1486,9 @@ Deno.test(
     assertEquals(large.status, 422);
 
     await db.close();
-  },
-);
+  });
 
-Deno.test(
-  "Storage Constraints - MIME type restriction enforced",
-  async () => {
+  test("MIME type restriction enforced", async () => {
     const db = new PGlite({ extensions: { pgcrypto } });
     const { localFetch } = await createFetchAdapter({
       db,
@@ -1534,62 +1538,63 @@ Deno.test(
     assertEquals(txtRes.status, 422);
 
     await db.close();
-  },
-);
+  });
+});
 
 // ============================================================================
 // Nested Path Support
 // ============================================================================
 
-Deno.test("Storage Objects - Upload and download with nested paths", async () => {
-  const db = new PGlite({ extensions: { pgcrypto } });
-  const { localFetch } = await createFetchAdapter({
-    db,
-    supabaseUrl: SUPABASE_URL,
+describe("Nested Path Support", () => {
+  test("Upload and download with nested paths", async () => {
+    const db = new PGlite({ extensions: { pgcrypto } });
+    const { localFetch } = await createFetchAdapter({
+      db,
+      supabaseUrl: SUPABASE_URL,
+    });
+    const auth = await signUp(localFetch);
+
+    await localFetch(`${SUPABASE_URL}/storage/v1/bucket`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${auth.access_token}`,
+      },
+      body: JSON.stringify({ name: "nested" }),
+    });
+
+    const path = "deeply/nested/folder/file.json";
+    await localFetch(`${SUPABASE_URL}/storage/v1/object/nested/${path}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${auth.access_token}`,
+      },
+      body: JSON.stringify({ key: "value" }),
+    });
+
+    const res = await localFetch(
+      `${SUPABASE_URL}/storage/v1/object/nested/${path}`,
+      {
+        method: "GET",
+        headers: { Authorization: `Bearer ${auth.access_token}` },
+      },
+    );
+
+    assertEquals(res.status, 200);
+    const data = await res.json();
+    assertEquals(data.key, "value");
+
+    await db.close();
   });
-  const auth = await signUp(localFetch);
-
-  await localFetch(`${SUPABASE_URL}/storage/v1/bucket`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${auth.access_token}`,
-    },
-    body: JSON.stringify({ name: "nested" }),
-  });
-
-  const path = "deeply/nested/folder/file.json";
-  await localFetch(`${SUPABASE_URL}/storage/v1/object/nested/${path}`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${auth.access_token}`,
-    },
-    body: JSON.stringify({ key: "value" }),
-  });
-
-  const res = await localFetch(
-    `${SUPABASE_URL}/storage/v1/object/nested/${path}`,
-    {
-      method: "GET",
-      headers: { Authorization: `Bearer ${auth.access_token}` },
-    },
-  );
-
-  assertEquals(res.status, 200);
-  const data = await res.json();
-  assertEquals(data.key, "value");
-
-  await db.close();
 });
 
 // ============================================================================
 // Storage disabled via config
 // ============================================================================
 
-Deno.test(
-  "Storage Config - storageBackend: false disables storage interception",
-  async () => {
+describe("Storage Config", () => {
+  test("storageBackend: false disables storage interception", async () => {
     const db = new PGlite({ extensions: { pgcrypto } });
 
     let passthroughCalled = false;
@@ -1616,30 +1621,32 @@ Deno.test(
     assertEquals(res.status, 200);
 
     await db.close();
-  },
-);
+  });
+});
 
 // ============================================================================
 // 404 for unknown storage endpoints
 // ============================================================================
 
-Deno.test("Storage Routes - Unknown endpoint returns 404", async () => {
-  const db = new PGlite({ extensions: { pgcrypto } });
-  const { localFetch } = await createFetchAdapter({
-    db,
-    supabaseUrl: SUPABASE_URL,
+describe("Storage Routes", () => {
+  test("Unknown endpoint returns 404", async () => {
+    const db = new PGlite({ extensions: { pgcrypto } });
+    const { localFetch } = await createFetchAdapter({
+      db,
+      supabaseUrl: SUPABASE_URL,
+    });
+    const auth = await signUp(localFetch);
+
+    const res = await localFetch(
+      `${SUPABASE_URL}/storage/v1/unknown/endpoint`,
+      {
+        method: "GET",
+        headers: { Authorization: `Bearer ${auth.access_token}` },
+      },
+    );
+
+    assertEquals(res.status, 404);
+
+    await db.close();
   });
-  const auth = await signUp(localFetch);
-
-  const res = await localFetch(
-    `${SUPABASE_URL}/storage/v1/unknown/endpoint`,
-    {
-      method: "GET",
-      headers: { Authorization: `Bearer ${auth.access_token}` },
-    },
-  );
-
-  assertEquals(res.status, 404);
-
-  await db.close();
 });

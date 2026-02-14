@@ -8,18 +8,22 @@
 import { PGlite } from "@electric-sql/pglite";
 import { pgcrypto } from "@electric-sql/pglite/contrib/pgcrypto";
 import { createClient } from "@supabase/supabase-js";
-import { assertEquals, assertExists } from "jsr:@std/assert";
+import {
+  test,
+  describe,
+  assertEquals,
+  assertExists,
+} from "./compat.ts";
 import { createFetchAdapter } from "../src/client.ts";
 
 const SUPABASE_URL = "http://localhost:54321";
 
-// ============================================================================
-// Full lifecycle: auth + storage through supabase-js client
-// ============================================================================
+describe("Full Storage Flow", () => {
+  // ============================================================================
+  // Full lifecycle: auth + storage through supabase-js client
+  // ============================================================================
 
-Deno.test(
-  "Full Storage Flow - Upload, list, download, delete via supabase-js",
-  async () => {
+  test("Upload, list, download, delete via supabase-js", async () => {
     const db = new PGlite({ extensions: { pgcrypto } });
     const { localFetch } = await createFetchAdapter({
       db,
@@ -100,16 +104,13 @@ Deno.test(
     assertEquals(deleteError, null);
 
     await db.close();
-  },
-);
+  });
 
-// ============================================================================
-// Public bucket: upload private, serve public
-// ============================================================================
+  // ============================================================================
+  // Public bucket: upload private, serve public
+  // ============================================================================
 
-Deno.test(
-  "Full Storage Flow - Public bucket allows unauthenticated download",
-  async () => {
+  test("Public bucket allows unauthenticated download", async () => {
     const db = new PGlite({ extensions: { pgcrypto } });
     const { localFetch } = await createFetchAdapter({
       db,
@@ -157,16 +158,13 @@ Deno.test(
     assertEquals(await publicRes.text(), "<svg></svg>");
 
     await db.close();
-  },
-);
+  });
 
-// ============================================================================
-// Signed URL flow
-// ============================================================================
+  // ============================================================================
+  // Signed URL flow
+  // ============================================================================
 
-Deno.test(
-  "Full Storage Flow - Create signed URL and download",
-  async () => {
+  test("Create signed URL and download", async () => {
     const db = new PGlite({ extensions: { pgcrypto } });
     const { localFetch } = await createFetchAdapter({
       db,
@@ -208,16 +206,13 @@ Deno.test(
     assertEquals(await downloadRes.text(), "PDF CONTENT");
 
     await db.close();
-  },
-);
+  });
 
-// ============================================================================
-// Multiple users with RLS on storage
-// ============================================================================
+  // ============================================================================
+  // Multiple users with RLS on storage
+  // ============================================================================
 
-Deno.test(
-  "Full Storage Flow - RLS enforces per-user storage access",
-  async () => {
+  test("RLS enforces per-user storage access", async () => {
     const db = new PGlite({ extensions: { pgcrypto } });
     const { localFetch } = await createFetchAdapter({
       db,
@@ -300,16 +295,13 @@ Deno.test(
     assertEquals(listB!.length >= 2, true);
 
     await db.close();
-  },
-);
+  });
 
-// ============================================================================
-// AI builder use case: image gallery
-// ============================================================================
+  // ============================================================================
+  // AI builder use case: image gallery
+  // ============================================================================
 
-Deno.test(
-  "Full Storage Flow - AI builder use case: image gallery app",
-  async () => {
+  test("AI builder use case: image gallery app", async () => {
     const db = new PGlite({ extensions: { pgcrypto } });
     const { localFetch } = await createFetchAdapter({
       db,
@@ -417,16 +409,13 @@ Deno.test(
     assertEquals(remaining!.length, 2);
 
     await db.close();
-  },
-);
+  });
 
-// ============================================================================
-// Bucket operations through supabase-js
-// ============================================================================
+  // ============================================================================
+  // Bucket operations through supabase-js
+  // ============================================================================
 
-Deno.test(
-  "Full Storage Flow - Bucket CRUD through supabase-js",
-  async () => {
+  test("Bucket CRUD through supabase-js", async () => {
     const db = new PGlite({ extensions: { pgcrypto } });
     const { localFetch } = await createFetchAdapter({
       db,
@@ -496,16 +485,13 @@ Deno.test(
     assertExists(getAfterDelete);
 
     await db.close();
-  },
-);
+  });
 
-// ============================================================================
-// Move and copy through supabase-js
-// ============================================================================
+  // ============================================================================
+  // Move and copy through supabase-js
+  // ============================================================================
 
-Deno.test(
-  "Full Storage Flow - Move and copy through supabase-js",
-  async () => {
+  test("Move and copy through supabase-js", async () => {
     const db = new PGlite({ extensions: { pgcrypto } });
     const { localFetch } = await createFetchAdapter({
       db,
@@ -564,16 +550,13 @@ Deno.test(
     assertExists(goneErr);
 
     await db.close();
-  },
-);
+  });
 
-// ============================================================================
-// Full E2E: Social media app (auth + data + storage + RLS)
-// ============================================================================
+  // ============================================================================
+  // Full E2E: Social media app (auth + data + storage + RLS)
+  // ============================================================================
 
-Deno.test(
-  "Full E2E - Social media app: profiles, posts with images, comments",
-  async () => {
+  test("Social media app: profiles, posts with images, comments", async () => {
     const db = new PGlite({ extensions: { pgcrypto } });
     const { localFetch } = await createFetchAdapter({
       db,
@@ -859,5 +842,5 @@ Deno.test(
     // ── Cleanup ──────────────────────────────────────────────────
 
     await db.close();
-  },
-);
+  });
+});
