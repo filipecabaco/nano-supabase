@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        runtime: [bun, deno]
+        concern:
+          - name: auth
+            files: tests/auth.test.ts tests/auth-integration.test.ts
+          - name: storage
+            files: tests/storage.test.ts tests/storage-flow.test.ts
+          - name: integration
+            files: tests/integration.test.ts
+          - name: parser
+            files: tests/postgrest-parser.test.ts
+          - name: pooler
+            files: tests/pooler.test.ts tests/queue.test.ts
+          - name: fetch-adapter
+            files: tests/fetch-adapter.test.ts
+          - name: supabase-client
+            files: tests/supabase-client.test.ts
+          - name: full-user-flow
+            files: tests/full-user-flow.test.ts
+
+    name: ${{ matrix.runtime }} / ${{ matrix.concern.name }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Bun
+        if: matrix.runtime == 'bun'
+        uses: oven-sh/setup-bun@v2
+
+      - name: Setup Deno
+        if: matrix.runtime == 'deno'
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Install dependencies (Bun)
+        if: matrix.runtime == 'bun'
+        run: bun install
+
+      - name: Run tests (Bun)
+        if: matrix.runtime == 'bun'
+        run: bun test ${{ matrix.concern.files }}
+
+      - name: Run tests (Deno)
+        if: matrix.runtime == 'deno'
+        run: deno test --allow-read --allow-net ${{ matrix.concern.files }}
