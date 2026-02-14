@@ -4,6 +4,7 @@
     "test:auth": "deno test --allow-read --allow-net tests/auth.test.ts tests/auth-integration.test.ts",
     "test:integration": "deno test --allow-read --allow-net tests/integration.test.ts tests/auth-integration.test.ts",
     "test:parser": "deno test --allow-read --allow-net tests/postgrest-parser.test.ts",
+    "test:storage": "deno test --allow-read --allow-net tests/storage.test.ts tests/storage-flow.test.ts",
     "test:pooler": "deno test --allow-read --allow-net tests/pooler.test.ts tests/queue.test.ts",
     "example:supabase": "deno run --allow-read --allow-net examples/supabase-client.ts"
   },

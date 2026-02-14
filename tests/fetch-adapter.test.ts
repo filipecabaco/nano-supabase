@@ -1063,36 +1063,67 @@ Deno.test(
   },
 );
 
-Deno.test("Fetch Passthrough - Storage requests pass through", async () => {
-  const db = new PGlite({ extensions: { pgcrypto } });
+Deno.test(
+  "Fetch Passthrough - Storage requests intercepted when handler enabled",
+  async () => {
+    const db = new PGlite({ extensions: { pgcrypto } });
 
-  let passthroughCalled = false;
-  const mockOriginalFetch = async (
-    _input: RequestInfo | URL,
-    _init?: RequestInit,
-  ) => {
-    passthroughCalled = true;
-    return new Response(JSON.stringify({ status: "ok" }), { status: 200 });
-  };
+    const { localFetch } = await createFetchAdapter({
+      db,
+      supabaseUrl: SUPABASE_URL,
+    });
 
-  const { localFetch } = await createFetchAdapter({
-    db,
-    supabaseUrl: SUPABASE_URL,
-    originalFetch: mockOriginalFetch,
-  });
+    // Storage is now intercepted by default (storageHandler is auto-created)
+    const response = await localFetch(
+      `${SUPABASE_URL}/storage/v1/bucket`,
+      {
+        method: "GET",
+      },
+    );
 
-  const response = await localFetch(
-    `${SUPABASE_URL}/storage/v1/bucket/file.png`,
-    {
-      method: "GET",
-    },
-  );
+    // Should be intercepted and return a storage response (empty bucket list)
+    assertEquals(response.status, 200);
+    const data = await response.json();
+    assertEquals(Array.isArray(data), true);
 
-  assertEquals(passthroughCalled, true);
-  assertEquals(response.status, 200);
+    await db.close();
+  },
+);
 
-  await db.close();
-});
+Deno.test(
+  "Fetch Passthrough - Storage requests pass through when disabled",
+  async () => {
+    const db = new PGlite({ extensions: { pgcrypto } });
+
+    let passthroughCalled = false;
+    const mockOriginalFetch = async (
+      _input: RequestInfo | URL,
+      _init?: RequestInit,
+    ) => {
+      passthroughCalled = true;
+      return new Response(JSON.stringify({ status: "ok" }), { status: 200 });
+    };
+
+    const { localFetch } = await createFetchAdapter({
+      db,
+      supabaseUrl: SUPABASE_URL,
+      originalFetch: mockOriginalFetch,
+      storageBackend: false,
+    });
+
+    const response = await localFetch(
+      `${SUPABASE_URL}/storage/v1/bucket/file.png`,
+      {
+        method: "GET",
+      },
+    );
+
+    assertEquals(passthroughCalled, true);
+    assertEquals(response.status, 200);
+
+    await db.close();
+  },
+);
 
 Deno.test("Fetch Passthrough - Realtime requests pass through", async () => {
   const db = new PGlite({ extensions: { pgcrypto } });

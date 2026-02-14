@@ -60,7 +60,9 @@ async function readFileBody(
   if (requestContentType.includes("multipart/form-data")) {
     const formData = await request.formData();
     // supabase-js puts the file in a field called "" (empty string) or the first field
-    for (const [, value] of formData.entries()) {
+    // Try common field names
+    for (const fieldName of ["", "file", "data"]) {
+      const value = formData.get(fieldName);
       if (value instanceof Blob) {
         const arrayBuffer = await value.arrayBuffer();
         return {
