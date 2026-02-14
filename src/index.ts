@@ -2,7 +2,7 @@
  * nano-supabase
  *
  * A lightweight Supabase emulator powered by PGlite
- * Provides full auth and PostgREST API emulation in-browser or in-process
+ * Provides full auth, PostgREST, and storage API emulation in-browser or in-process
  *
  * @example
  * ```typescript
@@ -34,6 +34,7 @@ export {
   createLocalFetch,
   handleAuthRoute,
   handleDataRoute,
+  handleStorageRoute,
   type FetchAdapterConfig,
 } from "./fetch-adapter/index.ts";
 
@@ -76,6 +77,19 @@ export {
 
 // JWT utilities (Web Crypto API - browser/edge compatible)
 export { signJWT, verifyJWT, decodeJWT, type JWTPayload } from "./auth/jwt.ts";
+
+// Storage module
+export {
+  StorageHandler,
+  STORAGE_SCHEMA_SQL,
+  MemoryStorageBackend,
+  type StorageBackend,
+  type BlobMetadata,
+  type StorageBucket,
+  type StorageObject,
+  type CreateBucketOptions,
+  type SignedUrlToken,
+} from "./storage/index.ts";
 
 // PostgREST parser
 export { PostgrestParser } from "./postgrest-parser.ts";

@@ -2,20 +2,23 @@
  * Scoped Fetch Adapter
  *
  * Creates a custom fetch function that intercepts Supabase API calls:
- * - /auth/v1/* -> Local auth handler
- * - /rest/v1/* -> Local PostgREST parser + PGlite
+ * - /auth/v1/*     -> Local auth handler
+ * - /rest/v1/*     -> Local PostgREST parser + PGlite
+ * - /storage/v1/*  -> Local storage handler (blobs + metadata)
  * - Everything else -> Passthrough to original fetch
  *
  * This allows using the standard @supabase/supabase-js client with local emulation
  * while still being able to interact with other APIs and Supabase products
- * (Storage, Realtime, Edge Functions, etc.)
+ * (Realtime, Edge Functions, etc.)
  */
 
 import type { PGlite } from "@electric-sql/pglite";
 import type { PostgrestParser } from "../postgrest-parser.ts";
 import type { AuthHandler } from "../auth/handler.ts";
+import type { StorageHandler } from "../storage/handler.ts";
 import { handleAuthRoute } from "./auth-routes.ts";
 import { handleDataRoute } from "./data-routes.ts";
+import { handleStorageRoute } from "./storage-routes.ts";
 
 export interface FetchAdapterConfig {
   /** The PGlite database instance */
@@ -24,6 +27,8 @@ export interface FetchAdapterConfig {
   parser: PostgrestParser;
   /** The auth handler instance */
   authHandler: AuthHandler;
+  /** The storage handler instance (optional — enables /storage/v1/* interception) */
+  storageHandler?: StorageHandler;
   /** The Supabase URL to intercept (used to match requests) */
   supabaseUrl: string;
   /**
@@ -43,8 +48,8 @@ export interface FetchAdapterConfig {
 interface RouteInfo {
   /** Whether this request should be intercepted */
   intercept: boolean;
-  /** The route type (auth, data, or passthrough) */
-  type: "auth" | "data" | "passthrough";
+  /** The route type (auth, data, storage, or passthrough) */
+  type: "auth" | "data" | "storage" | "passthrough";
   /** The pathname for intercepted routes */
   pathname?: string;
 }
@@ -52,7 +57,11 @@ interface RouteInfo {
 /**
  * Determine if and how a request should be routed
  */
-function getRouteInfo(request: Request, supabaseUrl: string): RouteInfo {
+function getRouteInfo(
+  request: Request,
+  supabaseUrl: string,
+  hasStorage: boolean,
+): RouteInfo {
   const url = new URL(request.url);
   const supabaseHost = new URL(supabaseUrl).host;
 
@@ -73,7 +82,12 @@ function getRouteInfo(request: Request, supabaseUrl: string): RouteInfo {
     return { intercept: true, type: "data", pathname };
   }
 
-  // All other routes pass through (storage, realtime, edge functions, etc.)
+  // Storage routes: /storage/v1/* (only if storage handler is configured)
+  if (hasStorage && pathname.startsWith("/storage/v1/")) {
+    return { intercept: true, type: "storage", pathname };
+  }
+
+  // All other routes pass through (realtime, edge functions, etc.)
   return { intercept: false, type: "passthrough" };
 }
 
@@ -97,12 +111,12 @@ function getRouteInfo(request: Request, supabaseUrl: string): RouteInfo {
  *   global: { fetch: localFetch }
  * })
  *
- * // Now auth and data calls are handled locally
+ * // Now auth, data, and storage calls are handled locally
  * await supabase.auth.signUp({ email: 'user@example.com', password: 'password' })
  * await supabase.from('users').select('*')
- *
- * // Other calls (storage, realtime, etc.) pass through to the network
  * await supabase.storage.from('avatars').upload('avatar.png', file)
+ *
+ * // Other calls (realtime, edge functions) pass through to the network
  * ```
  */
 export function createLocalFetch(config: FetchAdapterConfig): typeof fetch {
@@ -110,6 +124,7 @@ export function createLocalFetch(config: FetchAdapterConfig): typeof fetch {
     db,
     parser,
     authHandler,
+    storageHandler,
     supabaseUrl,
     originalFetch = globalThis.fetch.bind(globalThis),
     debug = false,
@@ -126,7 +141,7 @@ export function createLocalFetch(config: FetchAdapterConfig): typeof fetch {
     // Normalize input to Request object
     const request = input instanceof Request ? input : new Request(input, init);
 
-    const routeInfo = getRouteInfo(request, supabaseUrl);
+    const routeInfo = getRouteInfo(request, supabaseUrl, !!storageHandler);
 
     if (!routeInfo.intercept) {
       log("Passthrough:", request.method, request.url);
@@ -136,7 +151,7 @@ export function createLocalFetch(config: FetchAdapterConfig): typeof fetch {
 
     // Log all headers for debugging
     const authHeader = request.headers.get("Authorization");
-    console.log("🌐 [FETCH_ADAPTER] Intercepting:", {
+    console.log("[FETCH_ADAPTER] Intercepting:", {
       type: routeInfo.type,
       method: request.method,
       pathname: routeInfo.pathname,
@@ -165,6 +180,17 @@ export function createLocalFetch(config: FetchAdapterConfig): typeof fetch {
           db,
           parser,
         );
+      } else if (
+        routeInfo.type === "storage" &&
+        routeInfo.pathname &&
+        storageHandler
+      ) {
+        response = await handleStorageRoute(
+          request,
+          routeInfo.pathname,
+          db,
+          storageHandler,
+        );
       } else {
         // Should not reach here, but pass through just in case
         return originalFetch(input, init);
@@ -192,3 +218,4 @@ export function createLocalFetch(config: FetchAdapterConfig): typeof fetch {
 
 export { handleAuthRoute } from "./auth-routes.ts";
 export { handleDataRoute } from "./data-routes.ts";
+export { handleStorageRoute } from "./storage-routes.ts";
