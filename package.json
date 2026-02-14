@@ -61,5 +61,8 @@
     "native_postgrest_parser": "github:filipecabaco/native_postgrest_parser",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "postgrest-parser": "^0.1.0"
   }
 }

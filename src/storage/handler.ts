@@ -53,6 +53,16 @@ export interface SignedUrlToken {
   exp: number;
 }
 
+function toUrlSafeBase64(b64: string): string {
+  return b64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+function fromUrlSafeBase64(b64url: string): string {
+  let s = b64url.replace(/-/g, "+").replace(/_/g, "/");
+  while (s.length % 4) s += "=";
+  return s;
+}
+
 // ─── Handler ──────────────────────────────────────────────────────────
 
 export class StorageHandler {
@@ -508,17 +518,11 @@ export class StorageHandler {
       exp: Math.floor(Date.now() / 1000) + expiresIn,
     };
 
-    // Get signing key from auth schema
-    const keyResult = await this.db.query<{ value: string }>(
-      "SELECT value FROM auth.config WHERE key = 'jwt_signing_key'",
+    // Get signing key via SECURITY DEFINER function
+    const keyResult = await this.db.query<{ get_signing_key: string }>(
+      "SELECT auth.get_signing_key()",
     );
-    let signingKey: string;
-    if (keyResult.rows[0]) {
-      signingKey = keyResult.rows[0].value;
-    } else {
-      // Fallback: generate a storage-specific key
-      signingKey = crypto.randomUUID();
-    }
+    const signingKey = keyResult.rows[0]?.get_signing_key ?? crypto.randomUUID();
 
     const encoder = new TextEncoder();
     const key = await crypto.subtle.importKey(
@@ -536,10 +540,10 @@ export class StorageHandler {
       encoder.encode(payloadStr),
     );
 
-    const payloadB64 = btoa(payloadStr);
-    const sigB64 = btoa(
+    const payloadB64 = toUrlSafeBase64(btoa(payloadStr));
+    const sigB64 = toUrlSafeBase64(btoa(
       String.fromCharCode(...new Uint8Array(signature)),
-    );
+    ));
 
     return `${payloadB64}.${sigB64}`;
   }
@@ -554,28 +558,26 @@ export class StorageHandler {
     const [payloadB64, sigB64] = parts;
 
     try {
-      const payloadStr = atob(payloadB64!);
+      const payloadStr = atob(fromUrlSafeBase64(payloadB64!));
       const payload: SignedUrlToken = JSON.parse(payloadStr);
 
-      // Check expiration
       if (payload.exp < Math.floor(Date.now() / 1000)) return null;
 
-      // Verify signature
-      const keyResult = await this.db.query<{ value: string }>(
-        "SELECT value FROM auth.config WHERE key = 'jwt_signing_key'",
+      const keyResult = await this.db.query<{ get_signing_key: string }>(
+        "SELECT auth.get_signing_key()",
       );
       if (!keyResult.rows[0]) return null;
 
       const encoder = new TextEncoder();
       const key = await crypto.subtle.importKey(
         "raw",
-        encoder.encode(keyResult.rows[0].value),
+        encoder.encode(keyResult.rows[0].get_signing_key),
         { name: "HMAC", hash: "SHA-256" },
         false,
         ["verify"],
       );
 
-      const sigBytes = Uint8Array.from(atob(sigB64!), (c) => c.charCodeAt(0));
+      const sigBytes = Uint8Array.from(atob(fromUrlSafeBase64(sigB64!)), (c) => c.charCodeAt(0));
       const valid = await crypto.subtle.verify(
         "HMAC",
         key,

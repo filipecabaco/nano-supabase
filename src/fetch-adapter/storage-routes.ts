@@ -94,8 +94,11 @@ export async function handleStorageRoute(
   const method = request.method.toUpperCase();
   const token = extractBearerToken(request.headers);
 
-  // Set auth context for RLS on storage tables
+  // Set auth context variables (for RLS policies that reference auth.uid()),
+  // then RESET ROLE so storage operations run as superuser — matching real
+  // Supabase where the storage server uses supabase_storage_admin.
   const authCtx = await setAuthContext(db, token);
+  await db.exec("RESET ROLE");
 
   try {
     // ── Bucket routes: /storage/v1/bucket ──────────────────────────
@@ -584,7 +587,7 @@ async function handleCreateSignedUrl(
       expiresIn,
     );
     // Return the same format that supabase-js expects
-    const signedUrl = `/storage/v1/object/sign/${bucketId}/${objectPath}?token=${encodeURIComponent(token)}`;
+    const signedUrl = `/object/sign/${bucketId}/${objectPath}?token=${token}`;
     return jsonResponse({ signedURL: signedUrl });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to create signed URL";
@@ -613,7 +616,7 @@ async function handleCreateSignedUrls(
           path,
           expiresIn,
         );
-        const signedUrl = `/storage/v1/object/sign/${bucketId}/${path}?token=${encodeURIComponent(token)}`;
+        const signedUrl = `/object/sign/${bucketId}/${path}?token=${token}`;
         return { signedURL: signedUrl, path, error: null };
       } catch (err) {
         const message = err instanceof Error ? err.message : "Failed";

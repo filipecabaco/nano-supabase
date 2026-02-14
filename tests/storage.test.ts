@@ -302,7 +302,7 @@ describe("Storage Buckets", () => {
       },
     );
 
-    assertEquals(res.status, 500);
+    assertEquals(res.status, 409);
     const data = await res.json();
     assertExists(data.message);
 
@@ -1277,7 +1277,7 @@ describe("Storage Signed URLs", () => {
 
     // Download via signed URL (no auth header needed)
     const downloadRes = await localFetch(
-      `${SUPABASE_URL}${signData.signedURL}`,
+      `${SUPABASE_URL}/storage/v1${signData.signedURL}`,
       {
         method: "GET",
       },

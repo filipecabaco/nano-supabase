@@ -505,6 +505,7 @@
         "npm:@supabase/supabase-js@^2.93.3",
         "npm:@types/node@^25.1.0",
         "npm:esbuild@0.24",
+        "npm:postgrest-parser@0.1",
         "npm:tsx@^4.21.0",
         "npm:typescript@^5.9.3"
       ]
