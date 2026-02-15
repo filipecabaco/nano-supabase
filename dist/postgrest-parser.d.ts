@@ -101,7 +101,7 @@ export declare class PostgrestParser {
      * @param queryString - URL query parameters
      * @param body - Request body (for POST/PATCH)
      */
-    parseRequest(method: 'GET' | 'POST' | 'PATCH' | 'DELETE', path: string, queryString?: string, body?: Record<string, unknown>): ParsedQuery;
+    parseRequest(method: "GET" | "POST" | "PATCH" | "DELETE", path: string, queryString?: string, body?: Record<string, unknown>): ParsedQuery;
     /**
      * Convert WASM result to our ParsedQuery format
      */

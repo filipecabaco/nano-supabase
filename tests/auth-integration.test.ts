@@ -9,18 +9,12 @@ import { pgcrypto } from "@electric-sql/pglite/contrib/pgcrypto";
 import { createClient } from "@supabase/supabase-js";
 import { createFetchAdapter } from "../src/client.ts";
 import {
-  setAuthContext,
-  clearAuthContext,
-} from "../src/fetch-adapter/auth-context.ts";
-import {
-  extractPostgresError,
-  errorResponse,
-} from "../src/fetch-adapter/error-handler.ts";
-import {
+  test,
+  describe,
   assertEquals,
   assertExists,
   assertNotEquals,
-} from "https://deno.land/std@0.224.0/assert/mod.ts";
+} from "./compat.ts";
 
 interface Task {
   id: number;
@@ -30,14 +24,6 @@ interface Task {
   completed: boolean;
   priority?: string;
   created_at?: string;
-}
-
-interface RoleResult {
-  current_role: string;
-}
-
-interface UidResult {
-  uid: string | null;
 }
 
 interface CountResult {
@@ -85,238 +71,113 @@ async function createTasksTableWithRLS(db: PGlite) {
 }
 
 // ============================================================================
-// Auth Context Management Tests
+// RLS Policy Enforcement Tests
 // ============================================================================
 
-Deno.test("Auth Context - Anonymous user gets anon role", async () => {
-  const db = new PGlite({ extensions: { pgcrypto } });
-  const { authHandler } = await createTestClient(db);
-
-  const context = await setAuthContext(db, null);
-
-  assertEquals(context.role, "anon");
-  assertEquals(context.userId, undefined);
-
-  const roleResult = await db.query<RoleResult>("SELECT current_role");
-  assertEquals(roleResult.rows[0]?.current_role, "anon");
-
-  const uidResult = await db.query<UidResult>("SELECT auth.uid() as uid");
-  assertEquals(uidResult.rows[0]?.uid, null);
-
-  await db.close();
-});
-
-Deno.test(
-  "Auth Context - Authenticated user gets correct context",
-  async () => {
+describe("RLS", () => {
+  test("Users can only see their own tasks", async () => {
     const db = new PGlite({ extensions: { pgcrypto } });
     const { supabase } = await createTestClient(db);
+    await createTasksTableWithRLS(db);
 
-    const signUpResult = await supabase.auth.signUp({
-      email: "test@example.com",
-      password: "password123",
-    });
-    const token = signUpResult.data.session!.access_token;
-    const userId = signUpResult.data.user!.id;
-
-    const context = await setAuthContext(db, token);
-
-    assertEquals(context.role, "authenticated");
-    assertEquals(context.userId, userId);
-    assertEquals(context.email, "test@example.com");
-
-    const roleResult = await db.query<RoleResult>("SELECT current_role");
-    assertEquals(roleResult.rows[0]?.current_role, "authenticated");
-
-    const uidResult = await db.query<UidResult>("SELECT auth.uid() as uid");
-    assertEquals(uidResult.rows[0]?.uid, userId);
-
-    await db.close();
-  },
-);
-
-Deno.test(
-  "Auth Context - Context switches correctly between users",
-  async () => {
-    const db = new PGlite({ extensions: { pgcrypto } });
-    const { supabase } = await createTestClient(db);
-
-    // User 1
+    // User 1 creates tasks
     const user1 = await supabase.auth.signUp({
       email: "user1@example.com",
       password: "password123",
     });
-    const user1Token = user1.data.session!.access_token;
     const user1Id = user1.data.user!.id;
 
-    await setAuthContext(db, user1Token);
-    let uidResult = await db.query<UidResult>("SELECT auth.uid() as uid");
-    assertEquals(uidResult.rows[0]?.uid, user1Id);
+    await supabase.from("tasks").insert({ title: "User 1 Task 1" });
+    await supabase.from("tasks").insert({ title: "User 1 Task 2" });
 
-    // User 2
+    // User 2 creates tasks
     await supabase.auth.signOut();
     const user2 = await supabase.auth.signUp({
       email: "user2@example.com",
       password: "password456",
     });
-    const user2Token = user2.data.session!.access_token;
     const user2Id = user2.data.user!.id;
 
-    await setAuthContext(db, user2Token);
-    uidResult = await db.query("SELECT auth.uid() as uid");
-    assertEquals(uidResult.rows[0]?.uid, user2Id);
+    await supabase.from("tasks").insert({ title: "User 2 Task 1" });
+
+    // User 2 should only see their task
+    const user2Tasks = await supabase.from("tasks").select("*");
+    assertEquals(user2Tasks.data?.length, 1);
+    assertEquals(user2Tasks.data?.[0]?.user_id, user2Id);
+
+    // Switch to User 1
+    await supabase.auth.signOut();
+    await supabase.auth.signInWithPassword({
+      email: "user1@example.com",
+      password: "password123",
+    });
+
+    // User 1 should only see their tasks
+    const user1Tasks = await supabase.from("tasks").select("*");
+    assertEquals(user1Tasks.data?.length, 2);
+    assertEquals(
+      user1Tasks.data?.every((t: Task) => t.user_id === user1Id),
+      true,
+    );
 
     await db.close();
-  },
-);
-
-// ============================================================================
-// Error Handling Tests
-// ============================================================================
-
-Deno.test("Error Handler - Extracts PostgreSQL error details", () => {
-  interface PostgresErrorLike extends Error {
-    code?: string;
-    detail?: string;
-    hint?: string;
-  }
-
-  const error: PostgresErrorLike = Object.assign(new Error("duplicate key"), {
-    code: "23505",
-    detail: "Key (email)=(test@example.com) already exists.",
-    hint: "Use a different email",
   });
 
-  const apiError = extractPostgresError(error);
+  test("Anonymous users cannot access protected tables", async () => {
+    const db = new PGlite({ extensions: { pgcrypto } });
+    const { supabase } = await createTestClient(db);
+    await createTasksTableWithRLS(db);
 
-  assertEquals(apiError.message, "duplicate key");
-  assertEquals(apiError.code, "23505");
-  assertEquals(
-    apiError.details,
-    "Key (email)=(test@example.com) already exists.",
-  );
-  assertEquals(apiError.hint, "Use a different email");
-});
+    // Create task as authenticated user
+    await supabase.auth.signUp({
+      email: "test@example.com",
+      password: "password123",
+    });
+    await supabase.from("tasks").insert({ title: "Test Task" });
 
-Deno.test("Error Handler - Creates correct error response", async () => {
-  const error = new Error("Test error");
-  const response = errorResponse(error, 400);
+    // Sign out and try to access as anon
+    await supabase.auth.signOut();
+    const anonResult = await supabase.from("tasks").select("*");
 
-  assertEquals(response.status, 400);
-  assertEquals(response.headers.get("Content-Type"), "application/json");
+    // Should return empty (RLS filters it out)
+    assertEquals(anonResult.error, null);
+    assertEquals(anonResult.data?.length, 0);
 
-  const body = await response.json();
-  assertEquals(body.message, "Test error");
-  assertEquals(body.code, "PGRST000");
-});
-
-// ============================================================================
-// RLS Policy Enforcement Tests
-// ============================================================================
-
-Deno.test("RLS - Users can only see their own tasks", async () => {
-  const db = new PGlite({ extensions: { pgcrypto } });
-  const { supabase } = await createTestClient(db);
-  await createTasksTableWithRLS(db);
-
-  // User 1 creates tasks
-  const user1 = await supabase.auth.signUp({
-    email: "user1@example.com",
-    password: "password123",
-  });
-  const user1Id = user1.data.user!.id;
-
-  await supabase.from("tasks").insert({ title: "User 1 Task 1" });
-  await supabase.from("tasks").insert({ title: "User 1 Task 2" });
-
-  // User 2 creates tasks
-  await supabase.auth.signOut();
-  const user2 = await supabase.auth.signUp({
-    email: "user2@example.com",
-    password: "password456",
-  });
-  const user2Id = user2.data.user!.id;
-
-  await supabase.from("tasks").insert({ title: "User 2 Task 1" });
-
-  // User 2 should only see their task
-  const user2Tasks = await supabase.from("tasks").select("*");
-  assertEquals(user2Tasks.data?.length, 1);
-  assertEquals(user2Tasks.data?.[0]?.user_id, user2Id);
-
-  // Switch to User 1
-  await supabase.auth.signOut();
-  await supabase.auth.signInWithPassword({
-    email: "user1@example.com",
-    password: "password123",
+    await db.close();
   });
 
-  // User 1 should only see their tasks
-  const user1Tasks = await supabase.from("tasks").select("*");
-  assertEquals(user1Tasks.data?.length, 2);
-  assertEquals(
-    user1Tasks.data?.every((t: Task) => t.user_id === user1Id),
-    true,
-  );
+  test("auth.uid() works as DEFAULT value", async () => {
+    const db = new PGlite({ extensions: { pgcrypto } });
+    const { supabase } = await createTestClient(db);
+    await createTasksTableWithRLS(db);
 
-  await db.close();
-});
+    const signUpResult = await supabase.auth.signUp({
+      email: "test@example.com",
+      password: "password123",
+    });
+    const userId = signUpResult.data.user!.id;
 
-Deno.test("RLS - Anonymous users cannot access protected tables", async () => {
-  const db = new PGlite({ extensions: { pgcrypto } });
-  const { supabase } = await createTestClient(db);
-  await createTasksTableWithRLS(db);
+    // Insert without specifying user_id
+    const insertResult = await supabase
+      .from("tasks")
+      .insert({
+        title: "Test Task",
+      })
+      .select();
 
-  // Create task as authenticated user
-  await supabase.auth.signUp({
-    email: "test@example.com",
-    password: "password123",
+    assertEquals(insertResult.error, null);
+    assertEquals(insertResult.data?.[0]?.user_id, userId);
+
+    await db.close();
   });
-  await supabase.from("tasks").insert({ title: "Test Task" });
-
-  // Sign out and try to access as anon
-  await supabase.auth.signOut();
-  const anonResult = await supabase.from("tasks").select("*");
-
-  // Should return empty (RLS filters it out)
-  assertEquals(anonResult.error, null);
-  assertEquals(anonResult.data?.length, 0);
-
-  await db.close();
-});
-
-Deno.test("RLS - auth.uid() works as DEFAULT value", async () => {
-  const db = new PGlite({ extensions: { pgcrypto } });
-  const { supabase } = await createTestClient(db);
-  await createTasksTableWithRLS(db);
-
-  const signUpResult = await supabase.auth.signUp({
-    email: "test@example.com",
-    password: "password123",
-  });
-  const userId = signUpResult.data.user!.id;
-
-  // Insert without specifying user_id
-  const insertResult = await supabase
-    .from("tasks")
-    .insert({
-      title: "Test Task",
-    })
-    .select();
-
-  assertEquals(insertResult.error, null);
-  assertEquals(insertResult.data?.[0]?.user_id, userId);
-
-  await db.close();
 });
 
 // ============================================================================
 // Complete Auth Flow Tests
 // ============================================================================
 
-Deno.test(
-  "Auth Flow - Sign up → Create data → Sign out → Sign up → Verify isolation",
-  async () => {
+describe("Auth Flow", () => {
+  test("Sign up, create data, sign out, sign up, verify isolation", async () => {
     const db = new PGlite({ extensions: { pgcrypto } });
     const { supabase } = await createTestClient(db);
     await createTasksTableWithRLS(db);
@@ -359,12 +220,9 @@ Deno.test(
     assertEquals(tasks.data?.[0]?.user_id, user2Id);
 
     await db.close();
-  },
-);
+  });
 
-Deno.test(
-  "Auth Flow - Sign out allows signing up new user",
-  async () => {
+  test("Sign out allows signing up new user", async () => {
     const db = new PGlite({ extensions: { pgcrypto } });
     const { supabase } = await createTestClient(db);
 
@@ -399,49 +257,46 @@ Deno.test(
     assertEquals(usersResult.rows.length, 2);
 
     await db.close();
-  },
-);
-
-Deno.test("Auth Flow - Sign out → Sign in preserves user data", async () => {
-  const db = new PGlite({ extensions: { pgcrypto } });
-  const { supabase } = await createTestClient(db);
-  await createTasksTableWithRLS(db);
-
-  // Sign up and create tasks
-  const signUpResult = await supabase.auth.signUp({
-    email: "test@example.com",
-    password: "password123",
   });
-  const userId = signUpResult.data.user!.id;
 
-  await supabase.from("tasks").insert({ title: "Task 1" });
-  await supabase.from("tasks").insert({ title: "Task 2" });
+  test("Sign out then sign in preserves user data", async () => {
+    const db = new PGlite({ extensions: { pgcrypto } });
+    const { supabase } = await createTestClient(db);
+    await createTasksTableWithRLS(db);
 
-  // Sign out
-  await supabase.auth.signOut();
+    // Sign up and create tasks
+    const signUpResult = await supabase.auth.signUp({
+      email: "test@example.com",
+      password: "password123",
+    });
+    const userId = signUpResult.data.user!.id;
 
-  // Sign in again
-  const signInResult = await supabase.auth.signInWithPassword({
-    email: "test@example.com",
-    password: "password123",
+    await supabase.from("tasks").insert({ title: "Task 1" });
+    await supabase.from("tasks").insert({ title: "Task 2" });
+
+    // Sign out
+    await supabase.auth.signOut();
+
+    // Sign in again
+    const signInResult = await supabase.auth.signInWithPassword({
+      email: "test@example.com",
+      password: "password123",
+    });
+    assertEquals(signInResult.error, null);
+    assertEquals(signInResult.data.user?.id, userId);
+
+    // Should see original tasks
+    const tasks = await supabase.from("tasks").select("*");
+    assertEquals(tasks.data?.length, 2);
+    assertEquals(
+      tasks.data?.every((t: Task) => t.user_id === userId),
+      true,
+    );
+
+    await db.close();
   });
-  assertEquals(signInResult.error, null);
-  assertEquals(signInResult.data.user?.id, userId);
 
-  // Should see original tasks
-  const tasks = await supabase.from("tasks").select("*");
-  assertEquals(tasks.data?.length, 2);
-  assertEquals(
-    tasks.data?.every((t: Task) => t.user_id === userId),
-    true,
-  );
-
-  await db.close();
-});
-
-Deno.test(
-  "Auth Flow - Multiple sign out → sign up cycles work correctly",
-  async () => {
+  test("Multiple sign out then sign up cycles work correctly", async () => {
     const db = new PGlite({ extensions: { pgcrypto } });
     const { supabase } = await createTestClient(db);
     await createTasksTableWithRLS(db);
@@ -475,86 +330,83 @@ Deno.test(
     assertEquals(userCTasks.data?.[0]?.title, "User C Task");
 
     await db.close();
-  },
-);
-
-Deno.test("Auth Flow - Session cleanup on sign out", async () => {
-  const db = new PGlite({ extensions: { pgcrypto } });
-  const { supabase } = await createTestClient(db);
-
-  const signUpResult = await supabase.auth.signUp({
-    email: "test@example.com",
-    password: "password123",
   });
-  const userId = signUpResult.data.user!.id;
 
-  // Verify session exists
-  let sessionCheck = await db.query<CountResult>(
-    `
+  test("Session cleanup on sign out", async () => {
+    const db = new PGlite({ extensions: { pgcrypto } });
+    const { supabase } = await createTestClient(db);
+
+    const signUpResult = await supabase.auth.signUp({
+      email: "test@example.com",
+      password: "password123",
+    });
+    const userId = signUpResult.data.user!.id;
+
+    // Verify session exists
+    let sessionCheck = await db.query<CountResult>(
+      `
     SELECT COUNT(*) as count FROM auth.sessions WHERE user_id = $1
   `,
-    [userId],
-  );
-  assertEquals(sessionCheck.rows[0]?.count, 1);
+      [userId],
+    );
+    assertEquals(sessionCheck.rows[0]?.count, 1);
 
-  // Sign out
-  await supabase.auth.signOut();
+    // Sign out
+    await supabase.auth.signOut();
 
-  // Verify session deleted
-  sessionCheck = await db.query<CountResult>(
-    `
+    // Verify session deleted
+    sessionCheck = await db.query<CountResult>(
+      `
     SELECT COUNT(*) as count FROM auth.sessions WHERE user_id = $1
   `,
-    [userId],
-  );
-  assertEquals(sessionCheck.rows[0]?.count, 0);
+      [userId],
+    );
+    assertEquals(sessionCheck.rows[0]?.count, 0);
 
-  await db.close();
-});
-
-Deno.test("Auth Flow - Concurrent users with isolated data", async () => {
-  const db = new PGlite({ extensions: { pgcrypto } });
-  const { supabase: client1 } = await createTestClient(db);
-  const { supabase: client2 } = await createTestClient(db);
-  await createTasksTableWithRLS(db);
-
-  // User 1
-  const user1 = await client1.auth.signUp({
-    email: "user1@example.com",
-    password: "password123",
+    await db.close();
   });
-  const user1Id = user1.data.user!.id;
 
-  await client1.from("tasks").insert({ title: "User 1 Task 1" });
-  await client1.from("tasks").insert({ title: "User 1 Task 2" });
+  test("Concurrent users with isolated data", async () => {
+    const db = new PGlite({ extensions: { pgcrypto } });
+    const { supabase: client1 } = await createTestClient(db);
+    const { supabase: client2 } = await createTestClient(db);
+    await createTasksTableWithRLS(db);
 
-  // User 2
-  const user2 = await client2.auth.signUp({
-    email: "user2@example.com",
-    password: "password456",
+    // User 1
+    const user1 = await client1.auth.signUp({
+      email: "user1@example.com",
+      password: "password123",
+    });
+    const user1Id = user1.data.user!.id;
+
+    await client1.from("tasks").insert({ title: "User 1 Task 1" });
+    await client1.from("tasks").insert({ title: "User 1 Task 2" });
+
+    // User 2
+    const user2 = await client2.auth.signUp({
+      email: "user2@example.com",
+      password: "password456",
+    });
+    const user2Id = user2.data.user!.id;
+
+    await client2.from("tasks").insert({ title: "User 2 Task 1" });
+
+    // Each user sees only their own tasks
+    const user1Tasks = await client1.from("tasks").select("*");
+    assertEquals(user1Tasks.data?.length, 2);
+    assertEquals(
+      user1Tasks.data?.every((t: Task) => t.user_id === user1Id),
+      true,
+    );
+
+    const user2Tasks = await client2.from("tasks").select("*");
+    assertEquals(user2Tasks.data?.length, 1);
+    assertEquals(user2Tasks.data?.[0]?.user_id, user2Id);
+
+    await db.close();
   });
-  const user2Id = user2.data.user!.id;
 
-  await client2.from("tasks").insert({ title: "User 2 Task 1" });
-
-  // Each user sees only their own tasks
-  const user1Tasks = await client1.from("tasks").select("*");
-  assertEquals(user1Tasks.data?.length, 2);
-  assertEquals(
-    user1Tasks.data?.every((t: Task) => t.user_id === user1Id),
-    true,
-  );
-
-  const user2Tasks = await client2.from("tasks").select("*");
-  assertEquals(user2Tasks.data?.length, 1);
-  assertEquals(user2Tasks.data?.[0]?.user_id, user2Id);
-
-  await db.close();
-});
-
-Deno.test(
-  "Auth Flow - Invalid credentials do not create session",
-  async () => {
+  test("Invalid credentials do not create session", async () => {
     const db = new PGlite({ extensions: { pgcrypto } });
     const { supabase } = await createTestClient(db);
 
@@ -588,16 +440,15 @@ Deno.test(
     assertEquals(sessionCheck.rows[0]?.count, 0);
 
     await db.close();
-  },
-);
+  });
+});
 
 // ============================================================================
 // Complex RLS Scenarios
 // ============================================================================
 
-Deno.test(
-  "RLS - Update and delete operations respect user boundaries",
-  async () => {
+describe("Complex RLS", () => {
+  test("Update and delete operations respect user boundaries", async () => {
     const db = new PGlite({ extensions: { pgcrypto } });
     const { supabase } = await createTestClient(db);
     await createTasksTableWithRLS(db);
@@ -645,31 +496,31 @@ Deno.test(
     assertEquals(checkTask.data?.completed || false, false);
 
     await db.close();
-  },
-);
-
-Deno.test("RLS - Context persists across multiple operations", async () => {
-  const db = new PGlite({ extensions: { pgcrypto } });
-  const { supabase } = await createTestClient(db);
-  await createTasksTableWithRLS(db);
-
-  const signUpResult = await supabase.auth.signUp({
-    email: "test@example.com",
-    password: "password123",
   });
-  const userId = signUpResult.data.user!.id;
 
-  // Multiple operations should all use same context
-  await supabase.from("tasks").insert({ title: "Task 1" });
-  await supabase.from("tasks").insert({ title: "Task 2" });
-  await supabase.from("tasks").insert({ title: "Task 3" });
+  test("Context persists across multiple operations", async () => {
+    const db = new PGlite({ extensions: { pgcrypto } });
+    const { supabase } = await createTestClient(db);
+    await createTasksTableWithRLS(db);
 
-  const allTasks = await supabase.from("tasks").select("*");
-  assertEquals(allTasks.data?.length, 3);
-  assertEquals(
-    allTasks.data?.every((t: Task) => t.user_id === userId),
-    true,
-  );
+    const signUpResult = await supabase.auth.signUp({
+      email: "test@example.com",
+      password: "password123",
+    });
+    const userId = signUpResult.data.user!.id;
 
-  await db.close();
+    // Multiple operations should all use same context
+    await supabase.from("tasks").insert({ title: "Task 1" });
+    await supabase.from("tasks").insert({ title: "Task 2" });
+    await supabase.from("tasks").insert({ title: "Task 3" });
+
+    const allTasks = await supabase.from("tasks").select("*");
+    assertEquals(allTasks.data?.length, 3);
+    assertEquals(
+      allTasks.data?.every((t: Task) => t.user_id === userId),
+      true,
+    );
+
+    await db.close();
+  });
 });

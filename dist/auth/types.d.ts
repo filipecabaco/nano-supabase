@@ -37,7 +37,7 @@ export interface UserIdentity {
  */
 export interface Session {
     access_token: string;
-    token_type: 'bearer';
+    token_type: "bearer";
     expires_in: number;
     expires_at: number;
     refresh_token: string;
@@ -82,7 +82,7 @@ export interface SignInCredentials {
 /**
  * Auth state change event types
  */
-export type AuthChangeEvent = 'INITIAL_SESSION' | 'SIGNED_IN' | 'SIGNED_OUT' | 'TOKEN_REFRESHED' | 'USER_UPDATED' | 'PASSWORD_RECOVERY';
+export type AuthChangeEvent = "INITIAL_SESSION" | "SIGNED_IN" | "SIGNED_OUT" | "TOKEN_REFRESHED" | "USER_UPDATED" | "PASSWORD_RECOVERY";
 /**
  * Auth state change callback
  */

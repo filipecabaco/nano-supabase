@@ -2,7 +2,7 @@
  * Auth context management for RLS policies
  * Handles setting and clearing PostgreSQL session context for authenticated requests
  */
-import type { PGlite } from '@electric-sql/pglite';
+import type { PGlite } from "@electric-sql/pglite";
 export interface AuthContext {
     userId?: string;
     role: string;

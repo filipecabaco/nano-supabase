@@ -1,6 +1,6 @@
 {
   "name": "nano-supabase",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "description": "A lightweight Supabase-compatible client for PGlite - runs PostgreSQL entirely in the browser/edge",
   "type": "module",
   "main": "./dist/index.js",
@@ -17,11 +17,18 @@
     "dist"
   ],
   "scripts": {
-    "build": "pnpm run build:bundle && pnpm run build:types",
+    "build": "npm run build:bundle && npm run build:types",
     "build:bundle": "node scripts/build.js",
     "build:types": "tsc --emitDeclarationOnly",
     "build:dev": "tsc",
     "clean": "rm -rf dist",
+    "prepublishOnly": "npm run clean && npm run build",
+    "test:bun": "bun test tests/",
+    "test:bun:auth": "bun test tests/auth-integration.test.ts",
+    "test:bun:data": "bun test tests/integration.test.ts tests/supabase-client.test.ts",
+    "test:bun:storage": "bun test tests/storage.test.ts",
+    "test:bun:fetch": "bun test tests/fetch-adapter.test.ts",
+    "test:bun:apps": "bun test tests/applications.test.ts tests/full-user-flow.test.ts",
     "example:basic": "tsx examples/basic.ts",
     "example:server": "tsx examples/tcp-server.ts",
     "example:parser": "tsx examples/postgrest-parser.ts"
@@ -37,8 +44,16 @@
     "bun",
     "cloudflare-workers"
   ],
-  "author": "",
+  "author": "filipecabaco",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/filipecabaco/nano-supabase.git"
+  },
+  "homepage": "https://github.com/filipecabaco/nano-supabase#readme",
+  "bugs": {
+    "url": "https://github.com/filipecabaco/nano-supabase/issues"
+  },
   "peerDependencies": {
     "@electric-sql/pglite": ">=0.3.0"
   },
@@ -51,9 +66,11 @@
     "@electric-sql/pglite": "^0.3.15",
     "@supabase/supabase-js": "^2.93.3",
     "@types/node": "^25.1.0",
-    "esbuild": "^0.24.0",
-    "native_postgrest_parser": "github:filipecabaco/native_postgrest_parser",
+    "esbuild": "^0.27.3",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "postgrest-parser": "^0.1.1"
   }
 }

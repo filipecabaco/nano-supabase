@@ -539,7 +539,7 @@ GRANT EXECUTE ON FUNCTION auth.create_refresh_token(UUID, UUID) TO anon, authent
 GRANT EXECUTE ON FUNCTION auth.refresh_token(TEXT) TO anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION auth.sign_out(UUID) TO anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION auth.sign_out_all(UUID) TO authenticated, service_role;
-GRANT EXECUTE ON FUNCTION auth.get_signing_key() TO service_role;
+GRANT EXECUTE ON FUNCTION auth.get_signing_key() TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION auth.create_access_token(UUID, UUID, TEXT, TEXT, JSONB, JSONB, INT) TO service_role;
 GRANT EXECUTE ON FUNCTION auth.verify_access_token(TEXT) TO service_role;
 `;

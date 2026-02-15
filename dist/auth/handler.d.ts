@@ -1,8 +1,8 @@
 /**
  * Auth handler - processes auth requests and manages auth state
  */
-import type { PGlite } from '@electric-sql/pglite';
-import type { User, Session, AuthResponse, AuthError, AuthStateChangeCallback, AuthSubscription } from './types.ts';
+import type { PGlite } from "@electric-sql/pglite";
+import type { User, Session, AuthResponse, AuthError, AuthStateChangeCallback, AuthSubscription } from "./types.ts";
 /**
  * Auth handler class
  */

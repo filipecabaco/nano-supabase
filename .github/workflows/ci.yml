@@ -1,0 +1,94 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build
+        run: npm run build
+
+      - name: Verify package contents
+        run: npm pack --dry-run
+
+  test-bun:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        concern:
+          - name: auth
+            files: tests/auth-integration.test.ts
+          - name: data
+            files: tests/integration.test.ts tests/supabase-client.test.ts
+          - name: storage
+            files: tests/storage.test.ts
+          - name: fetch-adapter
+            files: tests/fetch-adapter.test.ts
+          - name: applications
+            files: tests/applications.test.ts tests/full-user-flow.test.ts
+
+    name: bun / ${{ matrix.concern.name }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Run tests
+        run: bun test ${{ matrix.concern.files }}
+
+  test-deno:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        concern:
+          - name: auth
+            files: tests/auth-integration.test.ts
+          - name: data
+            files: tests/integration.test.ts tests/supabase-client.test.ts
+          - name: storage
+            files: tests/storage.test.ts
+          - name: fetch-adapter
+            files: tests/fetch-adapter.test.ts
+          - name: applications
+            files: tests/applications.test.ts tests/full-user-flow.test.ts
+
+    name: deno / ${{ matrix.concern.name }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Setup Node (for npm deps)
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Run tests
+        run: deno test --allow-read --allow-write --allow-env --allow-ffi --allow-net ${{ matrix.concern.files }}

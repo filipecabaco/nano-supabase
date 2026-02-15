@@ -2,11 +2,13 @@
  * Local Supabase Client Factory
  *
  * Creates a fully local Supabase client that works with @supabase/supabase-js
- * All auth and data operations are handled in-browser/in-process using PGlite
+ * All auth, data, and storage operations are handled in-browser/in-process using PGlite
  */
-import type { PGlite } from '@electric-sql/pglite';
-import { PostgrestParser } from './postgrest-parser.ts';
-import { AuthHandler } from './auth/handler.ts';
+import type { PGlite } from "@electric-sql/pglite";
+import { PostgrestParser } from "./postgrest-parser.ts";
+import { AuthHandler } from "./auth/handler.ts";
+import { StorageHandler } from "./storage/handler.ts";
+import type { StorageBackend } from "./storage/backend.ts";
 /**
  * Generic type for the Supabase client
  * This allows users to pass their own SupabaseClient type
@@ -40,6 +42,12 @@ export interface LocalSupabaseClientConfig {
      * Defaults to globalThis.fetch
      */
     originalFetch?: typeof fetch;
+    /**
+     * Custom storage blob backend.
+     * Defaults to in-memory storage (MemoryStorageBackend).
+     * Set to `false` to disable storage emulation entirely.
+     */
+    storageBackend?: StorageBackend | false;
 }
 /**
  * Result from creating a local Supabase client
@@ -58,17 +66,22 @@ export interface LocalSupabaseClientResult<T = SupabaseJsClient> {
      */
     parser: PostgrestParser;
     /**
+     * The storage handler for direct access to storage operations (undefined if disabled)
+     */
+    storageHandler?: StorageHandler;
+    /**
      * The custom fetch function (useful for custom integrations)
      */
     localFetch: typeof fetch;
 }
 /**
- * Create a local Supabase client with full auth and data emulation
+ * Create a local Supabase client with full auth, data, and storage emulation
  *
- * This function initializes PGlite with the auth schema and creates a
+ * This function initializes PGlite with the auth and storage schemas and creates a
  * custom fetch adapter that intercepts Supabase API calls:
  * - /auth/v1/* endpoints are handled by the local auth handler
  * - /rest/v1/* endpoints are parsed and executed against PGlite
+ * - /storage/v1/* endpoints are handled by the local storage handler
  * - All other requests pass through to the original fetch
  *
  * @example
@@ -79,17 +92,15 @@ export interface LocalSupabaseClientResult<T = SupabaseJsClient> {
  *
  * const db = new PGlite()
  *
- * // Create the local client
- * const { client: supabase, authHandler } = await createLocalSupabaseClient({
+ * // Create the local client — auth, data, and storage all work locally
+ * const { client: supabase } = await createLocalSupabaseClient({
  *   db,
- *   createClient, // Pass the createClient function from @supabase/supabase-js
+ *   createClient,
  * })
  *
  * // Use it like a normal Supabase client
  * await supabase.auth.signUp({ email: 'user@example.com', password: 'password' })
  * const { data } = await supabase.from('users').select('*')
- *
- * // Storage, Realtime, and Edge Functions still work via network
  * await supabase.storage.from('avatars').upload('avatar.png', file)
  * ```
  */
@@ -128,7 +139,7 @@ export declare function initializeAuth(db: PGlite): Promise<AuthHandler>;
  * import { createFetchAdapter } from 'nano-supabase'
  *
  * const db = new PGlite()
- * const { localFetch, authHandler, parser } = await createFetchAdapter({ db })
+ * const { localFetch, authHandler, parser, storageHandler } = await createFetchAdapter({ db })
  *
  * // Create client yourself
  * const supabase = createClient('http://localhost:54321', 'key', {
@@ -141,10 +152,12 @@ export declare function createFetchAdapter(config: {
     supabaseUrl?: string;
     debug?: boolean;
     originalFetch?: typeof fetch;
+    storageBackend?: StorageBackend | false;
 }): Promise<{
     localFetch: typeof fetch;
     authHandler: AuthHandler;
     parser: PostgrestParser;
+    storageHandler?: StorageHandler;
 }>;
 export {};
 //# sourceMappingURL=client.d.ts.map
