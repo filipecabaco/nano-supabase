@@ -1,3 +1,4 @@
+import path from 'path'
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
@@ -19,6 +20,11 @@ function wasmMimePlugin(): Plugin {
 
 export default defineConfig({
   plugins: [react(), tailwindcss(), wasmMimePlugin()],
+  resolve: {
+    alias: {
+      '@': path.resolve(__dirname, './src'),
+    },
+  },
   optimizeDeps: {
     exclude: ['@electric-sql/pglite', 'nano-supabase']
   },
