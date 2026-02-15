@@ -87,7 +87,7 @@ export function assertEquals<T>(actual: T, expected: T, msg?: string): void {
 export function assertExists(
   value: unknown,
   msg?: string,
-): void {
+): asserts value {
   if (value === null || value === undefined) {
     throw new Error(msg || `assertExists failed: value is ${value}`);
   }
