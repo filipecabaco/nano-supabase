@@ -2,8 +2,8 @@
  * Supabase-compatible client for PGlite
  * Intercepts PostgREST-style API calls and converts them to SQL
  */
-import type { PGlite } from '@electric-sql/pglite';
-import { PostgrestParser } from './postgrest-parser.ts';
+import type { PGlite } from "@electric-sql/pglite";
+import { PostgrestParser } from "./postgrest-parser.ts";
 /**
  * Query builder interface compatible with Supabase-js
  */

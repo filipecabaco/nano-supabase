@@ -1,5 +1,5 @@
-import type { PGlite } from '@electric-sql/pglite';
-import type { PoolerConfig, QueryPriority, QueryResult } from './types.ts';
+import type { PGlite } from "@electric-sql/pglite";
+import type { PoolerConfig, QueryPriority, QueryResult } from "./types.ts";
 /**
  * Connection pooler that manages N-to-1 query execution against PGlite
  * Uses a priority queue to order query execution

@@ -5,9 +5,9 @@
 
 import init, {
   initSchemaFromDb,
-} from "native_postgrest_parser/pkg/postgrest_parser.js";
-import { createClient } from "native_postgrest_parser/pkg/client.js";
-import type { QueryResult as ParserQueryResult } from "native_postgrest_parser/pkg/types.js";
+} from "postgrest-parser/pkg/postgrest_parser.js";
+import { createClient } from "postgrest-parser/pkg/client.js";
+import type { QueryResult as ParserQueryResult } from "postgrest-parser/pkg/types.js";
 
 /**
  * Query executor function type for schema introspection

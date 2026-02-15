@@ -1,8 +1,8 @@
 /**
  * Data routes handler - processes /rest/v1/* requests using PostgREST parser
  */
-import type { PGlite } from '@electric-sql/pglite';
-import type { PostgrestParser } from '../postgrest-parser.ts';
+import type { PGlite } from "@electric-sql/pglite";
+import type { PostgrestParser } from "../postgrest-parser.ts";
 /**
  * Handle data routes (PostgREST API)
  */

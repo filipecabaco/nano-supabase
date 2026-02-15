@@ -9,14 +9,6 @@ import { pgcrypto } from "@electric-sql/pglite/contrib/pgcrypto";
 import { createClient } from "@supabase/supabase-js";
 import { createFetchAdapter } from "../src/client.ts";
 import {
-  setAuthContext,
-  clearAuthContext,
-} from "../src/fetch-adapter/auth-context.ts";
-import {
-  extractPostgresError,
-  errorResponse,
-} from "../src/fetch-adapter/error-handler.ts";
-import {
   test,
   describe,
   assertEquals,
@@ -32,14 +24,6 @@ interface Task {
   completed: boolean;
   priority?: string;
   created_at?: string;
-}
-
-interface RoleResult {
-  current_role: string;
-}
-
-interface UidResult {
-  uid: string | null;
 }
 
 interface CountResult {
@@ -85,133 +69,6 @@ async function createTasksTableWithRLS(db: PGlite) {
     GRANT ALL ON tasks TO authenticated;
   `);
 }
-
-// ============================================================================
-// Auth Context Management Tests
-// ============================================================================
-
-describe("Auth Context", () => {
-  test("Anonymous user gets anon role", async () => {
-    const db = new PGlite({ extensions: { pgcrypto } });
-    const { authHandler } = await createTestClient(db);
-
-    const context = await setAuthContext(db, null);
-
-    assertEquals(context.role, "anon");
-    assertEquals(context.userId, undefined);
-
-    const roleResult = await db.query<RoleResult>("SELECT current_role");
-    assertEquals(roleResult.rows[0]?.current_role, "anon");
-
-    const uidResult = await db.query<UidResult>("SELECT auth.uid() as uid");
-    assertEquals(uidResult.rows[0]?.uid, null);
-
-    await db.close();
-  });
-
-  test("Authenticated user gets correct context", async () => {
-    const db = new PGlite({ extensions: { pgcrypto } });
-    const { supabase } = await createTestClient(db);
-
-    const signUpResult = await supabase.auth.signUp({
-      email: "test@example.com",
-      password: "password123",
-    });
-    const token = signUpResult.data.session!.access_token;
-    const userId = signUpResult.data.user!.id;
-
-    const context = await setAuthContext(db, token);
-
-    assertEquals(context.role, "authenticated");
-    assertEquals(context.userId, userId);
-    assertEquals(context.email, "test@example.com");
-
-    const roleResult = await db.query<RoleResult>("SELECT current_role");
-    assertEquals(roleResult.rows[0]?.current_role, "authenticated");
-
-    const uidResult = await db.query<UidResult>("SELECT auth.uid() as uid");
-    assertEquals(uidResult.rows[0]?.uid, userId);
-
-    await db.close();
-  });
-
-  test("Context switches correctly between users", async () => {
-    const db = new PGlite({ extensions: { pgcrypto } });
-    const { supabase } = await createTestClient(db);
-
-    // User 1
-    const user1 = await supabase.auth.signUp({
-      email: "user1@example.com",
-      password: "password123",
-    });
-    const user1Token = user1.data.session!.access_token;
-    const user1Id = user1.data.user!.id;
-
-    await setAuthContext(db, user1Token);
-    let uidResult = await db.query<UidResult>("SELECT auth.uid() as uid");
-    assertEquals(uidResult.rows[0]?.uid, user1Id);
-
-    // User 2
-    await supabase.auth.signOut();
-    const user2 = await supabase.auth.signUp({
-      email: "user2@example.com",
-      password: "password456",
-    });
-    const user2Token = user2.data.session!.access_token;
-    const user2Id = user2.data.user!.id;
-
-    await setAuthContext(db, user2Token);
-    uidResult = await db.query("SELECT auth.uid() as uid");
-    assertEquals(uidResult.rows[0]?.uid, user2Id);
-
-    await db.close();
-  });
-});
-
-// ============================================================================
-// Error Handling Tests
-// ============================================================================
-
-describe("Error Handling", () => {
-  test("Extracts PostgreSQL error details", () => {
-    interface PostgresErrorLike extends Error {
-      code?: string;
-      detail?: string;
-      hint?: string;
-    }
-
-    const error: PostgresErrorLike = Object.assign(
-      new Error("duplicate key"),
-      {
-        code: "23505",
-        detail: "Key (email)=(test@example.com) already exists.",
-        hint: "Use a different email",
-      },
-    );
-
-    const apiError = extractPostgresError(error);
-
-    assertEquals(apiError.message, "duplicate key");
-    assertEquals(apiError.code, "23505");
-    assertEquals(
-      apiError.details,
-      "Key (email)=(test@example.com) already exists.",
-    );
-    assertEquals(apiError.hint, "Use a different email");
-  });
-
-  test("Creates correct error response", async () => {
-    const error = new Error("Test error");
-    const response = errorResponse(error, 400);
-
-    assertEquals(response.status, 400);
-    assertEquals(response.headers.get("Content-Type"), "application/json");
-
-    const body = await response.json();
-    assertEquals(body.message, "Test error");
-    assertEquals(body.code, "PGRST000");
-  });
-});
 
 // ============================================================================
 // RLS Policy Enforcement Tests

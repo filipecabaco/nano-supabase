@@ -58,7 +58,7 @@ async function build() {
   })
 
   // Copy WASM file from native_postgrest_parser to dist
-  const wasmSource = join(rootDir, 'node_modules/native_postgrest_parser/pkg/postgrest_parser_bg.wasm')
+  const wasmSource = join(rootDir, 'node_modules/postgrest-parser/pkg/postgrest_parser_bg.wasm')
   const wasmDest = join(rootDir, 'dist/postgrest_parser_bg.wasm')
   copyFileSync(wasmSource, wasmDest)
   console.log('Copied WASM file to dist/')

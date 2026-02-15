@@ -1,4 +1,4 @@
-import type { QueuedQuery } from './types.ts';
+import type { QueuedQuery } from "./types.ts";
 /**
  * Priority-based queue for managing query execution order
  * Uses separate queues for each priority level

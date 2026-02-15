@@ -1,7 +1,7 @@
 /**
  * Auth routes handler - processes /auth/v1/* requests
  */
-import type { AuthHandler } from '../auth/handler.ts';
+import type { AuthHandler } from "../auth/handler.ts";
 /**
  * Handle auth routes
  */

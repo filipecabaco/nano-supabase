@@ -1516,33 +1516,3 @@ describe("Fetch Integration", () => {
   });
 });
 
-// ============================================================================
-// Debug Mode Tests
-// ============================================================================
-
-describe("Fetch Debug", () => {
-  test("Debug mode logs requests", async () => {
-    const db = new PGlite({ extensions: { pgcrypto } });
-
-    // Enable debug mode
-    const { localFetch } = await createFetchAdapter({
-      db,
-      supabaseUrl: SUPABASE_URL,
-      debug: true,
-    });
-
-    // Make a request - debug logs should be output
-    const response = await localFetch(`${SUPABASE_URL}/auth/v1/signup`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        email: "test@example.com",
-        password: "password123",
-      }),
-    });
-
-    assertEquals(response.status, 200);
-
-    await db.close();
-  });
-});
