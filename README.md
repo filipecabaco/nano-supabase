@@ -142,6 +142,21 @@ await pooler.stop()
 
 Modern bundlers tree-shake unused exports automatically.
 
+## Vite Configuration
+
+When using nano-supabase in a Vite project, exclude PGlite from dependency pre-bundling:
+
+```typescript
+// vite.config.ts
+export default defineConfig({
+  optimizeDeps: {
+    exclude: ['@electric-sql/pglite'],
+  },
+})
+```
+
+Vite's dev server pre-bundles dependencies with esbuild, which breaks PGlite's WASM asset resolution via `import.meta.url`. This only affects the dev server — production builds work without this config.
+
 ## Limitations
 
 - **No Realtime** - WebSocket subscriptions are not supported
