@@ -1,127 +1,73 @@
 import { PGlite } from '@electric-sql/pglite'
-import { PGlitePooler } from '../src/pooler.js'
+import { PGlitePooler } from '../src/pooler.ts'
+import { QueryPriority } from '../src/types.ts'
 
 async function main() {
-  console.log('=== PGlite Pooler Basic Test ===\n')
+  console.log('=== PGlite Pooler Basic Demo ===\n')
 
   const db = new PGlite()
-  await db.exec('CREATE TABLE test (id SERIAL PRIMARY KEY, name TEXT, priority TEXT)')
+  await db.exec('CREATE TABLE items (id SERIAL PRIMARY KEY, name TEXT, priority TEXT)')
 
-  const pooler = new PGlitePooler(db)
-  await pooler.start()
+  await using pooler = await PGlitePooler.create(db)
 
-  console.log('--- Test 1: Priority Ordering ---')
-  console.log('Submitting 3 queries with different priorities...')
+  console.log('--- Priority ordering ---')
+  await Promise.all([
+    pooler
+      .query("INSERT INTO items (name, priority) VALUES ('low', 'LOW')", [], QueryPriority.LOW)
+      .then(() => console.log('  LOW completed')),
+    pooler
+      .query("INSERT INTO items (name, priority) VALUES ('high', 'HIGH')", [], QueryPriority.HIGH)
+      .then(() => console.log('  HIGH completed')),
+    pooler
+      .query("INSERT INTO items (name, priority) VALUES ('medium', 'MEDIUM')", [], QueryPriority.MEDIUM)
+      .then(() => console.log('  MEDIUM completed')),
+  ])
 
-  // Submit queries concurrently with different priorities
-  const queries = []
+  const ordered = await pooler.query('SELECT priority FROM items ORDER BY id')
+  const order = ordered.rows.map((r) => r['priority']).join(' -> ')
+  console.log(`  Execution order: ${order}\n`)
 
-  // Query 3: Low priority (should execute last)
-  queries.push(
-    pooler.query(
-      "INSERT INTO test (name, priority) VALUES ('Query 3', 'LOW')",
-      [],
-      3 // LOW
-    ).then(() => console.log('  ✓ Low priority query completed'))
-  )
-
-  // Query 1: High priority (should execute first)
-  queries.push(
-    pooler.query(
-      "INSERT INTO test (name, priority) VALUES ('Query 1', 'HIGH')",
-      [],
-      1 // HIGH
-    ).then(() => console.log('  ✓ High priority query completed'))
-  )
-
-  // Query 2: Medium priority (should execute second)
-  queries.push(
-    pooler.query(
-      "INSERT INTO test (name, priority) VALUES ('Query 2', 'MEDIUM')",
-      [],
-      2 // MEDIUM
-    ).then(() => console.log('  ✓ Medium priority query completed'))
-  )
-
-  await Promise.all(queries)
-
-  // Check insertion order
-  const result = await pooler.query('SELECT * FROM test ORDER BY id')
-  console.log('\nExecution order (by ID):')
-  for (const row of result.rows) {
-    console.log(`  ${row['name']}: ${row['priority']}`)
-  }
-
-  if (
-    result.rows[0]?.['priority'] === 'HIGH' &&
-    result.rows[1]?.['priority'] === 'MEDIUM' &&
-    result.rows[2]?.['priority'] === 'LOW'
-  ) {
-    console.log('\n✓ Priority ordering works correctly!\n')
-  } else {
-    console.log('\n✗ Priority ordering did not work as expected\n')
-  }
-
-  // ============================================================================
-  console.log('--- Test 2: Concurrent Query Execution ---')
-  console.log('Submitting 10 concurrent queries...')
-
-  const concurrentQueries = []
-  for (let i = 0; i < 10; i++) {
-    concurrentQueries.push(
-      pooler.query(
-        `INSERT INTO test (name, priority) VALUES ('Concurrent ${i}', 'MEDIUM')`,
-        [],
-        2 // MEDIUM
-      )
-    )
-  }
-
+  console.log('--- Concurrent queries ---')
   const start = Date.now()
-  await Promise.all(concurrentQueries)
-  const elapsed = Date.now() - start
-
-  console.log(`✓ 10 queries completed in ${elapsed}ms`)
-
-  // ============================================================================
-  console.log('\n--- Test 3: Query with Parameters ---')
-
-  await pooler.query(
-    'INSERT INTO test (name, priority) VALUES ($1, $2)',
-    ['Parameterized Query', 'HIGH']
+  await Promise.all(
+    Array.from({ length: 10 }, (_, i) =>
+      pooler.query("INSERT INTO items (name, priority) VALUES ($1, 'MEDIUM')", [`item-${i}`]),
+    ),
   )
+  console.log(`  10 concurrent inserts: ${Date.now() - start}ms\n`)
 
-  const paramResult = await pooler.query(
-    "SELECT * FROM test WHERE name = $1",
-    ['Parameterized Query']
-  )
+  console.log('--- Parameterized query ---')
+  await pooler.query('INSERT INTO items (name, priority) VALUES ($1, $2)', ['named', 'HIGH'])
+  const found = await pooler.query('SELECT name FROM items WHERE name = $1', ['named'])
+  console.log(`  Found: ${found.rows[0]?.['name']}\n`)
 
-  if (paramResult.rows.length === 1) {
-    console.log('✓ Parameterized queries work correctly')
-  } else {
-    console.log('✗ Parameterized query failed')
-  }
-
-  // ============================================================================
-  console.log('\n--- Test 4: Error Handling ---')
-
+  console.log('--- Error handling ---')
   try {
-    await pooler.query('SELECT * FROM nonexistent_table')
-    console.log('✗ Should have thrown an error')
-  } catch (error) {
-    if (error instanceof Error) {
-      console.log(`✓ Error caught: ${error.message}`)
-    }
+    await pooler.query('SELECT * FROM no_such_table')
+  } catch (err) {
+    console.log(`  Error caught: ${err instanceof Error ? err.message : String(err)}\n`)
   }
 
-  // ============================================================================
-  console.log('\n--- Final Stats ---')
-  const finalCount = await pooler.query('SELECT COUNT(*) as count FROM test')
-  console.log(`Total queries executed: ${finalCount.rows[0]?.['count']}`)
+  console.log('--- Transaction (rollback on error) ---')
+  try {
+    await pooler.transaction(async (query) => {
+      await query("INSERT INTO items (name, priority) VALUES ('tx', 'HIGH')")
+      await query('SELECT * FROM no_such_table')
+    })
+  } catch {
+    console.log('  Transaction rolled back')
+  }
+  const txCount = await pooler.query("SELECT COUNT(*) AS n FROM items WHERE name = 'tx'")
+  console.log(`  Rows with name='tx' after rollback: ${txCount.rows[0]?.['n']}\n`)
 
-  await pooler.stop()
-  await db.close()
-  console.log('\n✓ Pooler stopped cleanly')
+  console.log('--- Metrics ---')
+  const m = pooler.metrics()
+  console.log(`  Enqueued: ${m.totalEnqueued}`)
+  console.log(`  Dequeued: ${m.totalDequeued}`)
+  console.log(`  Avg wait: ${m.avgWaitTimeMs.toFixed(2)}ms`)
+  console.log(`  Errors:   ${m.totalErrors}`)
+
+  console.log('\nDone (pooler stopped automatically via await using)')
 }
 
 main().catch(console.error)

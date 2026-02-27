@@ -1,46 +1,45 @@
-import type { QueuedQuery, QueryPriority } from "./types.ts";
+import { QueryPriority } from "./types.ts";
+import type { QueuedQuery } from "./types.ts";
 
-/**
- * Priority-based queue for managing query execution order
- * Uses separate queues for each priority level
- */
+const PROMOTION: Readonly<Record<1 | 2 | 3, QueryPriority>> = {
+  1: QueryPriority.CRITICAL,
+  2: QueryPriority.HIGH,
+  3: QueryPriority.MEDIUM,
+};
+
 export class PriorityQueue {
   private readonly queues: Map<QueryPriority, QueuedQuery[]>;
   private readonly maxSize: number;
+  private readonly agingThresholdMs: number;
 
-  constructor(maxSize: number = 1000) {
+  constructor(maxSize: number = 1000, agingThresholdMs: number = 5000) {
     this.maxSize = maxSize;
+    this.agingThresholdMs = agingThresholdMs;
     this.queues = new Map([
-      [0, []], // QueryPriority.CRITICAL
-      [1, []], // QueryPriority.HIGH
-      [2, []], // QueryPriority.MEDIUM
-      [3, []], // QueryPriority.LOW
+      [0, []],
+      [1, []],
+      [2, []],
+      [3, []],
     ]);
   }
 
-  /**
-   * Add a query to the appropriate priority queue
-   * @throws {Error} if queue is full
-   */
   enqueue(query: QueuedQuery): void {
     const queue = this.queues.get(query.priority);
     if (!queue) {
       throw new Error(`Invalid priority: ${query.priority}`);
     }
 
-    if (this.size() >= this.maxSize) {
-      throw new Error("Queue is full");
+    const currentSize = this.size();
+    if (currentSize >= this.maxSize) {
+      throw new Error(`Queue is full (size: ${currentSize}, max: ${this.maxSize})`);
     }
 
     queue.push(query);
   }
 
-  /**
-   * Remove and return the highest priority query
-   * Returns null if queue is empty
-   */
   dequeue(): QueuedQuery | null {
-    // Check queues in priority order (CRITICAL = 0 to LOW = 3)
+    this.applyAging();
+
     for (const priority of [0, 1, 2, 3] as const) {
       const queue = this.queues.get(priority);
       if (queue && queue.length > 0) {
@@ -50,9 +49,32 @@ export class PriorityQueue {
     return null;
   }
 
-  /**
-   * Get total number of queued queries across all priorities
-   */
+  private applyAging(): void {
+    const now = Date.now();
+    for (const priority of [1, 2, 3] as const) {
+      const queue = this.queues.get(priority);
+      if (!queue || queue.length === 0) continue;
+
+      const promoted: QueuedQuery[] = [];
+      const remaining: QueuedQuery[] = [];
+
+      for (const query of queue) {
+        if (now - query.enqueuedAt > this.agingThresholdMs) {
+          promoted.push({ ...query, priority: PROMOTION[priority] });
+        } else {
+          remaining.push(query);
+        }
+      }
+
+      if (promoted.length > 0) {
+        queue.length = 0;
+        for (const q of remaining) queue.push(q);
+        const upperQueue = this.queues.get(PROMOTION[priority])!;
+        for (const q of promoted) upperQueue.push(q);
+      }
+    }
+  }
+
   size(): number {
     return Array.from(this.queues.values()).reduce(
       (sum, q) => sum + q.length,
@@ -60,19 +82,21 @@ export class PriorityQueue {
     );
   }
 
-  /**
-   * Check if queue is empty
-   */
-  isEmpty(): boolean {
-    return this.size() === 0;
-  }
-
-  /**
-   * Clear all queued queries
-   */
-  clear(): void {
+  clear(): QueuedQuery[] {
+    const all: QueuedQuery[] = [];
     for (const queue of this.queues.values()) {
+      for (const q of queue) all.push(q);
       queue.length = 0;
     }
+    return all;
+  }
+
+  sizeByPriority(): Record<QueryPriority, number> {
+    return {
+      0: this.queues.get(0)!.length,
+      1: this.queues.get(1)!.length,
+      2: this.queues.get(2)!.length,
+      3: this.queues.get(3)!.length,
+    };
   }
 }

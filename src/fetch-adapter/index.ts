@@ -149,15 +149,7 @@ export function createLocalFetch(config: FetchAdapterConfig): typeof fetch {
       return originalFetch(input, init);
     }
 
-    // Log all headers for debugging
     const authHeader = request.headers.get("Authorization");
-    console.log("[FETCH_ADAPTER] Intercepting:", {
-      type: routeInfo.type,
-      method: request.method,
-      pathname: routeInfo.pathname,
-      hasAuth: !!authHeader,
-      authPreview: authHeader ? `${authHeader.slice(0, 30)}...` : "none",
-    });
     log("Intercepting:", routeInfo.type, request.method, routeInfo.pathname);
     log(
       "Authorization header:",

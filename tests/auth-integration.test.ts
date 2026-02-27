@@ -406,6 +406,103 @@ describe("Auth Flow", () => {
     await db.close();
   });
 
+  test("refreshSession returns a new refresh token and the access token works for getUser", async () => {
+    const db = new PGlite({ extensions: { pgcrypto } });
+    const { authHandler } = await createTestClient(db);
+
+    const signUpResult = await authHandler.signUp("refresh@example.com", "pass1234");
+    const originalRefreshToken = signUpResult.data.session?.refresh_token;
+    assertExists(originalRefreshToken);
+
+    const refreshResult = await authHandler.refreshSession(originalRefreshToken!);
+    assertEquals(refreshResult.error, null);
+    assertExists(refreshResult.data.session?.access_token);
+    assertExists(refreshResult.data.session?.refresh_token);
+    assertNotEquals(refreshResult.data.session!.refresh_token, originalRefreshToken);
+
+    const userResult = await authHandler.getUser(refreshResult.data.session!.access_token);
+    assertEquals(userResult.error, null);
+    assertEquals(userResult.data.user?.email, "refresh@example.com");
+
+    await db.close();
+  });
+
+  test("getUser returns user data for valid access token", async () => {
+    const db = new PGlite({ extensions: { pgcrypto } });
+    const { authHandler } = await createTestClient(db);
+
+    const signInResult = await authHandler.signUp("getuser@example.com", "pass1234");
+    const accessToken = signInResult.data.session?.access_token;
+    assertExists(accessToken);
+
+    const userResult = await authHandler.getUser(accessToken!);
+    assertEquals(userResult.error, null);
+    assertExists(userResult.data.user);
+    assertEquals(userResult.data.user!.email, "getuser@example.com");
+    assertEquals(userResult.data.user!.role, "authenticated");
+
+    await db.close();
+  });
+
+  test("updateUser persists email and metadata changes", async () => {
+    const db = new PGlite({ extensions: { pgcrypto } });
+    const { authHandler } = await createTestClient(db);
+
+    const signUpResult = await authHandler.signUp("update@example.com", "pass1234");
+    const accessToken = signUpResult.data.session?.access_token;
+    assertExists(accessToken);
+
+    const updateResult = await authHandler.updateUser(accessToken!, {
+      data: { display_name: "Updated Name" },
+    });
+    assertEquals(updateResult.error, null);
+    assertEquals(updateResult.data.user?.user_metadata?.display_name, "Updated Name");
+
+    const userResult = await authHandler.getUser(accessToken!);
+    assertEquals(userResult.data.user?.user_metadata?.display_name, "Updated Name");
+
+    await db.close();
+  });
+
+  test("setSession and getSession round-trip", async () => {
+    const db = new PGlite({ extensions: { pgcrypto } });
+    const { authHandler } = await createTestClient(db);
+
+    const signUpResult = await authHandler.signUp("session@example.com", "pass1234");
+    const originalSession = signUpResult.data.session;
+    assertExists(originalSession);
+
+    authHandler.setSession(null);
+    assertEquals(authHandler.getSession(), null);
+
+    authHandler.setSession(originalSession);
+    const restored = authHandler.getSession();
+    assertEquals(restored?.access_token, originalSession.access_token);
+    assertEquals(restored?.user?.email, "session@example.com");
+
+    await db.close();
+  });
+
+  test("verifyToken returns valid payload for a real token and error for a fake one", async () => {
+    const db = new PGlite({ extensions: { pgcrypto } });
+    const { authHandler } = await createTestClient(db);
+
+    const signUpResult = await authHandler.signUp("verify@example.com", "pass1234");
+    const accessToken = signUpResult.data.session?.access_token;
+    assertExists(accessToken);
+
+    const validResult = await authHandler.verifyToken(accessToken!);
+    assertEquals(validResult.valid, true);
+    assertExists(validResult.payload);
+    assertEquals(validResult.payload!.email, "verify@example.com");
+
+    const invalidResult = await authHandler.verifyToken("not.a.real.token");
+    assertEquals(invalidResult.valid, false);
+    assertExists(invalidResult.error);
+
+    await db.close();
+  });
+
   test("Invalid credentials do not create session", async () => {
     const db = new PGlite({ extensions: { pgcrypto } });
     const { supabase } = await createTestClient(db);

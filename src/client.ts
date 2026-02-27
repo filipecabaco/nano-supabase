@@ -23,7 +23,18 @@ type SupabaseJsClient = unknown;
  */
 export interface LocalSupabaseClientConfig {
   /**
-   * The PGlite database instance
+   * The PGlite database instance.
+   *
+   * Pass an in-memory instance for ephemeral usage (default, no data survives restarts):
+   * ```typescript
+   * const db = new PGlite()
+   * ```
+   *
+   * Pass a persistent instance to survive restarts (schemas are only created once):
+   * ```typescript
+   * const db = new PGlite('./my-local-db')        // Node.js / Bun — filesystem
+   * const db = new PGlite('idb://my-local-db')    // Browser — IndexedDB
+   * ```
    */
   db: PGlite;
   /**
@@ -110,6 +121,35 @@ export interface LocalSupabaseClientResult<T = SupabaseJsClient> {
  * await supabase.storage.from('avatars').upload('avatar.png', file)
  * ```
  */
+async function initComponents(
+  db: PGlite,
+  storageBackend: StorageBackend | false | undefined,
+): Promise<{
+  parser: PostgrestParser;
+  authHandler: AuthHandler;
+  storageHandler: StorageHandler | undefined;
+}> {
+  const authHandler = new AuthHandler(db);
+
+  // WASM load and auth schema DDL are independent — run in parallel
+  await Promise.all([PostgrestParser.init(), authHandler.initialize()]);
+
+  // Storage roles depend on auth schema being created first
+  let storageHandler: StorageHandler | undefined;
+  if (storageBackend !== false) {
+    storageHandler = new StorageHandler(db, storageBackend || undefined);
+    await storageHandler.initialize();
+  }
+
+  // Schema introspection needs both WASM and all schemas ready
+  await PostgrestParser.initSchema(async (sql: string) => {
+    const result = await db.query(sql);
+    return { rows: result.rows };
+  });
+
+  return { parser: new PostgrestParser(), authHandler, storageHandler };
+}
+
 export async function createLocalSupabaseClient<T = SupabaseJsClient>(
   config: LocalSupabaseClientConfig,
   createClient: (
@@ -127,30 +167,11 @@ export async function createLocalSupabaseClient<T = SupabaseJsClient>(
     storageBackend,
   } = config;
 
-  // Initialize PostgREST parser
-  await PostgrestParser.init();
-  await PostgrestParser.initSchema(async (sql: string) => {
-    const result = await db.query(sql);
-    return { rows: result.rows };
-  });
+  const { parser, authHandler, storageHandler } = await initComponents(
+    db,
+    storageBackend,
+  );
 
-  const parser = new PostgrestParser();
-
-  // Initialize auth handler (creates auth schema)
-  const authHandler = new AuthHandler(db);
-  await authHandler.initialize();
-
-  // Initialize storage handler (creates storage schema) unless disabled
-  let storageHandler: StorageHandler | undefined;
-  if (storageBackend !== false) {
-    storageHandler = new StorageHandler(
-      db,
-      storageBackend || undefined,
-    );
-    await storageHandler.initialize();
-  }
-
-  // Create the scoped fetch adapter
   const localFetch = createLocalFetch({
     db,
     parser,
@@ -161,18 +182,11 @@ export async function createLocalSupabaseClient<T = SupabaseJsClient>(
     debug,
   });
 
-  // Create the Supabase client with our custom fetch
   const client = createClient(supabaseUrl, supabaseAnonKey, {
     global: { fetch: localFetch },
   });
 
-  return {
-    client,
-    authHandler,
-    parser,
-    storageHandler,
-    localFetch,
-  };
+  return { client, authHandler, parser, storageHandler, localFetch };
 }
 
 /**
@@ -238,30 +252,11 @@ export async function createFetchAdapter(config: {
     storageBackend,
   } = config;
 
-  // Initialize PostgREST parser
-  await PostgrestParser.init();
-  await PostgrestParser.initSchema(async (sql: string) => {
-    const result = await db.query(sql);
-    return { rows: result.rows };
-  });
+  const { parser, authHandler, storageHandler } = await initComponents(
+    db,
+    storageBackend,
+  );
 
-  const parser = new PostgrestParser();
-
-  // Initialize auth handler
-  const authHandler = new AuthHandler(db);
-  await authHandler.initialize();
-
-  // Initialize storage handler unless disabled
-  let storageHandler: StorageHandler | undefined;
-  if (storageBackend !== false) {
-    storageHandler = new StorageHandler(
-      db,
-      storageBackend || undefined,
-    );
-    await storageHandler.initialize();
-  }
-
-  // Create the scoped fetch adapter
   const localFetch = createLocalFetch({
     db,
     parser,
@@ -272,10 +267,5 @@ export async function createFetchAdapter(config: {
     debug,
   });
 
-  return {
-    localFetch,
-    authHandler,
-    parser,
-    storageHandler,
-  };
+  return { localFetch, authHandler, parser, storageHandler };
 }

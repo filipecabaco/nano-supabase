@@ -31,7 +31,10 @@
     "test:bun:apps": "bun test tests/applications.test.ts tests/full-user-flow.test.ts",
     "example:basic": "tsx examples/basic.ts",
     "example:server": "tsx examples/tcp-server.ts",
-    "example:parser": "tsx examples/postgrest-parser.ts"
+    "example:supabase": "bun run examples/supabase-client.ts",
+    "example:parser": "bun run examples/postgrest-parser.ts",
+    "example:prisma": "tsx examples/prisma-tcp.ts",
+    "prisma:generate": "prisma generate --schema=examples/prisma/schema.prisma"
   },
   "keywords": [
     "pglite",
@@ -64,13 +67,24 @@
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.3.15",
+    "@electric-sql/pglite-socket": "^0.0.21",
+    "@prisma/client": "^6.19.2",
     "@supabase/supabase-js": "^2.93.3",
     "@types/node": "^25.1.0",
     "esbuild": "^0.27.3",
+    "prisma": "^6.19.2",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3"
   },
   "dependencies": {
     "postgrest-parser": "^0.1.1"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@prisma/client",
+      "@prisma/engines",
+      "esbuild",
+      "prisma"
+    ]
   }
 }

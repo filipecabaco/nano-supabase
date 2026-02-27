@@ -178,23 +178,69 @@ pnpm install
 pnpm run dev
 ```
 
-## PostgreSQL Wire Protocol
+## Persistence
 
-For `psql`/pgAdmin compatibility, use PGlite's `@pglite/socket` package:
+By default PGlite runs in-memory — all data is lost when the process exits. Pass a path to `PGlite` to persist to disk or IndexedDB:
+
+```typescript
+// Ephemeral (default) — no data survives restarts
+const db = new PGlite()
+
+// Filesystem persistence — Node.js / Bun
+const db = new PGlite('./my-local-db')
+
+// IndexedDB persistence — Browser
+const db = new PGlite('idb://my-local-db')
+```
+
+Schemas created by nano-supabase use `IF NOT EXISTS`, so persistent databases are safe to reuse — schema creation is skipped on subsequent boots.
+
+## PostgreSQL Wire Protocol (Prisma, psql, pgAdmin)
+
+Expose PGlite over the PostgreSQL wire protocol using `@electric-sql/pglite-socket`. Any PostgreSQL client — including Prisma — can connect without any driver changes.
 
 ```bash
-pnpm add @pglite/socket
-pnpm run example:server
+pnpm add @electric-sql/pglite-socket
+pnpm run example:server     # starts TCP server on 127.0.0.1:5433
 psql "host=127.0.0.1 port=5433 user=postgres dbname=template1 sslmode=disable"
+```
+
+**Prisma example** (see `examples/prisma-tcp.ts`):
+
+```typescript
+import { PGlite } from '@electric-sql/pglite'
+import { PGLiteSocketServer } from '@electric-sql/pglite-socket'
+
+const db = new PGlite()
+const [, { PGLiteSocketServer }] = await Promise.all([
+  db.waitReady,
+  import('@electric-sql/pglite-socket'),
+])
+
+const server = new PGLiteSocketServer({ db, host: '127.0.0.1', port: 5433 })
+await server.start()
+
+// Prisma connects via standard connection string — no driver changes needed
+// DATABASE_URL=postgresql://postgres@127.0.0.1:5433/template1?sslmode=disable
+```
+
+Run the full Prisma demo:
+
+```bash
+pnpm prisma:generate   # generate Prisma client once
+pnpm example:prisma    # run the demo
 ```
 
 ## Development
 
 ```bash
 pnpm install
-pnpm run build        # esbuild -> dist/
-bun test tests/       # run tests
-pnpm run example:basic
+pnpm run build           # esbuild -> dist/
+bun test tests/          # run tests
+pnpm run example:basic   # pooler demo
+pnpm run example:server  # TCP wire protocol server
+pnpm prisma:generate     # generate Prisma client (run once)
+pnpm run example:prisma  # Prisma + PGlite demo
 ```
 
 ## License

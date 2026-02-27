@@ -5,7 +5,7 @@
 
 import { PGlite } from "@electric-sql/pglite";
 import { pgcrypto } from "@electric-sql/pglite/contrib/pgcrypto";
-import { createFetchAdapter } from "../src/client.ts";
+import { createFetchAdapter, initializeAuth } from "../src/client.ts";
 import {
   test,
   describe,
@@ -1157,6 +1157,115 @@ describe("Fetch Passthrough", () => {
 
     assertEquals(passthroughCalled, true);
     assertEquals(response.status, 200);
+
+    await db.close();
+  });
+});
+
+// ============================================================================
+// initializeAuth direct usage
+// ============================================================================
+
+describe("initializeAuth", () => {
+  test("returned authHandler can sign up a user", async () => {
+    const db = new PGlite({ extensions: { pgcrypto } });
+
+    const authHandler = await initializeAuth(db);
+    const result = await authHandler.signUp("initauth@example.com", "pass1234");
+
+    assertEquals(result.error, null);
+    assertExists(result.data.user);
+    assertEquals(result.data.user!.email, "initauth@example.com");
+
+    await db.close();
+  });
+
+  test("calling initializeAuth twice on the same db is idempotent", async () => {
+    const db = new PGlite({ extensions: { pgcrypto } });
+
+    const handler1 = await initializeAuth(db);
+    const handler2 = await initializeAuth(db);
+
+    const result = await handler2.signUp("idempotent@example.com", "pass1234");
+    assertEquals(result.error, null);
+    assertExists(result.data.user);
+
+    const userResult = await handler1.getUser(result.data.session!.access_token);
+    assertEquals(userResult.error, null);
+    assertEquals(userResult.data.user?.email, "idempotent@example.com");
+
+    await db.close();
+  });
+});
+
+// ============================================================================
+// createFetchAdapter with storageBackend disabled
+// ============================================================================
+
+describe("createFetchAdapter storageBackend false", () => {
+  test("storage routes pass through when storage is disabled", async () => {
+    const db = new PGlite({ extensions: { pgcrypto } });
+
+    let passthroughCalled = false;
+    const mockOriginalFetch = async (_input: RequestInfo | URL, _init?: RequestInit) => {
+      passthroughCalled = true;
+      return new Response(JSON.stringify({ status: "ok" }), { status: 200 });
+    };
+
+    const { localFetch } = await createFetchAdapter({
+      db,
+      supabaseUrl: SUPABASE_URL,
+      storageBackend: false,
+      originalFetch: mockOriginalFetch,
+    });
+
+    await localFetch(`${SUPABASE_URL}/storage/v1/bucket`, { method: "GET" });
+
+    assertEquals(passthroughCalled, true);
+
+    await db.close();
+  });
+
+  test("auth routes still work when storage is disabled", async () => {
+    const db = new PGlite({ extensions: { pgcrypto } });
+
+    const { localFetch } = await createFetchAdapter({
+      db,
+      supabaseUrl: SUPABASE_URL,
+      storageBackend: false,
+    });
+
+    const response = await localFetch(`${SUPABASE_URL}/auth/v1/signup`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: "nostorage@example.com", password: "pass1234" }),
+    });
+
+    assertEquals(response.status, 200);
+    const data = await response.json();
+    assertExists(data.user);
+
+    await db.close();
+  });
+
+  test("data routes still work when storage is disabled", async () => {
+    const db = new PGlite({ extensions: { pgcrypto } });
+    await db.exec("CREATE TABLE items (id SERIAL PRIMARY KEY, name TEXT NOT NULL)");
+    await db.exec("INSERT INTO items (name) VALUES ('widget')");
+
+    const { localFetch } = await createFetchAdapter({
+      db,
+      supabaseUrl: SUPABASE_URL,
+      storageBackend: false,
+    });
+
+    const response = await localFetch(`${SUPABASE_URL}/rest/v1/items?select=*`, {
+      method: "GET",
+    });
+
+    assertEquals(response.status, 200);
+    const data = await response.json();
+    assertEquals(data[0].name, "widget");
 
     await db.close();
   });

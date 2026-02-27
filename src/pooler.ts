@@ -1,84 +1,96 @@
 import type { PGlite } from "@electric-sql/pglite";
 
 import { PriorityQueue } from "./queue.ts";
+import { QueryPriority } from "./types.ts";
 import type {
   PoolerConfig,
   QueuedQuery,
-  QueryPriority,
+  QueryFn,
+  QueueMetrics,
   QueryResult,
 } from "./types.ts";
 
-/**
- * Connection pooler that manages N-to-1 query execution against PGlite
- * Uses a priority queue to order query execution
- */
 export class PGlitePooler {
   private readonly db: PGlite;
   private readonly queue: PriorityQueue;
   private running: boolean = false;
   private readonly config: PoolerConfig;
-  private sleepTimeoutId: number | null = null;
+  private wakeUp: (() => void) | null = null;
+  private processQueueDone: Promise<void> = Promise.resolve();
+  private resolveProcessQueueDone: (() => void) | null = null;
+
+  private totalEnqueued = 0;
+  private totalDequeued = 0;
+  private totalTimedOut = 0;
+  private totalErrors = 0;
+  private waitTimeSum = 0;
+  private waitTimeCount = 0;
 
   constructor(db: PGlite, config: Partial<PoolerConfig> = {}) {
     this.db = db;
-    this.queue = new PriorityQueue(config.maxQueueSize ?? 1000);
+    const maxQueueSize = config.maxQueueSize ?? 1000;
+    const agingThresholdMs = config.agingThresholdMs ?? 5000;
+    this.queue = new PriorityQueue(maxQueueSize, agingThresholdMs);
     this.config = {
-      maxQueueSize: config.maxQueueSize ?? 1000,
+      maxQueueSize,
       defaultTimeout: config.defaultTimeout ?? 5000,
+      agingThresholdMs,
     };
   }
 
-  /**
-   * Start the queue processor
-   * Begins draining queries from the queue
-   */
+  static async create(db: PGlite, config?: Partial<PoolerConfig>): Promise<PGlitePooler> {
+    const pooler = new PGlitePooler(db, config);
+    await pooler.start();
+    return pooler;
+  }
+
   async start(): Promise<void> {
     if (this.running) {
       throw new Error("Pooler already started");
     }
     this.running = true;
 
-    // Start processing in background
-    // Use setTimeout(0) for cross-runtime compatibility (works in Node.js, Deno, Browser)
+    this.processQueueDone = new Promise<void>((resolve) => {
+      this.resolveProcessQueueDone = resolve;
+    });
+
     setTimeout(() => {
       this.processQueue().catch((err) => {
         console.error("Queue processor error:", err);
         this.running = false;
+        this.resolveProcessQueueDone?.();
       });
     }, 0);
 
-    // Give the processor a chance to start
     await new Promise((resolve) => setTimeout(resolve, 0));
   }
 
-  /**
-   * Stop the queue processor
-   * Waits for current query to complete
-   */
   async stop(): Promise<void> {
+    if (!this.running) return;
     this.running = false;
+    this.wakeUp?.();
 
-    // Cancel any pending sleep timer
-    if (this.sleepTimeoutId !== null) {
-      clearTimeout(this.sleepTimeoutId as unknown as number);
-      this.sleepTimeoutId = null;
+    const drained = this.queue.clear();
+    for (const query of drained) {
+      query.reject(new Error("Pooler stopped"));
     }
 
-    // Give time for the background loop to exit
-    await new Promise((r) => setTimeout(r, 20));
+    await this.processQueueDone;
   }
 
-  /**
-   * Submit a query to the pool
-   * Returns a promise that resolves when the query completes
-   */
   async query(
     sql: string,
     params?: readonly unknown[],
-    priority: QueryPriority = 2, // MEDIUM
+    priority: QueryPriority = QueryPriority.MEDIUM,
+    timeoutMs?: number,
   ): Promise<QueryResult> {
+    if (!this.running) {
+      throw new Error("Pooler is not running");
+    }
+
     return new Promise((resolve, reject) => {
       const query: QueuedQuery = {
+        kind: "sql",
         id: crypto.randomUUID(),
         sql,
         params: params ?? [],
@@ -86,69 +98,129 @@ export class PGlitePooler {
         enqueuedAt: Date.now(),
         resolve,
         reject,
-        timeoutMs: this.config.defaultTimeout,
+        timeoutMs: timeoutMs ?? this.config.defaultTimeout,
       };
 
       try {
         this.queue.enqueue(query);
+        this.totalEnqueued++;
+        this.wakeUp?.();
       } catch (error) {
         reject(error instanceof Error ? error : new Error(String(error)));
       }
     });
   }
 
-  /**
-   * Background queue processor
-   * Continuously dequeues and executes queries
-   */
+  async transaction<T>(
+    fn: (query: QueryFn) => Promise<T>,
+    priority: QueryPriority = QueryPriority.MEDIUM,
+  ): Promise<T> {
+    if (!this.running) {
+      throw new Error("Pooler is not running");
+    }
+
+    return new Promise((resolve, reject) => {
+      const transactionQuery: QueuedQuery = {
+        kind: "transaction",
+        id: crypto.randomUUID(),
+        priority,
+        enqueuedAt: Date.now(),
+        resolve: resolve as (result: unknown) => void,
+        reject,
+        timeoutMs: this.config.defaultTimeout,
+        transactionFn: fn as (query: QueryFn) => Promise<unknown>,
+      };
+
+      try {
+        this.queue.enqueue(transactionQuery);
+        this.totalEnqueued++;
+        this.wakeUp?.();
+      } catch (error) {
+        reject(error instanceof Error ? error : new Error(String(error)));
+      }
+    }) as Promise<T>;
+  }
+
+  metrics(): QueueMetrics {
+    const avgWaitTimeMs =
+      this.waitTimeCount > 0 ? this.waitTimeSum / this.waitTimeCount : 0;
+
+    return {
+      totalEnqueued: this.totalEnqueued,
+      totalDequeued: this.totalDequeued,
+      totalTimedOut: this.totalTimedOut,
+      totalErrors: this.totalErrors,
+      currentSize: this.queue.size(),
+      avgWaitTimeMs,
+      sizeByPriority: this.queue.sizeByPriority(),
+    };
+  }
+
+  async [Symbol.asyncDispose](): Promise<void> {
+    await this.stop();
+  }
+
   private async processQueue(): Promise<void> {
     while (this.running) {
       const query = this.queue.dequeue();
 
       if (!query) {
-        // No queries, sleep briefly then check if still running
-        await new Promise((r) => {
-          const id = setTimeout(() => {
-            r(null);
-          }, 10);
-          // Store timeout ID so we can cancel it in stop()
-          this.sleepTimeoutId = id as unknown as number;
+        await new Promise<void>((resolve) => {
+          this.wakeUp = resolve;
+          setTimeout(() => resolve(), 10);
         });
-        this.sleepTimeoutId = null;
+        this.wakeUp = null;
         continue;
       }
 
-      // Execute query with timeout
+      this.totalDequeued++;
+      this.waitTimeSum += Date.now() - query.enqueuedAt;
+      this.waitTimeCount++;
+
       try {
-        const result = await this.executeWithTimeout(query);
-        query.resolve(result);
+        if (query.kind === "transaction") {
+          const result = await this.runTransaction(query.transactionFn);
+          query.resolve(result);
+        } else {
+          const result = await this.executeWithTimeout(query);
+          query.resolve(result);
+        }
       } catch (error) {
-        query.reject(error instanceof Error ? error : new Error(String(error)));
+        this.totalErrors++;
+        const err = error instanceof Error ? error : new Error(String(error));
+        if (err.message === "Query timeout") {
+          this.totalTimedOut++;
+        }
+        query.reject(err);
       }
     }
+
+    this.resolveProcessQueueDone?.();
   }
 
-  /**
-   * Execute a query with timeout protection
-   * Note: PGlite.query() already handles exclusive access internally via mutex
-   */
-  private async executeWithTimeout(query: QueuedQuery): Promise<QueryResult> {
+  private async runTransaction<T>(fn: (query: QueryFn) => Promise<T>): Promise<T> {
+    return this.db.transaction(async (tx) => {
+      const queryFn: QueryFn = (sql, params) =>
+        tx.query(sql, params as unknown[]) as Promise<QueryResult>;
+      return fn(queryFn);
+    }) as Promise<T>;
+  }
+
+  private async executeWithTimeout(query: { sql: string; params: readonly unknown[]; timeoutMs?: number }): Promise<QueryResult> {
     const timeoutMs = query.timeoutMs ?? this.config.defaultTimeout;
 
-    let timeoutId: number | null = null;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
 
     const timeoutPromise = new Promise<never>((_, reject) => {
       timeoutId = setTimeout(() => {
         reject(new Error("Query timeout"));
-      }, timeoutMs) as unknown as number;
+      }, timeoutMs);
     });
 
-    // PGlite.query() already uses a mutex internally, no need for runExclusive
     const queryPromise = this.db
-      .query(query.sql, query.params as unknown[])
+      .query(query.sql, [...(query.params ?? [])])
       .finally(() => {
-        // Cancel timeout if query completes
-        if (timeoutId) clearTimeout(timeoutId as unknown as number);
+        if (timeoutId !== null) clearTimeout(timeoutId);
       });
 
     return Promise.race([queryPromise, timeoutPromise]) as Promise<QueryResult>;

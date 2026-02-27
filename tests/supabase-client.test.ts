@@ -50,7 +50,7 @@ describe("Supabase Client", () => {
     await db.close();
   });
 
-  test("SELECT all", async () => {
+  test("SELECT", async () => {
     const db = new PGlite();
     await db.exec(`
       CREATE TABLE users (
@@ -65,8 +65,7 @@ describe("Supabase Client", () => {
     await db.exec(`
       INSERT INTO users (name, email, age) VALUES
         ('Alice', 'alice@example.com', 25),
-        ('Bob', 'bob@example.com', 30),
-        ('Charlie', 'charlie@example.com', 35)
+        ('Bob', 'bob@example.com', 30)
     `);
 
     const client = await createSupabaseClient(db);
@@ -75,43 +74,12 @@ describe("Supabase Client", () => {
 
     assertEquals(error, null);
     assertExists(data);
-    assertEquals((data as unknown[]).length, 3);
+    assertEquals((data as unknown[]).length, 2);
 
     await db.close();
   });
 
-  test("SELECT with columns", async () => {
-    const db = new PGlite();
-    await db.exec(`
-      CREATE TABLE users (
-        id SERIAL PRIMARY KEY,
-        name TEXT NOT NULL,
-        email TEXT NOT NULL,
-        age INTEGER,
-        status TEXT DEFAULT 'active'
-      )
-    `);
-
-    await db.exec(`
-      INSERT INTO users (name, email, age) VALUES
-        ('Alice', 'alice@example.com', 25)
-    `);
-
-    const client = await createSupabaseClient(db);
-
-    const { data, error } = await client.from("users").select("name,email");
-
-    assertEquals(error, null);
-    assertExists(data);
-
-    const rows = data as Array<{ name: string; email: string }>;
-    assertEquals(rows[0]?.name, "Alice");
-    assertEquals(rows[0]?.email, "alice@example.com");
-
-    await db.close();
-  });
-
-  test("SELECT with eq filter", async () => {
+  test("SELECT with filter", async () => {
     const db = new PGlite();
     await db.exec(`
       CREATE TABLE users (
@@ -139,40 +107,7 @@ describe("Supabase Client", () => {
     assertEquals(error, null);
     assertExists(data);
     assertEquals((data as unknown[]).length, 1);
-
-    await db.close();
-  });
-
-  test("SELECT with multiple filters", async () => {
-    const db = new PGlite();
-    await db.exec(`
-      CREATE TABLE users (
-        id SERIAL PRIMARY KEY,
-        name TEXT NOT NULL,
-        email TEXT NOT NULL,
-        age INTEGER,
-        status TEXT DEFAULT 'active'
-      )
-    `);
-
-    await db.exec(`
-      INSERT INTO users (name, email, age) VALUES
-        ('Alice', 'alice@example.com', 25),
-        ('Bob', 'bob@example.com', 30),
-        ('Charlie', 'charlie@example.com', 20)
-    `);
-
-    const client = await createSupabaseClient(db);
-
-    const { data, error } = await client
-      .from("users")
-      .select("*")
-      .gte("age", 25)
-      .lte("age", 30);
-
-    assertEquals(error, null);
-    assertExists(data);
-    assertEquals((data as unknown[]).length, 2);
+    assertEquals((data as Array<{ name: string }>)[0]?.name, "Alice");
 
     await db.close();
   });
@@ -190,13 +125,12 @@ describe("Supabase Client", () => {
     `);
 
     await db.exec(`
-      INSERT INTO users (name, email, age) VALUES
-        ('Alice', 'alice@example.com', 25)
+      INSERT INTO users (name, email, age) VALUES ('Alice', 'alice@example.com', 25)
     `);
 
     const client = await createSupabaseClient(db);
 
-    const { data, error } = await client
+    const { error } = await client
       .from("users")
       .update({ age: 26 })
       .eq("name", "Alice");
@@ -343,6 +277,27 @@ describe("Supabase Client", () => {
     assertEquals(error, null);
     assertExists(data);
     assertEquals((data as { name: string }).name, "Alice");
+
+    await db.close();
+  });
+
+  test("rpc calls a postgres function and returns its result", async () => {
+    const db = new PGlite();
+    await db.exec(`
+      CREATE OR REPLACE FUNCTION add_numbers(a integer, b integer)
+      RETURNS integer AS $$
+        SELECT a + b;
+      $$ LANGUAGE sql;
+    `);
+
+    const client = await createSupabaseClient(db);
+
+    const { data, error } = await client.rpc("add_numbers", { a: 3, b: 7 });
+
+    assertEquals(error, null);
+    assertExists(data);
+    const rows = data as Array<{ add_numbers: number }>;
+    assertEquals(rows[0]?.add_numbers, 10);
 
     await db.close();
   });

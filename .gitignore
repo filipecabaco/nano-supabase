@@ -55,3 +55,7 @@ logs/
 
 # Plan files (working documents)
 PLAN.md
+
+# Prisma generated client
+examples/prisma/client/
+.npmrc

@@ -321,6 +321,67 @@ describe("Storage", () => {
     await db.close();
   });
 
+  test("getObjectInfo returns metadata for existing object and null for missing path", async () => {
+    const db = new PGlite({ extensions: { pgcrypto } });
+    const { localFetch, storageHandler } = await createFetchAdapter({ db, supabaseUrl: SUPABASE_URL });
+    assertExists(storageHandler);
+
+    const supabase = createClient(SUPABASE_URL, "local-anon-key", {
+      auth: { autoRefreshToken: false },
+      global: { fetch: localFetch },
+    });
+
+    await supabase.auth.signUp({ email: "infouser@example.com", password: "pass1234" });
+    await supabase.storage.createBucket("info-bucket", { public: false });
+    await supabase.storage.from("info-bucket").upload(
+      "docs/readme.txt",
+      new TextEncoder().encode("hello"),
+      { contentType: "text/plain" },
+    );
+
+    const info = await storageHandler!.getObjectInfo("info-bucket", "docs/readme.txt");
+    assertExists(info);
+    assertEquals(info!.bucket_id, "info-bucket");
+    assertEquals(info!.name, "docs/readme.txt");
+
+    const missing = await storageHandler!.getObjectInfo("info-bucket", "does/not/exist.txt");
+    assertEquals(missing, null);
+
+    await db.close();
+  });
+
+  test("verifySignedUrl returns bucket and path for valid token and null for invalid/expired token", async () => {
+    const db = new PGlite({ extensions: { pgcrypto } });
+    const { localFetch, storageHandler } = await createFetchAdapter({ db, supabaseUrl: SUPABASE_URL });
+    assertExists(storageHandler);
+
+    const supabase = createClient(SUPABASE_URL, "local-anon-key", {
+      auth: { autoRefreshToken: false },
+      global: { fetch: localFetch },
+    });
+
+    await supabase.auth.signUp({ email: "signer@example.com", password: "pass1234" });
+    await supabase.storage.createBucket("signed-bucket", { public: false });
+    await supabase.storage.from("signed-bucket").upload(
+      "file.txt",
+      new TextEncoder().encode("content"),
+      { contentType: "text/plain" },
+    );
+
+    const token = await storageHandler!.createSignedUrl("signed-bucket", "file.txt", 3600);
+    assertExists(token);
+
+    const payload = await storageHandler!.verifySignedUrl(token);
+    assertExists(payload);
+    assertEquals(payload!.bucket_id, "signed-bucket");
+    assertEquals(payload!.object_name, "file.txt");
+
+    const nullResult = await storageHandler!.verifySignedUrl("invalid.token");
+    assertEquals(nullResult, null);
+
+    await db.close();
+  });
+
   test("Move and copy through supabase-js", async () => {
     const db = new PGlite({ extensions: { pgcrypto } });
     const { localFetch } = await createFetchAdapter({
