@@ -22,7 +22,7 @@
  * ```
  */
 import { PGlite, type PGliteOptions } from "@electric-sql/pglite";
-export declare function createPGlite(dataDir?: string, options?: Omit<PGliteOptions, "extensions"> & {
+export declare function createPGlite(dataDir?: string, options?: PGliteOptions & {
     extensions?: PGliteOptions["extensions"];
 }): PGlite;
 //# sourceMappingURL=pglite-factory.d.ts.map

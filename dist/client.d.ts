@@ -115,7 +115,7 @@ export interface LocalSupabaseClientResult<T = SupabaseJsClient> {
  * await supabase.storage.from('avatars').upload('avatar.png', file)
  * ```
  */
-export declare function initComponents(db: PGlite, storageBackend: StorageBackend | false | undefined): Promise<{
+export declare function initComponents(db: PGlite, storageBackend: StorageBackend | false | undefined, postgrestWasmBytes?: Uint8Array): Promise<{
     parser: PostgrestParser;
     authHandler: AuthHandler;
     storageHandler: StorageHandler | undefined;

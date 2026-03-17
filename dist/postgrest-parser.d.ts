@@ -30,7 +30,7 @@ export declare class PostgrestParser {
      * Note: This uses the web target build which works in webcontainers and edge workers.
      * For Node.js, the native_postgrest_parser package needs to be built with --target nodejs.
      */
-    static init(): Promise<void>;
+    static init(wasmBytes?: Uint8Array): Promise<void>;
     /**
      * Initialize schema introspection from a database connection
      * This enables the parser to validate queries against the actual database schema

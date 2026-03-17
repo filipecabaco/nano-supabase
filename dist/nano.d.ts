@@ -69,6 +69,21 @@ export interface NanoSupabaseOptions {
     storageBackend?: StorageBackend | false;
     /** Enable debug logging. */
     debug?: boolean;
+    /**
+     * Pre-compiled PGlite WebAssembly module. When provided, bypasses filesystem loading.
+     * Used by the CLI binary to embed assets at compile time.
+     */
+    wasmModule?: WebAssembly.Module;
+    /**
+     * PGlite filesystem bundle (pglite.data). When provided, bypasses filesystem loading.
+     * Used by the CLI binary to embed assets at compile time.
+     */
+    fsBundle?: Blob | File;
+    /**
+     * Pre-loaded PostgREST parser WASM bytes. When provided, bypasses fetch-based loading.
+     * Used by the CLI binary to embed assets at compile time.
+     */
+    postgrestWasmBytes?: Uint8Array;
 }
 export interface NanoSupabaseInstance {
     /** The underlying PGlite instance — use for raw SQL or schema setup. */

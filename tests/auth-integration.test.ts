@@ -5,6 +5,7 @@
  */
 
 import { createClient } from "@supabase/supabase-js";
+import { PGlite } from "@electric-sql/pglite";
 import { createFetchAdapter } from "../src/client.ts";
 import { createPGlite } from "../src/pglite-factory.ts";
 import {
