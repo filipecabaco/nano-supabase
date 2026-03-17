@@ -60,7 +60,7 @@
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.3.16",
-    "@electric-sql/pglite-socket": "^0.0.21",
+    "@electric-sql/pglite-socket": "^0.0.22",
     "@prisma/client": "^6.19.2",
     "@types/node": "^25.1.0",
     "esbuild": "^0.27.3",
