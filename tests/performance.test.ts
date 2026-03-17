@@ -1,7 +1,8 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { PGlite } from "@electric-sql/pglite";
-import { pgcrypto } from "@electric-sql/pglite/contrib/pgcrypto";
+
 import { createFetchAdapter } from "../src/client.ts";
+import { createPGlite } from "../src/pglite-factory.ts";
 import { PGlitePooler } from "../src/pooler.ts";
 import { QueryPriority } from "../src/types.ts";
 
@@ -341,7 +342,7 @@ describe("PGlitePooler", () => {
 
 describe("initialization performance", () => {
   test("createFetchAdapter completes within 5 seconds", async () => {
-    const db = new PGlite({ extensions: { pgcrypto } });
+    const db = createPGlite();
     const start = performance.now();
     const { localFetch, authHandler, parser } = await createFetchAdapter({ db });
     const elapsed = performance.now() - start;
@@ -356,7 +357,7 @@ describe("initialization performance", () => {
 
   test("repeated createFetchAdapter calls complete under 5 seconds each", async () => {
     for (let i = 0; i < 3; i++) {
-      const db = new PGlite({ extensions: { pgcrypto } });
+      const db = createPGlite();
       const start = performance.now();
       await createFetchAdapter({ db });
       const elapsed = performance.now() - start;
@@ -366,11 +367,11 @@ describe("initialization performance", () => {
   });
 
   test("init after WASM warm-up completes under 3 seconds", async () => {
-    const warmup = new PGlite({ extensions: { pgcrypto } });
+    const warmup = createPGlite();
     await createFetchAdapter({ db: warmup });
     await warmup.close();
 
-    const db = new PGlite({ extensions: { pgcrypto } });
+    const db = createPGlite();
     const start = performance.now();
     await createFetchAdapter({ db });
     const elapsed = performance.now() - start;

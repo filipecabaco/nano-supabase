@@ -3,18 +3,7 @@
  */
 
 import type { AuthHandler } from "../auth/handler.ts";
-
-/**
- * Create a JSON response
- */
-function jsonResponse(data: unknown, status: number = 200): Response {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: {
-      "Content-Type": "application/json",
-    },
-  });
-}
+import { jsonResponse, notFound, notSupported } from "./response.ts";
 
 /**
  * Extract bearer token from Authorization header
@@ -252,26 +241,223 @@ export async function handleAuthRoute(
     return jsonResponse(result.data.user);
   }
 
-  // GET /auth/v1/session (get current session)
+  // GET /auth/v1/session
   if (method === "GET" && pathname === "/auth/v1/session") {
     const token = extractBearerToken(request.headers);
-
-    if (!token) {
-      return jsonResponse({ session: null });
-    }
-
+    if (!token) return jsonResponse({ session: null });
     const userResult = await authHandler.getUser(token);
-    if (userResult.error) {
-      return jsonResponse({ session: null });
+    if (userResult.error || !userResult.data.user) return jsonResponse({ session: null });
+    return jsonResponse({ session: { access_token: token, token_type: "bearer", user: userResult.data.user } });
+  }
+
+  // POST /auth/v1/otp — magic link / OTP (email not sent locally, return success)
+  if (method === "POST" && pathname === "/auth/v1/otp") {
+    return jsonResponse({});
+  }
+
+  // POST /auth/v1/recover — password recovery (email not sent locally, return success)
+  if (method === "POST" && pathname === "/auth/v1/recover") {
+    return jsonResponse({});
+  }
+
+  // POST /auth/v1/verify — verify OTP/token (stub: always fail since no real OTP flow)
+  if (method === "POST" && pathname === "/auth/v1/verify") {
+    return jsonResponse({ error: "otp_expired", error_description: "Token has expired or is invalid" }, 403);
+  }
+
+  // GET /auth/v1/settings — return feature flags
+  if (method === "GET" && pathname === "/auth/v1/settings") {
+    return jsonResponse({
+      disable_signup: false,
+      mailer_autoconfirm: true,
+      phone_autoconfirm: true,
+      sms_provider: "",
+      mfa_totp_enrollment_status: "disabled",
+      mfa_phone_enrollment_status: "disabled",
+      saml_enabled: false,
+    });
+  }
+
+  // ── Admin routes ────────────────────────────────────────────────────
+
+  // GET /auth/v1/admin/users
+  if (method === "GET" && pathname === "/auth/v1/admin/users") {
+    const page = parseInt(searchParams.get("page") ?? "1", 10);
+    const perPage = parseInt(searchParams.get("per_page") ?? "50", 10);
+    const { users, total } = await authHandler.adminListUsers(page, perPage);
+    return jsonResponse({ users, aud: "authenticated", total_count: total });
+  }
+
+  // POST /auth/v1/admin/users — create user
+  if (method === "POST" && pathname === "/auth/v1/admin/users") {
+    const body = await parseBody(request);
+    try {
+      const user = await authHandler.adminCreateUser({
+        email: body.email as string | undefined,
+        phone: body.phone as string | undefined,
+        password: body.password as string | undefined,
+        email_confirm: body.email_confirm as boolean | undefined,
+        user_metadata: body.user_metadata as Record<string, unknown> | undefined,
+        app_metadata: body.app_metadata as Record<string, unknown> | undefined,
+      });
+      return jsonResponse(user);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to create user";
+      return jsonResponse({ error: "user_creation_failed", error_description: message }, 422);
+    }
+  }
+
+  // Admin /auth/v1/admin/users/:id
+  const adminUserMatch = pathname.match(/^\/auth\/v1\/admin\/users\/([^/]+)$/);
+  if (adminUserMatch) {
+    const userId = adminUserMatch[1]!;
+
+    if (method === "GET") {
+      const user = await authHandler.adminGetUser(userId);
+      if (!user) return notFound("User not found");
+      return jsonResponse(user);
     }
 
-    const session = authHandler.getSession();
-    return jsonResponse({ session });
+    if (method === "PUT" || method === "PATCH") {
+      const body = await parseBody(request);
+      try {
+        const user = await authHandler.adminUpdateUser(userId, {
+          email: body.email as string | undefined,
+          phone: body.phone as string | undefined,
+          password: body.password as string | undefined,
+          user_metadata: body.user_metadata as Record<string, unknown> | undefined,
+          app_metadata: body.app_metadata as Record<string, unknown> | undefined,
+          ban_duration: body.ban_duration as string | undefined,
+          email_confirm: body.email_confirm as boolean | undefined,
+        });
+        if (!user) return notFound("User not found");
+        return jsonResponse(user);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Failed to update user";
+        return jsonResponse({ error: "update_failed", error_description: message }, 422);
+      }
+    }
+
+    if (method === "DELETE") {
+      await authHandler.adminDeleteUser(userId);
+      return jsonResponse({});
+    }
+  }
+
+  // GET /auth/v1/reauthenticate
+  if (method === "GET" && pathname === "/auth/v1/reauthenticate") {
+    return jsonResponse({});
+  }
+
+  // GET /auth/v1/authorize — OAuth not supported locally
+  if (method === "GET" && pathname === "/auth/v1/authorize") {
+    return notSupported("OAuth providers not supported in local mode");
+  }
+
+  // POST /auth/v1/sso — SSO not supported locally
+  if (method === "POST" && pathname === "/auth/v1/sso") {
+    return notSupported("SSO not supported in local mode");
+  }
+
+  // GET /auth/v1/.well-known/jwks.json
+  if (method === "GET" && pathname === "/auth/v1/.well-known/jwks.json") {
+    return jsonResponse({ keys: [] });
+  }
+
+  // POST /auth/v1/invite
+  if (method === "POST" && pathname === "/auth/v1/invite") {
+    return jsonResponse({});
+  }
+
+  // POST /auth/v1/admin/generate_link
+  if (method === "POST" && pathname === "/auth/v1/admin/generate_link") {
+    return jsonResponse({ action_link: "http://localhost/" });
+  }
+
+  // POST /auth/v1/factors — MFA not supported locally
+  if (method === "POST" && pathname === "/auth/v1/factors") {
+    return notSupported("MFA not supported in local mode");
+  }
+
+  // DELETE /auth/v1/factors/:factorId
+  const factorDeleteMatch = pathname.match(/^\/auth\/v1\/factors\/([^/]+)$/);
+  if (factorDeleteMatch && method === "DELETE") {
+    return jsonResponse({});
+  }
+
+  // POST /auth/v1/factors/:factorId/challenge
+  const factorChallengeMatch = pathname.match(/^\/auth\/v1\/factors\/([^/]+)\/challenge$/);
+  if (factorChallengeMatch && method === "POST") {
+    return notSupported("MFA not supported in local mode");
+  }
+
+  // POST /auth/v1/factors/:factorId/verify
+  const factorVerifyMatch = pathname.match(/^\/auth\/v1\/factors\/([^/]+)\/verify$/);
+  if (factorVerifyMatch && method === "POST") {
+    return notSupported("MFA not supported in local mode");
+  }
+
+  // GET /auth/v1/user/identities/authorize — OAuth not supported
+  if (method === "GET" && pathname === "/auth/v1/user/identities/authorize") {
+    return notSupported("OAuth not supported in local mode");
+  }
+
+  // DELETE /auth/v1/user/identities/:id
+  const identityDeleteMatch = pathname.match(/^\/auth\/v1\/user\/identities\/([^/]+)$/);
+  if (identityDeleteMatch && method === "DELETE") {
+    return jsonResponse({});
+  }
+
+  // GET /auth/v1/user/oauth/grants
+  if (method === "GET" && pathname === "/auth/v1/user/oauth/grants") {
+    return jsonResponse({ grants: [] });
+  }
+
+  // DELETE /auth/v1/user/oauth/grants
+  if (method === "DELETE" && pathname === "/auth/v1/user/oauth/grants") {
+    return jsonResponse({});
+  }
+
+  // GET /auth/v1/admin/users/:id/factors
+  const adminUserFactorsMatch = pathname.match(/^\/auth\/v1\/admin\/users\/([^/]+)\/factors$/);
+  if (adminUserFactorsMatch && method === "GET") {
+    return jsonResponse([]);
+  }
+
+  // DELETE /auth/v1/admin/users/:id/factors/:factorId
+  const adminUserFactorDeleteMatch = pathname.match(/^\/auth\/v1\/admin\/users\/([^/]+)\/factors\/([^/]+)$/);
+  if (adminUserFactorDeleteMatch && method === "DELETE") {
+    return jsonResponse({});
+  }
+
+  // Admin OAuth clients
+  if (pathname === "/auth/v1/admin/oauth/clients" && method === "GET") {
+    return jsonResponse({ clients: [], total: 0 });
+  }
+  if (pathname === "/auth/v1/admin/oauth/clients" && method === "POST") {
+    return notSupported();
+  }
+  const adminOauthClientMatch = pathname.match(/^\/auth\/v1\/admin\/oauth\/clients\/([^/]+)$/);
+  if (adminOauthClientMatch) {
+    if (method === "GET") return notFound();
+    if (method === "PUT") return notFound();
+    if (method === "DELETE") return notFound();
+  }
+
+  // Admin custom providers
+  if (pathname === "/auth/v1/admin/custom-providers" && method === "GET") {
+    return jsonResponse({ custom_providers: [] });
+  }
+  if (pathname === "/auth/v1/admin/custom-providers" && method === "POST") {
+    return notSupported();
+  }
+  const adminCustomProviderMatch = pathname.match(/^\/auth\/v1\/admin\/custom-providers\/([^/]+)$/);
+  if (adminCustomProviderMatch) {
+    if (method === "GET") return notFound();
+    if (method === "PUT") return notFound();
+    if (method === "DELETE") return jsonResponse({});
   }
 
   // Not found
-  return jsonResponse(
-    { error: "not_found", error_description: "Auth endpoint not found" },
-    404,
-  );
+  return notFound("Auth endpoint not found");
 }

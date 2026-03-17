@@ -1,14 +1,13 @@
-import { PGlite } from "@electric-sql/pglite";
-import { pgcrypto } from "@electric-sql/pglite/contrib/pgcrypto";
 import { createClient } from "@supabase/supabase-js";
 import { test, describe, assertEquals, assertExists } from "./compat.ts";
 import { createFetchAdapter } from "../src/client.ts";
+import { createPGlite } from "../src/pglite-factory.ts";
 
 const SUPABASE_URL = "http://localhost:54321";
 
 describe("Full User Flow", () => {
   test("Complete auth and RLS lifecycle", async () => {
-    const db = new PGlite({ extensions: { pgcrypto } });
+    const db = createPGlite();
 
     // Initialize the fetch adapter (this sets up the auth schema)
     const { localFetch } = await createFetchAdapter({

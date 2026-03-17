@@ -3,9 +3,8 @@
  * Comprehensive tests for the scoped fetch adapter with auth and data routes
  */
 
-import { PGlite } from "@electric-sql/pglite";
-import { pgcrypto } from "@electric-sql/pglite/contrib/pgcrypto";
 import { createFetchAdapter, initializeAuth } from "../src/client.ts";
+import { createPGlite } from "../src/pglite-factory.ts";
 import {
   test,
   describe,
@@ -22,7 +21,7 @@ const SUPABASE_URL = "http://localhost:54321";
 
 describe("Fetch Auth - Sign Up", () => {
   test("POST /auth/v1/signup succeeds", async () => {
-    const db = new PGlite({ extensions: { pgcrypto } });
+    const db = createPGlite();
     const { localFetch } = await createFetchAdapter({
       db,
       supabaseUrl: SUPABASE_URL,
@@ -53,7 +52,7 @@ describe("Fetch Auth - Sign Up", () => {
   });
 
   test("POST /auth/v1/signup with metadata", async () => {
-    const db = new PGlite({ extensions: { pgcrypto } });
+    const db = createPGlite();
     const { localFetch } = await createFetchAdapter({
       db,
       supabaseUrl: SUPABASE_URL,
@@ -80,7 +79,7 @@ describe("Fetch Auth - Sign Up", () => {
   });
 
   test("POST /auth/v1/signup rejects missing email", async () => {
-    const db = new PGlite({ extensions: { pgcrypto } });
+    const db = createPGlite();
     const { localFetch } = await createFetchAdapter({
       db,
       supabaseUrl: SUPABASE_URL,
@@ -103,7 +102,7 @@ describe("Fetch Auth - Sign Up", () => {
   });
 
   test("POST /auth/v1/signup rejects missing password", async () => {
-    const db = new PGlite({ extensions: { pgcrypto } });
+    const db = createPGlite();
     const { localFetch } = await createFetchAdapter({
       db,
       supabaseUrl: SUPABASE_URL,
@@ -123,7 +122,7 @@ describe("Fetch Auth - Sign Up", () => {
   });
 
   test("POST /auth/v1/signup rejects duplicate email", async () => {
-    const db = new PGlite({ extensions: { pgcrypto } });
+    const db = createPGlite();
     const { localFetch } = await createFetchAdapter({
       db,
       supabaseUrl: SUPABASE_URL,
@@ -164,7 +163,7 @@ describe("Fetch Auth - Sign Up", () => {
 
 describe("Fetch Auth - Sign In", () => {
   test("POST /auth/v1/token?grant_type=password succeeds", async () => {
-    const db = new PGlite({ extensions: { pgcrypto } });
+    const db = createPGlite();
     const { localFetch, authHandler } = await createFetchAdapter({
       db,
       supabaseUrl: SUPABASE_URL,
@@ -198,7 +197,7 @@ describe("Fetch Auth - Sign In", () => {
   });
 
   test("POST /auth/v1/token rejects wrong password", async () => {
-    const db = new PGlite({ extensions: { pgcrypto } });
+    const db = createPGlite();
     const { localFetch, authHandler } = await createFetchAdapter({
       db,
       supabaseUrl: SUPABASE_URL,
@@ -227,7 +226,7 @@ describe("Fetch Auth - Sign In", () => {
   });
 
   test("POST /auth/v1/token?grant_type=refresh_token succeeds", async () => {
-    const db = new PGlite({ extensions: { pgcrypto } });
+    const db = createPGlite();
     const { localFetch, authHandler } = await createFetchAdapter({
       db,
       supabaseUrl: SUPABASE_URL,
@@ -261,7 +260,7 @@ describe("Fetch Auth - Sign In", () => {
   });
 
   test("POST /auth/v1/token rejects invalid refresh token", async () => {
-    const db = new PGlite({ extensions: { pgcrypto } });
+    const db = createPGlite();
     const { localFetch } = await createFetchAdapter({
       db,
       supabaseUrl: SUPABASE_URL,
@@ -284,7 +283,7 @@ describe("Fetch Auth - Sign In", () => {
   });
 
   test("POST /auth/v1/token rejects unsupported grant type", async () => {
-    const db = new PGlite({ extensions: { pgcrypto } });
+    const db = createPGlite();
     const { localFetch } = await createFetchAdapter({
       db,
       supabaseUrl: SUPABASE_URL,
@@ -314,7 +313,7 @@ describe("Fetch Auth - Sign In", () => {
 
 describe("Fetch Auth - User", () => {
   test("GET /auth/v1/user returns user", async () => {
-    const db = new PGlite({ extensions: { pgcrypto } });
+    const db = createPGlite();
     const { localFetch, authHandler } = await createFetchAdapter({
       db,
       supabaseUrl: SUPABASE_URL,
@@ -343,7 +342,7 @@ describe("Fetch Auth - User", () => {
   });
 
   test("GET /auth/v1/user rejects missing auth", async () => {
-    const db = new PGlite({ extensions: { pgcrypto } });
+    const db = createPGlite();
     const { localFetch } = await createFetchAdapter({
       db,
       supabaseUrl: SUPABASE_URL,
@@ -359,7 +358,7 @@ describe("Fetch Auth - User", () => {
   });
 
   test("GET /auth/v1/user rejects invalid token", async () => {
-    const db = new PGlite({ extensions: { pgcrypto } });
+    const db = createPGlite();
     const { localFetch } = await createFetchAdapter({
       db,
       supabaseUrl: SUPABASE_URL,
@@ -378,7 +377,7 @@ describe("Fetch Auth - User", () => {
   });
 
   test("PUT /auth/v1/user updates user", async () => {
-    const db = new PGlite({ extensions: { pgcrypto } });
+    const db = createPGlite();
     const { localFetch, authHandler } = await createFetchAdapter({
       db,
       supabaseUrl: SUPABASE_URL,
@@ -410,7 +409,7 @@ describe("Fetch Auth - User", () => {
   });
 
   test("PUT /auth/v1/user rejects missing auth", async () => {
-    const db = new PGlite({ extensions: { pgcrypto } });
+    const db = createPGlite();
     const { localFetch } = await createFetchAdapter({
       db,
       supabaseUrl: SUPABASE_URL,
@@ -436,7 +435,7 @@ describe("Fetch Auth - User", () => {
 
 describe("Fetch Auth - Logout", () => {
   test("POST /auth/v1/logout succeeds", async () => {
-    const db = new PGlite({ extensions: { pgcrypto } });
+    const db = createPGlite();
     const { localFetch, authHandler } = await createFetchAdapter({
       db,
       supabaseUrl: SUPABASE_URL,
@@ -461,7 +460,7 @@ describe("Fetch Auth - Logout", () => {
   });
 
   test("POST /auth/v1/logout works without token", async () => {
-    const db = new PGlite({ extensions: { pgcrypto } });
+    const db = createPGlite();
     const { localFetch } = await createFetchAdapter({
       db,
       supabaseUrl: SUPABASE_URL,
@@ -483,7 +482,7 @@ describe("Fetch Auth - Logout", () => {
 
 describe("Fetch Auth - Session", () => {
   test("GET /auth/v1/session returns session", async () => {
-    const db = new PGlite({ extensions: { pgcrypto } });
+    const db = createPGlite();
     const { localFetch, authHandler } = await createFetchAdapter({
       db,
       supabaseUrl: SUPABASE_URL,
@@ -508,7 +507,7 @@ describe("Fetch Auth - Session", () => {
   });
 
   test("GET /auth/v1/session returns null without auth", async () => {
-    const db = new PGlite({ extensions: { pgcrypto } });
+    const db = createPGlite();
     const { localFetch } = await createFetchAdapter({
       db,
       supabaseUrl: SUPABASE_URL,
@@ -533,7 +532,7 @@ describe("Fetch Auth - Session", () => {
 
 describe("Fetch Auth - Not Found", () => {
   test("Unknown auth endpoint returns 404", async () => {
-    const db = new PGlite({ extensions: { pgcrypto } });
+    const db = createPGlite();
     const { localFetch } = await createFetchAdapter({
       db,
       supabaseUrl: SUPABASE_URL,
@@ -555,7 +554,7 @@ describe("Fetch Auth - Not Found", () => {
 
 describe("Fetch Data - SELECT", () => {
   test("GET /rest/v1/table returns all rows", async () => {
-    const db = new PGlite({ extensions: { pgcrypto } });
+    const db = createPGlite();
 
     await db.exec(`
     CREATE TABLE users (
@@ -595,7 +594,7 @@ describe("Fetch Data - SELECT", () => {
   });
 
   test("GET /rest/v1/table with column selection", async () => {
-    const db = new PGlite({ extensions: { pgcrypto } });
+    const db = createPGlite();
 
     await db.exec(`
     CREATE TABLE users (
@@ -633,7 +632,7 @@ describe("Fetch Data - SELECT", () => {
   });
 
   test("GET /rest/v1/table with filter", async () => {
-    const db = new PGlite({ extensions: { pgcrypto } });
+    const db = createPGlite();
 
     await db.exec(`
     CREATE TABLE users (
@@ -671,7 +670,7 @@ describe("Fetch Data - SELECT", () => {
   });
 
   test("GET /rest/v1/table returns empty array for no results", async () => {
-    const db = new PGlite({ extensions: { pgcrypto } });
+    const db = createPGlite();
 
     await db.exec(`
     CREATE TABLE users (
@@ -707,7 +706,7 @@ describe("Fetch Data - SELECT", () => {
 
 describe("Fetch Data - INSERT", () => {
   test("POST /rest/v1/table inserts row", async () => {
-    const db = new PGlite({ extensions: { pgcrypto } });
+    const db = createPGlite();
 
     await db.exec(`
     CREATE TABLE users (
@@ -738,7 +737,7 @@ describe("Fetch Data - INSERT", () => {
   });
 
   test("POST /rest/v1/table with Prefer: return=representation", async () => {
-    const db = new PGlite({ extensions: { pgcrypto } });
+    const db = createPGlite();
 
     await db.exec(`
     CREATE TABLE users (
@@ -770,7 +769,7 @@ describe("Fetch Data - INSERT", () => {
   });
 
   test("POST /rest/v1/table with Prefer: return=minimal", async () => {
-    const db = new PGlite({ extensions: { pgcrypto } });
+    const db = createPGlite();
 
     await db.exec(`
     CREATE TABLE users (
@@ -805,7 +804,7 @@ describe("Fetch Data - INSERT", () => {
 
 describe("Fetch Data - UPDATE", () => {
   test("PATCH /rest/v1/table updates rows", async () => {
-    const db = new PGlite({ extensions: { pgcrypto } });
+    const db = createPGlite();
 
     await db.exec(`
     CREATE TABLE users (
@@ -846,7 +845,7 @@ describe("Fetch Data - UPDATE", () => {
   });
 
   test("PATCH /rest/v1/table with return=representation", async () => {
-    const db = new PGlite({ extensions: { pgcrypto } });
+    const db = createPGlite();
 
     await db.exec(`
     CREATE TABLE users (
@@ -892,7 +891,7 @@ describe("Fetch Data - UPDATE", () => {
 
 describe("Fetch Data - DELETE", () => {
   test("DELETE /rest/v1/table deletes rows", async () => {
-    const db = new PGlite({ extensions: { pgcrypto } });
+    const db = createPGlite();
 
     await db.exec(`
     CREATE TABLE users (
@@ -927,7 +926,7 @@ describe("Fetch Data - DELETE", () => {
   });
 
   test("DELETE /rest/v1/table with return=representation", async () => {
-    const db = new PGlite({ extensions: { pgcrypto } });
+    const db = createPGlite();
 
     await db.exec(`
     CREATE TABLE users (
@@ -970,7 +969,7 @@ describe("Fetch Data - DELETE", () => {
 
 describe("Fetch Data - Errors", () => {
   test("Handles invalid table", async () => {
-    const db = new PGlite({ extensions: { pgcrypto } });
+    const db = createPGlite();
 
     const { localFetch } = await createFetchAdapter({
       db,
@@ -990,7 +989,7 @@ describe("Fetch Data - Errors", () => {
   });
 
   test("Handles invalid path", async () => {
-    const db = new PGlite({ extensions: { pgcrypto } });
+    const db = createPGlite();
 
     const { localFetch } = await createFetchAdapter({
       db,
@@ -1013,7 +1012,7 @@ describe("Fetch Data - Errors", () => {
 
 describe("Fetch Passthrough", () => {
   test("Non-Supabase requests pass through", async () => {
-    const db = new PGlite({ extensions: { pgcrypto } });
+    const db = createPGlite();
 
     let passthroughCalled = false;
     const mockOriginalFetch = async (
@@ -1047,7 +1046,7 @@ describe("Fetch Passthrough", () => {
   });
 
   test("Storage requests intercepted when handler enabled", async () => {
-    const db = new PGlite({ extensions: { pgcrypto } });
+    const db = createPGlite();
 
     const { localFetch } = await createFetchAdapter({
       db,
@@ -1071,7 +1070,7 @@ describe("Fetch Passthrough", () => {
   });
 
   test("Storage requests pass through when disabled", async () => {
-    const db = new PGlite({ extensions: { pgcrypto } });
+    const db = createPGlite();
 
     let passthroughCalled = false;
     const mockOriginalFetch = async (
@@ -1103,7 +1102,7 @@ describe("Fetch Passthrough", () => {
   });
 
   test("Realtime requests pass through", async () => {
-    const db = new PGlite({ extensions: { pgcrypto } });
+    const db = createPGlite();
 
     let passthroughCalled = false;
     const mockOriginalFetch = async (
@@ -1134,7 +1133,7 @@ describe("Fetch Passthrough", () => {
   });
 
   test("Edge functions pass through", async () => {
-    const db = new PGlite({ extensions: { pgcrypto } });
+    const db = createPGlite();
 
     let passthroughCalled = false;
     const mockOriginalFetch = async (
@@ -1168,7 +1167,7 @@ describe("Fetch Passthrough", () => {
 
 describe("initializeAuth", () => {
   test("returned authHandler can sign up a user", async () => {
-    const db = new PGlite({ extensions: { pgcrypto } });
+    const db = createPGlite();
 
     const authHandler = await initializeAuth(db);
     const result = await authHandler.signUp("initauth@example.com", "pass1234");
@@ -1181,7 +1180,7 @@ describe("initializeAuth", () => {
   });
 
   test("calling initializeAuth twice on the same db is idempotent", async () => {
-    const db = new PGlite({ extensions: { pgcrypto } });
+    const db = createPGlite();
 
     const handler1 = await initializeAuth(db);
     const handler2 = await initializeAuth(db);
@@ -1204,7 +1203,7 @@ describe("initializeAuth", () => {
 
 describe("createFetchAdapter storageBackend false", () => {
   test("storage routes pass through when storage is disabled", async () => {
-    const db = new PGlite({ extensions: { pgcrypto } });
+    const db = createPGlite();
 
     let passthroughCalled = false;
     const mockOriginalFetch = async (_input: RequestInfo | URL, _init?: RequestInit) => {
@@ -1227,7 +1226,7 @@ describe("createFetchAdapter storageBackend false", () => {
   });
 
   test("auth routes still work when storage is disabled", async () => {
-    const db = new PGlite({ extensions: { pgcrypto } });
+    const db = createPGlite();
 
     const { localFetch } = await createFetchAdapter({
       db,
@@ -1249,7 +1248,7 @@ describe("createFetchAdapter storageBackend false", () => {
   });
 
   test("data routes still work when storage is disabled", async () => {
-    const db = new PGlite({ extensions: { pgcrypto } });
+    const db = createPGlite();
     await db.exec("CREATE TABLE items (id SERIAL PRIMARY KEY, name TEXT NOT NULL)");
     await db.exec("INSERT INTO items (name) VALUES ('widget')");
 
@@ -1277,7 +1276,7 @@ describe("createFetchAdapter storageBackend false", () => {
 
 describe("Fetch RLS", () => {
   test("Sets auth context for authenticated requests", async () => {
-    const db = new PGlite({ extensions: { pgcrypto } });
+    const db = createPGlite();
 
     await db.exec(`
     CREATE TABLE profiles (
@@ -1326,7 +1325,7 @@ describe("Fetch RLS", () => {
   });
 
   test("auth.uid() returns user ID in authenticated context", async () => {
-    const db = new PGlite({ extensions: { pgcrypto } });
+    const db = createPGlite();
 
     const { localFetch, authHandler } = await createFetchAdapter({
       db,
@@ -1367,7 +1366,7 @@ describe("Fetch RLS", () => {
   });
 
   test("Clears context for anonymous requests", async () => {
-    const db = new PGlite({ extensions: { pgcrypto } });
+    const db = createPGlite();
 
     await db.exec(`
     CREATE TABLE public_data (
@@ -1408,7 +1407,7 @@ describe("Fetch RLS", () => {
 
 describe("Fetch Integration", () => {
   test("Full auth + data flow", async () => {
-    const db = new PGlite({ extensions: { pgcrypto } });
+    const db = createPGlite();
 
     // Create a profiles table
     await db.exec(`
@@ -1496,7 +1495,7 @@ describe("Fetch Integration", () => {
   });
 
   test("Token refresh flow", async () => {
-    const db = new PGlite({ extensions: { pgcrypto } });
+    const db = createPGlite();
 
     const { localFetch } = await createFetchAdapter({
       db,
@@ -1548,7 +1547,7 @@ describe("Fetch Integration", () => {
   });
 
   test("Multiple users isolation", async () => {
-    const db = new PGlite({ extensions: { pgcrypto } });
+    const db = createPGlite();
 
     await db.exec(`
     CREATE TABLE user_data (

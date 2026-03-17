@@ -30,7 +30,7 @@ export interface FetchAdapterConfig {
      * Original fetch function to use for passthrough requests
      * Defaults to globalThis.fetch
      */
-    originalFetch?: typeof fetch;
+    originalFetch?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
     /**
      * Enable debug logging
      */
@@ -64,7 +64,7 @@ export interface FetchAdapterConfig {
  * // Other calls (realtime, edge functions) pass through to the network
  * ```
  */
-export declare function createLocalFetch(config: FetchAdapterConfig): typeof fetch;
+export declare function createLocalFetch(config: FetchAdapterConfig): (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 export { handleAuthRoute } from "./auth-routes.ts";
 export { handleDataRoute } from "./data-routes.ts";
 export { handleStorageRoute } from "./storage-routes.ts";

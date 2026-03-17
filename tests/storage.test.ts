@@ -5,8 +5,6 @@
  * public buckets, signed URLs, move/copy, and per-user RLS enforcement.
  */
 
-import { PGlite } from "@electric-sql/pglite";
-import { pgcrypto } from "@electric-sql/pglite/contrib/pgcrypto";
 import { createClient } from "@supabase/supabase-js";
 import {
   test,
@@ -15,12 +13,13 @@ import {
   assertExists,
 } from "./compat.ts";
 import { createFetchAdapter } from "../src/client.ts";
+import { createPGlite } from "../src/pglite-factory.ts";
 
 const SUPABASE_URL = "http://localhost:54321";
 
 describe("Storage", () => {
   test("Upload, list, download, delete via supabase-js", async () => {
-    const db = new PGlite({ extensions: { pgcrypto } });
+    const db = createPGlite();
     const { localFetch } = await createFetchAdapter({
       db,
       supabaseUrl: SUPABASE_URL,
@@ -59,11 +58,12 @@ describe("Storage", () => {
 
     const { data: listData, error: listError } = await supabase.storage
       .from("user-files")
-      .list("notes/");
+      .list("notes");
 
     assertEquals(listError, null);
     assertExists(listData);
-    assertEquals(listData!.length >= 1, true);
+    assertEquals(listData!.length, 1);
+    assertEquals(listData![0]!.name, "hello.txt");
 
     const { data: downloadData, error: downloadError } = await supabase.storage
       .from("user-files")
@@ -94,8 +94,141 @@ describe("Storage", () => {
     await db.close();
   });
 
+  test("Folder navigation — list shows virtual folders and files at correct depth", async () => {
+    const db = createPGlite();
+    const { localFetch } = await createFetchAdapter({ db, supabaseUrl: SUPABASE_URL });
+
+    const supabase = createClient(SUPABASE_URL, "local-anon-key", {
+      auth: { autoRefreshToken: false },
+      global: { fetch: localFetch },
+    });
+
+    await supabase.auth.signUp({ email: "folder-nav@example.com", password: "pass1234" });
+    await supabase.storage.createBucket("nav-bucket", { public: false });
+
+    const enc = (s: string) => new TextEncoder().encode(s);
+    await supabase.storage.from("nav-bucket").upload("a/b/deep.txt", enc("deep"), { contentType: "text/plain" });
+    await supabase.storage.from("nav-bucket").upload("a/shallow.txt", enc("shallow"), { contentType: "text/plain" });
+    await supabase.storage.from("nav-bucket").upload("root.txt", enc("root"), { contentType: "text/plain" });
+
+    // Root listing: should show folder "a" and file "root.txt"
+    const { data: root } = await supabase.storage.from("nav-bucket").list("");
+    assertExists(root);
+    const rootNames = root!.map((o) => o.name).sort();
+    assertEquals(rootNames, ["a", "root.txt"]);
+
+    // One level deep: list "a" — should show folder "b" and file "shallow.txt"
+    const { data: inA } = await supabase.storage.from("nav-bucket").list("a");
+    assertExists(inA);
+    const inANames = inA!.map((o) => o.name).sort();
+    assertEquals(inANames, ["b", "shallow.txt"]);
+
+    // Two levels deep: list "a/b" — should show file "deep.txt"
+    const { data: inAB } = await supabase.storage.from("nav-bucket").list("a/b");
+    assertExists(inAB);
+    assertEquals(inAB!.length, 1);
+    assertEquals(inAB![0]!.name, "deep.txt");
+
+    await db.close();
+  });
+
+  test("Upload to nested folder and download back", async () => {
+    const db = createPGlite();
+    const { localFetch } = await createFetchAdapter({ db, supabaseUrl: SUPABASE_URL });
+    const supabase = createClient(SUPABASE_URL, "local-anon-key", {
+      auth: { autoRefreshToken: false },
+      global: { fetch: localFetch },
+    });
+
+    await supabase.auth.signUp({ email: "nested@example.com", password: "pass1234" });
+    await supabase.storage.createBucket("nested-bucket", { public: false });
+
+    const enc = (s: string) => new TextEncoder().encode(s);
+
+    const { error: e1 } = await supabase.storage.from("nested-bucket").upload("a/b/c/deep.txt", enc("deep content"), { contentType: "text/plain" });
+    assertEquals(e1, null);
+
+    const { error: e2 } = await supabase.storage.from("nested-bucket").upload("a/b/mid.txt", enc("mid content"), { contentType: "text/plain" });
+    assertEquals(e2, null);
+
+    const { error: e3 } = await supabase.storage.from("nested-bucket").upload("a/top.txt", enc("top content"), { contentType: "text/plain" });
+    assertEquals(e3, null);
+
+    const { data: deepFile, error: de } = await supabase.storage.from("nested-bucket").download("a/b/c/deep.txt");
+    assertEquals(de, null);
+    assertExists(deepFile);
+    assertEquals(await deepFile!.text(), "deep content");
+
+    const { data: midFile } = await supabase.storage.from("nested-bucket").download("a/b/mid.txt");
+    assertExists(midFile);
+    assertEquals(await midFile!.text(), "mid content");
+
+    const { data: topFile } = await supabase.storage.from("nested-bucket").download("a/top.txt");
+    assertExists(topFile);
+    assertEquals(await topFile!.text(), "top content");
+
+    await db.close();
+  });
+
+  test("Move file between folders", async () => {
+    const db = createPGlite();
+    const { localFetch } = await createFetchAdapter({ db, supabaseUrl: SUPABASE_URL });
+    const supabase = createClient(SUPABASE_URL, "local-anon-key", {
+      auth: { autoRefreshToken: false },
+      global: { fetch: localFetch },
+    });
+
+    await supabase.auth.signUp({ email: "mover2@example.com", password: "pass1234" });
+    await supabase.storage.createBucket("move-bucket", { public: false });
+
+    const enc = (s: string) => new TextEncoder().encode(s);
+    await supabase.storage.from("move-bucket").upload("folder-a/file.txt", enc("hello"), { contentType: "text/plain" });
+
+    const { error: moveErr } = await supabase.storage.from("move-bucket").move("folder-a/file.txt", "folder-b/file.txt");
+    assertEquals(moveErr, null);
+
+    const { data: atOld } = await supabase.storage.from("move-bucket").list("folder-a");
+    assertEquals(atOld?.length ?? 0, 0);
+
+    const { data: atNew } = await supabase.storage.from("move-bucket").list("folder-b");
+    assertExists(atNew);
+    assertEquals(atNew!.length, 1);
+    assertEquals(atNew![0]!.name, "file.txt");
+
+    await db.close();
+  });
+
+  test("Remove all files in a subfolder", async () => {
+    const db = createPGlite();
+    const { localFetch } = await createFetchAdapter({ db, supabaseUrl: SUPABASE_URL });
+    const supabase = createClient(SUPABASE_URL, "local-anon-key", {
+      auth: { autoRefreshToken: false },
+      global: { fetch: localFetch },
+    });
+
+    await supabase.auth.signUp({ email: "remover@example.com", password: "pass1234" });
+    await supabase.storage.createBucket("rm-bucket", { public: false });
+
+    const enc = (s: string) => new TextEncoder().encode(s);
+    await supabase.storage.from("rm-bucket").upload("docs/a.txt", enc("a"), { contentType: "text/plain" });
+    await supabase.storage.from("rm-bucket").upload("docs/b.txt", enc("b"), { contentType: "text/plain" });
+    await supabase.storage.from("rm-bucket").upload("keep/c.txt", enc("c"), { contentType: "text/plain" });
+
+    const { error: rmErr } = await supabase.storage.from("rm-bucket").remove(["docs/a.txt", "docs/b.txt"]);
+    assertEquals(rmErr, null);
+
+    const { data: afterDocs } = await supabase.storage.from("rm-bucket").list("docs");
+    assertEquals(afterDocs?.length ?? 0, 0);
+
+    const { data: afterKeep } = await supabase.storage.from("rm-bucket").list("keep");
+    assertExists(afterKeep);
+    assertEquals(afterKeep!.length, 1);
+
+    await db.close();
+  });
+
   test("Public bucket allows unauthenticated download", async () => {
-    const db = new PGlite({ extensions: { pgcrypto } });
+    const db = createPGlite();
     const { localFetch } = await createFetchAdapter({
       db,
       supabaseUrl: SUPABASE_URL,
@@ -139,7 +272,7 @@ describe("Storage", () => {
   });
 
   test("Create signed URL and download", async () => {
-    const db = new PGlite({ extensions: { pgcrypto } });
+    const db = createPGlite();
     const { localFetch } = await createFetchAdapter({
       db,
       supabaseUrl: SUPABASE_URL,
@@ -181,7 +314,7 @@ describe("Storage", () => {
   });
 
   test("RLS enforces per-user storage access", async () => {
-    const db = new PGlite({ extensions: { pgcrypto } });
+    const db = createPGlite();
     const { localFetch } = await createFetchAdapter({
       db,
       supabaseUrl: SUPABASE_URL,
@@ -258,7 +391,7 @@ describe("Storage", () => {
   });
 
   test("Bucket CRUD through supabase-js", async () => {
-    const db = new PGlite({ extensions: { pgcrypto } });
+    const db = createPGlite();
     const { localFetch } = await createFetchAdapter({
       db,
       supabaseUrl: SUPABASE_URL,
@@ -322,7 +455,7 @@ describe("Storage", () => {
   });
 
   test("getObjectInfo returns metadata for existing object and null for missing path", async () => {
-    const db = new PGlite({ extensions: { pgcrypto } });
+    const db = createPGlite();
     const { localFetch, storageHandler } = await createFetchAdapter({ db, supabaseUrl: SUPABASE_URL });
     assertExists(storageHandler);
 
@@ -351,7 +484,7 @@ describe("Storage", () => {
   });
 
   test("verifySignedUrl returns bucket and path for valid token and null for invalid/expired token", async () => {
-    const db = new PGlite({ extensions: { pgcrypto } });
+    const db = createPGlite();
     const { localFetch, storageHandler } = await createFetchAdapter({ db, supabaseUrl: SUPABASE_URL });
     assertExists(storageHandler);
 
@@ -383,7 +516,7 @@ describe("Storage", () => {
   });
 
   test("Move and copy through supabase-js", async () => {
-    const db = new PGlite({ extensions: { pgcrypto } });
+    const db = createPGlite();
     const { localFetch } = await createFetchAdapter({
       db,
       supabaseUrl: SUPABASE_URL,

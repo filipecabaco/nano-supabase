@@ -7,22 +7,7 @@ import type { PostgrestParser } from "../postgrest-parser.ts";
 import { setAuthContext } from "./auth-context.ts";
 import { errorResponse } from "./error-handler.ts";
 
-/**
- * Create a JSON response
- */
-function jsonResponse(
-  data: unknown,
-  status: number = 200,
-  headers: Record<string, string> = {},
-): Response {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: {
-      "Content-Type": "application/json",
-      ...headers,
-    },
-  });
-}
+import { jsonResponse } from "./response.ts";
 
 /**
  * Extract bearer token from Authorization header
@@ -98,6 +83,7 @@ export async function handleDataRoute(
     }
 
     switch (method) {
+      case "HEAD":
       case "GET":
         parsed = parser.parseRequest("GET", resourcePath, queryString);
         break;
@@ -174,6 +160,12 @@ export async function handleDataRoute(
     }
 
     // Handle different operations
+    if (method === "HEAD") {
+      responseHeaders["Content-Range"] =
+        `0-${result.rows.length - 1}/${result.rows.length}`;
+      return new Response(null, { status: 200, headers: responseHeaders });
+    }
+
     if (method === "GET") {
       return jsonResponse(result.rows, 200, responseHeaders);
     }

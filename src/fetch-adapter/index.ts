@@ -18,7 +18,7 @@ import type { AuthHandler } from "../auth/handler.ts";
 import type { StorageHandler } from "../storage/handler.ts";
 import { handleAuthRoute } from "./auth-routes.ts";
 import { handleDataRoute } from "./data-routes.ts";
-import { handleStorageRoute } from "./storage-routes.ts";
+import { handleStorageRoute, type TusSessionMap } from "./storage-routes.ts";
 
 export interface FetchAdapterConfig {
   /** The PGlite database instance */
@@ -35,7 +35,7 @@ export interface FetchAdapterConfig {
    * Original fetch function to use for passthrough requests
    * Defaults to globalThis.fetch
    */
-  originalFetch?: typeof fetch;
+  originalFetch?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
   /**
    * Enable debug logging
    */
@@ -119,7 +119,7 @@ function getRouteInfo(
  * // Other calls (realtime, edge functions) pass through to the network
  * ```
  */
-export function createLocalFetch(config: FetchAdapterConfig): typeof fetch {
+export function createLocalFetch(config: FetchAdapterConfig): (input: RequestInfo | URL, init?: RequestInit) => Promise<Response> {
   const {
     db,
     parser,
@@ -133,6 +133,8 @@ export function createLocalFetch(config: FetchAdapterConfig): typeof fetch {
   const log = debug
     ? (...args: unknown[]) => console.log("[nano-supabase]", ...args)
     : () => {};
+
+  const tusSessions: TusSessionMap = new Map();
 
   return async function localFetch(
     input: RequestInfo | URL,
@@ -182,6 +184,7 @@ export function createLocalFetch(config: FetchAdapterConfig): typeof fetch {
           routeInfo.pathname,
           db,
           storageHandler,
+          tusSessions,
         );
       } else {
         // Should not reach here, but pass through just in case

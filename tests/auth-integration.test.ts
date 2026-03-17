@@ -4,10 +4,9 @@
  * Tests complete user workflows from sign up to data access
  */
 
-import { PGlite } from "@electric-sql/pglite";
-import { pgcrypto } from "@electric-sql/pglite/contrib/pgcrypto";
 import { createClient } from "@supabase/supabase-js";
 import { createFetchAdapter } from "../src/client.ts";
+import { createPGlite } from "../src/pglite-factory.ts";
 import {
   test,
   describe,
@@ -32,7 +31,7 @@ interface CountResult {
 
 // Helper to create Supabase client with proper types
 async function createTestClient(db?: PGlite) {
-  const dbInstance = db || new PGlite({ extensions: { pgcrypto } });
+  const dbInstance = db || createPGlite();
   const { localFetch, authHandler } = await createFetchAdapter({
     db: dbInstance,
   });
@@ -76,7 +75,7 @@ async function createTasksTableWithRLS(db: PGlite) {
 
 describe("RLS", () => {
   test("Users can only see their own tasks", async () => {
-    const db = new PGlite({ extensions: { pgcrypto } });
+    const db = createPGlite();
     const { supabase } = await createTestClient(db);
     await createTasksTableWithRLS(db);
 
@@ -124,7 +123,7 @@ describe("RLS", () => {
   });
 
   test("Anonymous users cannot access protected tables", async () => {
-    const db = new PGlite({ extensions: { pgcrypto } });
+    const db = createPGlite();
     const { supabase } = await createTestClient(db);
     await createTasksTableWithRLS(db);
 
@@ -147,7 +146,7 @@ describe("RLS", () => {
   });
 
   test("auth.uid() works as DEFAULT value", async () => {
-    const db = new PGlite({ extensions: { pgcrypto } });
+    const db = createPGlite();
     const { supabase } = await createTestClient(db);
     await createTasksTableWithRLS(db);
 
@@ -178,7 +177,7 @@ describe("RLS", () => {
 
 describe("Auth Flow", () => {
   test("Sign up, create data, sign out, sign up, verify isolation", async () => {
-    const db = new PGlite({ extensions: { pgcrypto } });
+    const db = createPGlite();
     const { supabase } = await createTestClient(db);
     await createTasksTableWithRLS(db);
 
@@ -223,7 +222,7 @@ describe("Auth Flow", () => {
   });
 
   test("Sign out allows signing up new user", async () => {
-    const db = new PGlite({ extensions: { pgcrypto } });
+    const db = createPGlite();
     const { supabase } = await createTestClient(db);
 
     // Sign up first user
@@ -260,7 +259,7 @@ describe("Auth Flow", () => {
   });
 
   test("Sign out then sign in preserves user data", async () => {
-    const db = new PGlite({ extensions: { pgcrypto } });
+    const db = createPGlite();
     const { supabase } = await createTestClient(db);
     await createTasksTableWithRLS(db);
 
@@ -297,7 +296,7 @@ describe("Auth Flow", () => {
   });
 
   test("Multiple sign out then sign up cycles work correctly", async () => {
-    const db = new PGlite({ extensions: { pgcrypto } });
+    const db = createPGlite();
     const { supabase } = await createTestClient(db);
     await createTasksTableWithRLS(db);
 
@@ -333,7 +332,7 @@ describe("Auth Flow", () => {
   });
 
   test("Session cleanup on sign out", async () => {
-    const db = new PGlite({ extensions: { pgcrypto } });
+    const db = createPGlite();
     const { supabase } = await createTestClient(db);
 
     const signUpResult = await supabase.auth.signUp({
@@ -367,7 +366,7 @@ describe("Auth Flow", () => {
   });
 
   test("Concurrent users with isolated data", async () => {
-    const db = new PGlite({ extensions: { pgcrypto } });
+    const db = createPGlite();
     const { supabase: client1 } = await createTestClient(db);
     const { supabase: client2 } = await createTestClient(db);
     await createTasksTableWithRLS(db);
@@ -407,7 +406,7 @@ describe("Auth Flow", () => {
   });
 
   test("refreshSession returns a new refresh token and the access token works for getUser", async () => {
-    const db = new PGlite({ extensions: { pgcrypto } });
+    const db = createPGlite();
     const { authHandler } = await createTestClient(db);
 
     const signUpResult = await authHandler.signUp("refresh@example.com", "pass1234");
@@ -428,7 +427,7 @@ describe("Auth Flow", () => {
   });
 
   test("getUser returns user data for valid access token", async () => {
-    const db = new PGlite({ extensions: { pgcrypto } });
+    const db = createPGlite();
     const { authHandler } = await createTestClient(db);
 
     const signInResult = await authHandler.signUp("getuser@example.com", "pass1234");
@@ -445,7 +444,7 @@ describe("Auth Flow", () => {
   });
 
   test("updateUser persists email and metadata changes", async () => {
-    const db = new PGlite({ extensions: { pgcrypto } });
+    const db = createPGlite();
     const { authHandler } = await createTestClient(db);
 
     const signUpResult = await authHandler.signUp("update@example.com", "pass1234");
@@ -465,7 +464,7 @@ describe("Auth Flow", () => {
   });
 
   test("setSession and getSession round-trip", async () => {
-    const db = new PGlite({ extensions: { pgcrypto } });
+    const db = createPGlite();
     const { authHandler } = await createTestClient(db);
 
     const signUpResult = await authHandler.signUp("session@example.com", "pass1234");
@@ -484,7 +483,7 @@ describe("Auth Flow", () => {
   });
 
   test("verifyToken returns valid payload for a real token and error for a fake one", async () => {
-    const db = new PGlite({ extensions: { pgcrypto } });
+    const db = createPGlite();
     const { authHandler } = await createTestClient(db);
 
     const signUpResult = await authHandler.signUp("verify@example.com", "pass1234");
@@ -504,7 +503,7 @@ describe("Auth Flow", () => {
   });
 
   test("Invalid credentials do not create session", async () => {
-    const db = new PGlite({ extensions: { pgcrypto } });
+    const db = createPGlite();
     const { supabase } = await createTestClient(db);
 
     // Create user
@@ -546,7 +545,7 @@ describe("Auth Flow", () => {
 
 describe("Complex RLS", () => {
   test("Update and delete operations respect user boundaries", async () => {
-    const db = new PGlite({ extensions: { pgcrypto } });
+    const db = createPGlite();
     const { supabase } = await createTestClient(db);
     await createTasksTableWithRLS(db);
 
@@ -596,7 +595,7 @@ describe("Complex RLS", () => {
   });
 
   test("Context persists across multiple operations", async () => {
-    const db = new PGlite({ extensions: { pgcrypto } });
+    const db = createPGlite();
     const { supabase } = await createTestClient(db);
     await createTasksTableWithRLS(db);
 

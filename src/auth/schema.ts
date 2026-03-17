@@ -4,13 +4,14 @@
  */
 
 export const AUTH_SCHEMA_SQL = `
--- Enable pgcrypto extension for password hashing
+-- pgcrypto and uuid-ossp are pre-loaded via createPGlite factory
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- Create auth schema
 CREATE SCHEMA IF NOT EXISTS auth;
 
--- Create PostgreSQL roles for RLS
+-- API roles
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'anon') THEN
@@ -22,40 +23,77 @@ BEGIN
   IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'service_role') THEN
     CREATE ROLE service_role NOLOGIN NOINHERIT BYPASSRLS;
   END IF;
+  -- authenticator: PostgREST connects as this role then SET ROLE per request
+  IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'authenticator') THEN
+    CREATE ROLE authenticator NOINHERIT LOGIN;
+  END IF;
+  -- supabase_auth_admin: owns auth schema tables
+  IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'supabase_auth_admin') THEN
+    CREATE ROLE supabase_auth_admin NOINHERIT CREATEROLE LOGIN NOREPLICATION;
+  END IF;
+  -- dashboard_user: used by Supabase Studio / pg-meta
+  IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'dashboard_user') THEN
+    CREATE ROLE dashboard_user NOSUPERUSER CREATEDB CREATEROLE REPLICATION;
+  END IF;
 END
 $$;
 
--- Grant necessary permissions to roles
+GRANT anon TO authenticator;
+GRANT authenticated TO authenticator;
+GRANT service_role TO authenticator;
+
+-- Statement timeouts matching official Supabase defaults
+ALTER ROLE anon SET statement_timeout = '3s';
+ALTER ROLE authenticated SET statement_timeout = '8s';
+
+-- Public schema grants
 GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
 GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated, service_role;
 GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated, service_role;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO anon, authenticated, service_role;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO anon, authenticated, service_role;
 
--- Grant service_role full access to auth schema (needed for auth operations)
-GRANT USAGE ON SCHEMA auth TO service_role;
+-- Auth schema grants
+GRANT USAGE ON SCHEMA auth TO anon, authenticated, service_role;
 GRANT ALL ON ALL TABLES IN SCHEMA auth TO service_role;
 GRANT ALL ON ALL SEQUENCES IN SCHEMA auth TO service_role;
 ALTER DEFAULT PRIVILEGES IN SCHEMA auth GRANT ALL ON TABLES TO service_role;
 ALTER DEFAULT PRIVILEGES IN SCHEMA auth GRANT ALL ON SEQUENCES TO service_role;
 
--- Users table
+-- supabase_auth_admin owns the auth schema
+GRANT ALL PRIVILEGES ON SCHEMA auth TO supabase_auth_admin;
+ALTER ROLE supabase_auth_admin SET search_path = "auth";
+
+-- dashboard_user gets full access to auth (Studio needs this)
+GRANT ALL ON SCHEMA auth TO dashboard_user;
+GRANT ALL ON ALL TABLES IN SCHEMA auth TO dashboard_user;
+GRANT ALL ON ALL SEQUENCES IN SCHEMA auth TO dashboard_user;
+GRANT ALL ON ALL ROUTINES IN SCHEMA auth TO dashboard_user;
+
+-- Users table — columns match supabase/postgres init-scripts + incremental migrations
 CREATE TABLE IF NOT EXISTS auth.users (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   instance_id UUID DEFAULT '00000000-0000-0000-0000-000000000000'::uuid,
-  aud VARCHAR(255) DEFAULT 'authenticated',
-  role VARCHAR(255) DEFAULT 'authenticated',
+  id UUID NOT NULL UNIQUE DEFAULT gen_random_uuid(),
+  aud VARCHAR(255),
+  role VARCHAR(255),
   email VARCHAR(255) UNIQUE,
   encrypted_password VARCHAR(255),
+  -- confirmed_at: original base column from init script
+  confirmed_at TIMESTAMPTZ,
+  -- email_confirmed_at: added in later migrations (alias for confirmed_at in practice)
   email_confirmed_at TIMESTAMPTZ,
   invited_at TIMESTAMPTZ,
   confirmation_token VARCHAR(255),
   confirmation_sent_at TIMESTAMPTZ,
   recovery_token VARCHAR(255),
   recovery_sent_at TIMESTAMPTZ,
+  -- email_change_token: original single column; _new/_current added in later migrations
+  email_change_token VARCHAR(255),
   email_change_token_new VARCHAR(255),
+  email_change_token_current VARCHAR(255),
   email_change VARCHAR(255),
   email_change_sent_at TIMESTAMPTZ,
+  email_change_confirm_status SMALLINT DEFAULT 0,
   last_sign_in_at TIMESTAMPTZ,
   raw_app_meta_data JSONB DEFAULT '{}'::jsonb,
   raw_user_meta_data JSONB DEFAULT '{}'::jsonb,
@@ -67,14 +105,13 @@ CREATE TABLE IF NOT EXISTS auth.users (
   phone_change VARCHAR(255),
   phone_change_token VARCHAR(255),
   phone_change_sent_at TIMESTAMPTZ,
-  email_change_token_current VARCHAR(255),
-  email_change_confirm_status SMALLINT DEFAULT 0,
   banned_until TIMESTAMPTZ,
   reauthentication_token VARCHAR(255),
   reauthentication_sent_at TIMESTAMPTZ,
   is_sso_user BOOLEAN DEFAULT FALSE,
   deleted_at TIMESTAMPTZ,
-  is_anonymous BOOLEAN DEFAULT FALSE
+  is_anonymous BOOLEAN DEFAULT FALSE,
+  CONSTRAINT users_pkey PRIMARY KEY (id)
 );
 
 -- Sessions table
@@ -104,6 +141,155 @@ CREATE TABLE IF NOT EXISTS auth.refresh_tokens (
   session_id UUID REFERENCES auth.sessions(id) ON DELETE CASCADE
 );
 
+-- Instances table (required by GoTrue / pg-meta introspection)
+CREATE TABLE IF NOT EXISTS auth.instances (
+  id UUID PRIMARY KEY,
+  uuid UUID,
+  raw_base_config TEXT,
+  created_at TIMESTAMPTZ,
+  updated_at TIMESTAMPTZ
+);
+
+-- Audit log entries
+CREATE TABLE IF NOT EXISTS auth.audit_log_entries (
+  instance_id UUID,
+  id UUID NOT NULL PRIMARY KEY,
+  payload JSON,
+  created_at TIMESTAMPTZ,
+  ip_address VARCHAR(64) DEFAULT ''
+);
+
+-- Schema migrations tracker
+CREATE TABLE IF NOT EXISTS auth.schema_migrations (
+  version VARCHAR(255) PRIMARY KEY
+);
+
+-- Identities (OAuth / external provider links)
+CREATE TABLE IF NOT EXISTS auth.identities (
+  provider_id TEXT NOT NULL,
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  identity_data JSONB NOT NULL,
+  provider TEXT NOT NULL,
+  last_sign_in_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  email TEXT GENERATED ALWAYS AS (lower(identity_data->>'email')) STORED,
+  id UUID NOT NULL DEFAULT gen_random_uuid(),
+  CONSTRAINT identities_pkey PRIMARY KEY (id),
+  CONSTRAINT identities_provider_id_provider_unique UNIQUE (provider_id, provider)
+);
+CREATE INDEX IF NOT EXISTS identities_user_id_idx ON auth.identities (user_id);
+CREATE INDEX IF NOT EXISTS identities_email_idx ON auth.identities (email);
+
+-- PKCE flow state
+CREATE TABLE IF NOT EXISTS auth.flow_state (
+  id UUID NOT NULL PRIMARY KEY,
+  user_id UUID,
+  auth_code TEXT NOT NULL,
+  code_challenge_method TEXT NOT NULL,
+  code_challenge TEXT NOT NULL,
+  provider_type TEXT NOT NULL,
+  provider_access_token TEXT,
+  provider_refresh_token TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  authentication_method TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS flow_state_created_at_idx ON auth.flow_state (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_auth_code ON auth.flow_state (auth_code);
+CREATE INDEX IF NOT EXISTS idx_user_id_auth_method ON auth.flow_state (user_id, authentication_method);
+
+-- MFA factors
+CREATE TABLE IF NOT EXISTS auth.mfa_factors (
+  id UUID NOT NULL PRIMARY KEY,
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  friendly_name TEXT,
+  factor_type TEXT NOT NULL,
+  status TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  secret TEXT,
+  phone TEXT,
+  last_challenged_at TIMESTAMPTZ
+);
+CREATE UNIQUE INDEX IF NOT EXISTS mfa_factors_user_friendly_name_unique ON auth.mfa_factors (user_id, friendly_name) WHERE TRIM(friendly_name) <> '';
+CREATE INDEX IF NOT EXISTS factor_id_created_at_idx ON auth.mfa_factors (user_id, created_at);
+
+CREATE TABLE IF NOT EXISTS auth.mfa_challenges (
+  id UUID NOT NULL PRIMARY KEY,
+  factor_id UUID NOT NULL REFERENCES auth.mfa_factors(id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  verified_at TIMESTAMPTZ,
+  ip_address INET NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS auth.mfa_amr_claims (
+  session_id UUID NOT NULL REFERENCES auth.sessions(id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  authentication_method TEXT NOT NULL,
+  id UUID NOT NULL PRIMARY KEY,
+  CONSTRAINT mfa_amr_claims_session_id_authentication_method_pkey UNIQUE (session_id, authentication_method)
+);
+
+-- SSO
+CREATE TABLE IF NOT EXISTS auth.sso_providers (
+  id UUID NOT NULL PRIMARY KEY,
+  resource_id TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS auth.sso_domains (
+  id UUID NOT NULL PRIMARY KEY,
+  sso_provider_id UUID NOT NULL REFERENCES auth.sso_providers(id) ON DELETE CASCADE,
+  domain TEXT NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS sso_domains_domain_idx ON auth.sso_domains (lower(domain));
+CREATE INDEX IF NOT EXISTS sso_domains_sso_provider_id_idx ON auth.sso_domains (sso_provider_id);
+
+CREATE TABLE IF NOT EXISTS auth.saml_providers (
+  id UUID NOT NULL PRIMARY KEY,
+  sso_provider_id UUID NOT NULL REFERENCES auth.sso_providers(id) ON DELETE CASCADE,
+  entity_id TEXT NOT NULL UNIQUE,
+  metadata_xml TEXT NOT NULL,
+  metadata_url TEXT,
+  attribute_mapping JSONB,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  name_id_format TEXT
+);
+CREATE INDEX IF NOT EXISTS saml_providers_sso_provider_id_idx ON auth.saml_providers (sso_provider_id);
+
+CREATE TABLE IF NOT EXISTS auth.saml_relay_states (
+  id UUID NOT NULL PRIMARY KEY,
+  sso_provider_id UUID NOT NULL REFERENCES auth.sso_providers(id) ON DELETE CASCADE,
+  request_id TEXT NOT NULL,
+  for_email TEXT,
+  redirect_to TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  flow_state_id UUID REFERENCES auth.flow_state(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS saml_relay_states_sso_provider_id_idx ON auth.saml_relay_states (sso_provider_id);
+CREATE INDEX IF NOT EXISTS saml_relay_states_for_email_idx ON auth.saml_relay_states (for_email);
+CREATE INDEX IF NOT EXISTS saml_relay_states_created_at_idx ON auth.saml_relay_states (created_at DESC);
+
+-- One-time tokens (magic link, email OTP, phone OTP, etc.)
+CREATE TABLE IF NOT EXISTS auth.one_time_tokens (
+  id UUID NOT NULL PRIMARY KEY,
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  token_type TEXT NOT NULL,
+  token_hash TEXT NOT NULL,
+  relates_to TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS one_time_tokens_token_hash_hash_idx ON auth.one_time_tokens USING hash (token_hash);
+CREATE INDEX IF NOT EXISTS one_time_tokens_user_id_token_type_key ON auth.one_time_tokens (user_id, token_type);
+
 -- Indexes for performance
 CREATE INDEX IF NOT EXISTS users_email_idx ON auth.users(email);
 CREATE INDEX IF NOT EXISTS users_instance_id_idx ON auth.users(instance_id);
@@ -112,6 +298,7 @@ CREATE INDEX IF NOT EXISTS sessions_not_after_idx ON auth.sessions(not_after);
 CREATE INDEX IF NOT EXISTS refresh_tokens_token_idx ON auth.refresh_tokens(token);
 CREATE INDEX IF NOT EXISTS refresh_tokens_user_id_idx ON auth.refresh_tokens(user_id);
 CREATE INDEX IF NOT EXISTS refresh_tokens_session_id_idx ON auth.refresh_tokens(session_id);
+CREATE INDEX IF NOT EXISTS audit_logs_instance_id_idx ON auth.audit_log_entries(instance_id);
 
 -- Function to get current user ID (for RLS policies)
 CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID AS $$
@@ -167,6 +354,8 @@ BEGIN
     email_confirmed_at,
     raw_user_meta_data,
     raw_app_meta_data,
+    aud,
+    role,
     created_at,
     updated_at
   ) VALUES (
@@ -175,6 +364,8 @@ BEGIN
     NOW(), -- Auto-confirm for local development
     p_user_metadata,
     p_app_metadata,
+    'authenticated',
+    'authenticated',
     NOW(),
     NOW()
   ) RETURNING * INTO v_user;

@@ -19,7 +19,18 @@ type SupabaseJsClient = unknown;
  */
 export interface LocalSupabaseClientConfig {
     /**
-     * The PGlite database instance
+     * The PGlite database instance.
+     *
+     * Pass an in-memory instance for ephemeral usage (default, no data survives restarts):
+     * ```typescript
+     * const db = new PGlite()
+     * ```
+     *
+     * Pass a persistent instance to survive restarts (schemas are only created once):
+     * ```typescript
+     * const db = new PGlite('./my-local-db')        // Node.js / Bun — filesystem
+     * const db = new PGlite('idb://my-local-db')    // Browser — IndexedDB
+     * ```
      */
     db: PGlite;
     /**
@@ -41,7 +52,7 @@ export interface LocalSupabaseClientConfig {
      * Original fetch function to use for passthrough requests
      * Defaults to globalThis.fetch
      */
-    originalFetch?: typeof fetch;
+    originalFetch?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
     /**
      * Custom storage blob backend.
      * Defaults to in-memory storage (MemoryStorageBackend).
@@ -72,7 +83,7 @@ export interface LocalSupabaseClientResult<T = SupabaseJsClient> {
     /**
      * The custom fetch function (useful for custom integrations)
      */
-    localFetch: typeof fetch;
+    localFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 }
 /**
  * Create a local Supabase client with full auth, data, and storage emulation
@@ -104,9 +115,14 @@ export interface LocalSupabaseClientResult<T = SupabaseJsClient> {
  * await supabase.storage.from('avatars').upload('avatar.png', file)
  * ```
  */
+export declare function initComponents(db: PGlite, storageBackend: StorageBackend | false | undefined): Promise<{
+    parser: PostgrestParser;
+    authHandler: AuthHandler;
+    storageHandler: StorageHandler | undefined;
+}>;
 export declare function createLocalSupabaseClient<T = SupabaseJsClient>(config: LocalSupabaseClientConfig, createClient: (url: string, key: string, options?: {
     global?: {
-        fetch?: typeof fetch;
+        fetch?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
     };
 }) => T): Promise<LocalSupabaseClientResult<T>>;
 /**
@@ -151,10 +167,10 @@ export declare function createFetchAdapter(config: {
     db: PGlite;
     supabaseUrl?: string;
     debug?: boolean;
-    originalFetch?: typeof fetch;
+    originalFetch?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
     storageBackend?: StorageBackend | false;
 }): Promise<{
-    localFetch: typeof fetch;
+    localFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
     authHandler: AuthHandler;
     parser: PostgrestParser;
     storageHandler?: StorageHandler;

@@ -7,8 +7,6 @@
  * Each test simulates a complete mini-application with schema, users, and workflows.
  */
 
-import { PGlite } from "@electric-sql/pglite";
-import { pgcrypto } from "@electric-sql/pglite/contrib/pgcrypto";
 import { createClient } from "@supabase/supabase-js";
 import {
   test,
@@ -17,11 +15,12 @@ import {
   assertExists,
 } from "./compat.ts";
 import { createFetchAdapter } from "../src/client.ts";
+import { createPGlite } from "../src/pglite-factory.ts";
 
 const SUPABASE_URL = "http://localhost:54321";
 
 async function createApp() {
-  const db = new PGlite({ extensions: { pgcrypto } });
+  const db = createPGlite();
   const { localFetch } = await createFetchAdapter({
     db,
     supabaseUrl: SUPABASE_URL,

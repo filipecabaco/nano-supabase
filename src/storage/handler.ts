@@ -400,17 +400,15 @@ export class StorageHandler {
       ? sortColumn
       : "name";
 
-    // Use the search function pattern: find objects at the given prefix level
-    // The supabase-js client sends prefix as the folder path, and we need to list
-    // items one level deep within that prefix
-    const searchPattern = prefix ? `${prefix}%` : "%";
-
+    // Use storage.search() for folder-aware listing:
+    // - returns virtual folder entries (null id, null metadata) for subdirectories
+    // - returns only objects at the current depth level (not nested)
+    // levels must match the depth of the prefix so we list one level deeper than the prefix
+    const searchStr = options?.search ?? "";
+    const levels = prefix.split("/").filter(Boolean).length + 1;
     const result = await this.db.query<StorageObject>(
-      `SELECT * FROM storage.objects
-       WHERE bucket_id = $1 AND name LIKE $2
-       ORDER BY ${safeColumn} ${sortOrder}
-       LIMIT $3 OFFSET $4`,
-      [bucketId, searchPattern, limit, offset],
+      `SELECT * FROM storage.search($1, $2, $3, $8, $4, $5, $6, $7)`,
+      [prefix, bucketId, limit, offset, searchStr, safeColumn, sortOrder.toLowerCase(), levels],
     );
 
     return result.rows;
@@ -508,9 +506,8 @@ export class StorageHandler {
   ): Promise<string> {
     await this.initialize();
 
-    // Verify object exists
-    const exists = await this.objectExists(bucketId, objectName);
-    if (!exists) throw new Error("Object not found");
+    // Note: existence is verified at download time, not signing time
+    // (matches real Supabase behavior — signed URLs can be pre-generated)
 
     const payload: SignedUrlToken = {
       bucket_id: bucketId,

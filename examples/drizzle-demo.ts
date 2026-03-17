@@ -1,4 +1,4 @@
-import { PGlite } from '@electric-sql/pglite'
+import { nanoSupabase } from '../src/index.ts'
 import { drizzle } from 'drizzle-orm/pglite'
 import { integer, pgTable, serial, text, boolean, timestamp } from 'drizzle-orm/pg-core'
 import { eq, gte, lte, desc, and } from 'drizzle-orm'
@@ -26,7 +26,8 @@ type Post = typeof posts.$inferSelect
 async function main() {
   console.log('=== Drizzle + PGlite Demo ===\n')
 
-  const pglite = new PGlite()
+  await using nano = await nanoSupabase({ tcp: true })
+  const pglite = nano.db
   await pglite.exec(`
     CREATE TABLE users (
       id SERIAL PRIMARY KEY,
@@ -129,8 +130,6 @@ async function main() {
   console.log()
 
   console.log('All examples completed successfully!')
-
-  await pglite.close()
 }
 
 main().catch(console.error)

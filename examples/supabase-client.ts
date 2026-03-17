@@ -1,10 +1,11 @@
-import { PGlite } from '@electric-sql/pglite'
-import { createSupabaseClient } from '../src/supabase-client.ts'
+import { nanoSupabase } from '../src/index.ts'
 
 async function main() {
   console.log('=== Supabase-Compatible Client Demo ===\n')
 
-  const db = new PGlite()
+  const nano = await nanoSupabase()
+  const db = nano.db
+  const supabase = nano.createClient()
 
   console.log('Creating database schema...')
   await db.exec(`
@@ -27,10 +28,6 @@ async function main() {
     );
   `)
   console.log('Schema created\n')
-
-  console.log('Initializing Supabase client with schema introspection...')
-  const supabase = await createSupabaseClient(db)
-  console.log('Client initialized\n')
 
   console.log('--- 1: INSERT ---')
   const { data: newUser } = await supabase
@@ -130,7 +127,7 @@ async function main() {
 
   console.log('All examples completed successfully!')
 
-  await db.close()
+  await nano.stop()
 }
 
 main().catch(console.error)

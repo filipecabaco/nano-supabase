@@ -65,6 +65,29 @@ export declare class AuthHandler {
         password?: string;
         data?: Record<string, unknown>;
     }): Promise<AuthResponse>;
+    adminListUsers(page?: number, perPage?: number): Promise<{
+        users: User[];
+        total: number;
+    }>;
+    adminGetUser(id: string): Promise<User | null>;
+    adminCreateUser(attrs: {
+        email?: string;
+        phone?: string;
+        password?: string;
+        email_confirm?: boolean;
+        user_metadata?: Record<string, unknown>;
+        app_metadata?: Record<string, unknown>;
+    }): Promise<User>;
+    adminUpdateUser(id: string, attrs: {
+        email?: string;
+        phone?: string;
+        password?: string;
+        user_metadata?: Record<string, unknown>;
+        app_metadata?: Record<string, unknown>;
+        ban_duration?: string;
+        email_confirm?: boolean;
+    }): Promise<User | null>;
+    adminDeleteUser(id: string): Promise<void>;
     /**
      * Get current session
      */

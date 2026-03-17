@@ -1,40 +1,30 @@
 import type { PGlite } from "@electric-sql/pglite";
-import type { PoolerConfig, QueryPriority, QueryResult } from "./types.ts";
-/**
- * Connection pooler that manages N-to-1 query execution against PGlite
- * Uses a priority queue to order query execution
- */
+import { QueryPriority } from "./types.ts";
+import type { PoolerConfig, QueryFn, QueueMetrics, QueryResult } from "./types.ts";
 export declare class PGlitePooler {
     private readonly db;
     private readonly queue;
     private running;
     private readonly config;
-    private sleepTimeoutId;
+    private wakeUp;
+    private processQueueDone;
+    private resolveProcessQueueDone;
+    private totalEnqueued;
+    private totalDequeued;
+    private totalTimedOut;
+    private totalErrors;
+    private waitTimeSum;
+    private waitTimeCount;
     constructor(db: PGlite, config?: Partial<PoolerConfig>);
-    /**
-     * Start the queue processor
-     * Begins draining queries from the queue
-     */
+    static create(db: PGlite, config?: Partial<PoolerConfig>): Promise<PGlitePooler>;
     start(): Promise<void>;
-    /**
-     * Stop the queue processor
-     * Waits for current query to complete
-     */
     stop(): Promise<void>;
-    /**
-     * Submit a query to the pool
-     * Returns a promise that resolves when the query completes
-     */
-    query(sql: string, params?: readonly unknown[], priority?: QueryPriority): Promise<QueryResult>;
-    /**
-     * Background queue processor
-     * Continuously dequeues and executes queries
-     */
+    query(sql: string, params?: readonly unknown[], priority?: QueryPriority, timeoutMs?: number): Promise<QueryResult>;
+    transaction<T>(fn: (query: QueryFn) => Promise<T>, priority?: QueryPriority): Promise<T>;
+    metrics(): QueueMetrics;
+    [Symbol.asyncDispose](): Promise<void>;
     private processQueue;
-    /**
-     * Execute a query with timeout protection
-     * Note: PGlite.query() already handles exclusive access internally via mutex
-     */
+    private runTransaction;
     private executeWithTimeout;
 }
 //# sourceMappingURL=pooler.d.ts.map

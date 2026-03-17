@@ -15,6 +15,8 @@
  * const { data } = await supabase.from('users').select('*')
  * ```
  */
+export { createClient, nanoSupabase, type NanoSupabaseOptions, type NanoSupabaseInstance, } from "./nano.ts";
+export { createPGlite } from "./pglite-factory.ts";
 export { createLocalSupabaseClient, createFetchAdapter, initializeAuth, type LocalSupabaseClientConfig, type LocalSupabaseClientResult, } from "./client.ts";
 export { createSupabaseClient, SupabaseClient } from "./supabase-client.ts";
 export type { QueryBuilder } from "./supabase-client.ts";
@@ -27,6 +29,7 @@ export { StorageHandler, STORAGE_SCHEMA_SQL, MemoryStorageBackend, type StorageB
 export { PostgrestParser } from "./postgrest-parser.ts";
 export type { ParsedQuery, QueryExecutor } from "./postgrest-parser.ts";
 export { PGlitePooler } from "./pooler.ts";
+export { PGliteTCPServer, type TCPServerOptions } from "./tcp-server.ts";
 export { PriorityQueue } from "./queue.ts";
 export { QueryPriority } from "./types.ts";
 export type { PoolerConfig, QueuedQuery, QueueMetrics, QueryResult, } from "./types.ts";

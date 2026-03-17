@@ -569,6 +569,85 @@ export class AuthHandler {
     }
   }
 
+  // ── Admin methods ──────────────────────────────────────────────────
+
+  async adminListUsers(page = 1, perPage = 50): Promise<{ users: User[]; total: number }> {
+    await this.initialize();
+    const offset = (page - 1) * perPage;
+    const [rows, countRows] = await Promise.all([
+      this.db.query<StoredUser>("SELECT * FROM auth.users ORDER BY created_at DESC LIMIT $1 OFFSET $2", [perPage, offset]),
+      this.db.query<{ total: number }>("SELECT count(*)::int AS total FROM auth.users"),
+    ]);
+    return { users: rows.rows.map(toPublicUser), total: countRows.rows[0]?.total ?? 0 };
+  }
+
+  async adminGetUser(id: string): Promise<User | null> {
+    await this.initialize();
+    const result = await this.db.query<StoredUser>("SELECT * FROM auth.users WHERE id = $1", [id]);
+    const user = result.rows[0];
+    return user ? toPublicUser(user) : null;
+  }
+
+  async adminCreateUser(attrs: {
+    email?: string;
+    phone?: string;
+    password?: string;
+    email_confirm?: boolean;
+    user_metadata?: Record<string, unknown>;
+    app_metadata?: Record<string, unknown>;
+  }): Promise<User> {
+    await this.initialize();
+    const userMetadata = JSON.stringify(attrs.user_metadata ?? {});
+    const appMetadata = JSON.stringify(attrs.app_metadata ?? {});
+    const confirmed = attrs.email_confirm !== false ? "NOW()" : "NULL";
+    const result = await this.db.query<StoredUser>(
+      `INSERT INTO auth.users (email, phone, encrypted_password, raw_user_meta_data, raw_app_meta_data, email_confirmed_at, confirmed_at, aud, role)
+       VALUES ($1, $2, COALESCE(auth.hash_password($3), ''), $4::jsonb, $5::jsonb, ${confirmed}, ${confirmed}, 'authenticated', 'authenticated')
+       RETURNING *`,
+      [attrs.email ?? null, attrs.phone ?? null, attrs.password ?? null, userMetadata, appMetadata],
+    );
+    const user = result.rows[0];
+    if (!user) throw new Error("Failed to create user");
+    return toPublicUser(user);
+  }
+
+  async adminUpdateUser(id: string, attrs: {
+    email?: string;
+    phone?: string;
+    password?: string;
+    user_metadata?: Record<string, unknown>;
+    app_metadata?: Record<string, unknown>;
+    ban_duration?: string;
+    email_confirm?: boolean;
+  }): Promise<User | null> {
+    await this.initialize();
+    const updates: string[] = [];
+    const params: unknown[] = [];
+    let i = 1;
+    if (attrs.email !== undefined) { updates.push(`email = $${i++}`); params.push(attrs.email); }
+    if (attrs.phone !== undefined) { updates.push(`phone = $${i++}`); params.push(attrs.phone); }
+    if (attrs.password) { updates.push(`encrypted_password = auth.hash_password($${i++})`); params.push(attrs.password); }
+    if (attrs.user_metadata) { updates.push(`raw_user_meta_data = raw_user_meta_data || $${i++}::jsonb`); params.push(JSON.stringify(attrs.user_metadata)); }
+    if (attrs.app_metadata) { updates.push(`raw_app_meta_data = raw_app_meta_data || $${i++}::jsonb`); params.push(JSON.stringify(attrs.app_metadata)); }
+    if (attrs.ban_duration === "none") { updates.push("banned_until = NULL"); }
+    else if (attrs.ban_duration) { updates.push(`banned_until = NOW() + $${i++}::interval`); params.push(attrs.ban_duration); }
+    if (attrs.email_confirm) { updates.push("email_confirmed_at = COALESCE(email_confirmed_at, NOW())"); }
+    if (updates.length === 0) return this.adminGetUser(id);
+    updates.push("updated_at = NOW()");
+    params.push(id);
+    const result = await this.db.query<StoredUser>(
+      `UPDATE auth.users SET ${updates.join(", ")} WHERE id = $${i} RETURNING *`,
+      params,
+    );
+    const user = result.rows[0];
+    return user ? toPublicUser(user) : null;
+  }
+
+  async adminDeleteUser(id: string): Promise<void> {
+    await this.initialize();
+    await this.db.query("DELETE FROM auth.users WHERE id = $1", [id]);
+  }
+
   /**
    * Get current session
    */

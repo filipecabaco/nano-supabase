@@ -35,10 +35,11 @@ export async function setAuthContext(
   }
 
   const { sub: userId, role, email } = verified.payload;
-  const sql = getSetAuthContextSQL(userId, role, email || "");
+  const resolvedRole = role ?? "authenticated";
+  const sql = getSetAuthContextSQL(userId, resolvedRole, email || "");
   await db.exec(sql);
 
-  return { userId, role, email };
+  return { userId, role: resolvedRole, email };
 }
 
 /**
