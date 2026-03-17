@@ -6,16 +6,30 @@ A TypeScript library that provides a **Supabase-compatible API** running entirel
 
 ## Installation
 
-```bash
-npm install nano-supabase @electric-sql/pglite
-```
+### As a library
 
-Or from GitHub:
 ```bash
-pnpm add github:filipecabaco/nano-supabase#main @electric-sql/pglite
+bun add github:filipecabaco/nano-supabase @electric-sql/pglite
 ```
 
 `@electric-sql/pglite` is a peer dependency and must be installed separately.
+
+### As a CLI (single binary)
+
+Install globally with bun (compiles a self-contained binary for your platform):
+
+```bash
+bun install -g github:filipecabaco/nano-supabase
+nano-supabase start
+```
+
+Or download and run the binary directly:
+
+```bash
+./nano-supabase start
+```
+
+The binary (~78MB) bundles the Bun runtime — no external dependencies required.
 
 ## Quick Start
 

@@ -13,9 +13,6 @@
       "default": "./dist/index.js"
     }
   },
-  "bin": {
-    "nano-supabase": "./dist/nano-supabase"
-  },
   "files": [
     "dist"
   ],
@@ -25,7 +22,6 @@
     "build:types": "tsc --emitDeclarationOnly",
     "build:dev": "tsc",
     "clean": "rm -rf dist",
-    "prepare": "bun run build:cli",
     "prepublishOnly": "npm run clean && npm run build",
     "test:bun": "bun test tests/",
     "test:bun:auth": "bun test tests/auth-integration.test.ts",
@@ -39,8 +35,7 @@
     "example:parser": "bun run examples/postgrest-parser.ts",
     "example:prisma": "tsx examples/prisma-tcp.ts",
     "prisma:generate": "prisma generate --schema=examples/prisma/schema.prisma",
-    "build:cli:assets": "bun scripts/generate-cli-assets.ts",
-    "build:cli": "bun run build:cli:assets && bun build src/cli.ts --compile --outfile dist/nano-supabase --target bun"
+    "build:cli": "bun build src/cli.ts --compile --outfile dist/nano-supabase --target bun"
   },
   "keywords": [
     "pglite",

@@ -339,21 +339,25 @@ export async function cmdStorageCp(args: string[]): Promise<{ exitCode: number; 
 
   try {
     if (!isRemote(src) && isRemote(dst)) {
-      // Upload: local → storage
-      const [bucket, ...rest] = dst.replace(/^[^/]+:\/\//, "").split("/");
-      const objectPath = rest.join("/") || src.split("/").pop()!;
+      // Upload: local → storage (format: bucket://path/to/file)
+      const colonSlashSlash = dst.indexOf("://");
+      const bucket = dst.slice(0, colonSlashSlash);
+      const afterScheme = dst.slice(colonSlashSlash + 3);
+      const objectPath = afterScheme || src.split("/").pop()!;
       const file = Bun.file(src);
+      const fileBuffer = await file.arrayBuffer();
       const res = await fetch(`${url}/storage/v1/object/${bucket}/${objectPath}`, {
         method: "POST",
         headers: { Authorization: `Bearer ${key}`, "Content-Type": file.type || "application/octet-stream" },
-        body: file,
+        body: fileBuffer,
       });
       const data = await res.json();
       return res.ok ? ok(data) : { exitCode: 1, output: JSON.stringify(data) };
     } else if (isRemote(src) && !isRemote(dst)) {
-      // Download: storage → local
-      const [bucket, ...rest] = src.replace(/^[^/]+:\/\//, "").split("/");
-      const objectPath = rest.join("/");
+      // Download: storage → local (format: bucket://path/to/file)
+      const colonSlashSlash = src.indexOf("://");
+      const bucket = src.slice(0, colonSlashSlash);
+      const objectPath = src.slice(colonSlashSlash + 3);
       const res = await fetch(`${url}/storage/v1/object/${bucket}/${objectPath}`, {
         headers: { Authorization: `Bearer ${key}` },
       });

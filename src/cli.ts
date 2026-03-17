@@ -1,11 +1,15 @@
 #!/usr/bin/env bun
 
-import { mkdtempSync, writeFileSync, unlinkSync, rmdirSync } from "node:fs";
+import { unlinkSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Extension } from "@electric-sql/pglite";
 
-import { pgliteWasm, pgliteData, pgcryptoBundle, uuidOsspBundle, postgrestWasm } from "./cli-assets.ts";
+import pgliteWasmPath from "../node_modules/@electric-sql/pglite/dist/pglite.wasm" with { type: "file" };
+import pgliteDataPath from "../node_modules/@electric-sql/pglite/dist/pglite.data" with { type: "file" };
+import pgcryptoPath from "../node_modules/@electric-sql/pglite/dist/pgcrypto.tar.gz" with { type: "file" };
+import uuidOsspPath from "../node_modules/@electric-sql/pglite/dist/uuid-ossp.tar.gz" with { type: "file" };
+import postgrestWasmPath from "../node_modules/postgrest-parser/pkg/postgrest_parser_bg.wasm" with { type: "file" };
 import { nanoSupabase } from "./nano.ts";
 import type { NanoSupabaseInstance } from "./nano.ts";
 import {
@@ -230,8 +234,8 @@ if (detach) {
 }
 
 const tmpDir = mkdtempSync(join(tmpdir(), "nano-supabase-"));
-writeFileSync(join(tmpDir, "pgcrypto.tar.gz"), Buffer.from(pgcryptoBundle));
-writeFileSync(join(tmpDir, "uuid-ossp.tar.gz"), Buffer.from(uuidOsspBundle));
+await Bun.write(join(tmpDir, "pgcrypto.tar.gz"), Bun.file(pgcryptoPath));
+await Bun.write(join(tmpDir, "uuid-ossp.tar.gz"), Bun.file(uuidOsspPath));
 
 const pgcryptoExt: Extension = {
   name: "pgcrypto",
@@ -246,8 +250,10 @@ const uuidOsspExt: Extension = {
   }),
 };
 
-const wasmModule = await WebAssembly.compile(pgliteWasm.buffer as ArrayBuffer);
-const fsBundle = new Blob([pgliteData]);
+const wasmBytes = await Bun.file(pgliteWasmPath).arrayBuffer();
+const wasmModule = await WebAssembly.compile(wasmBytes);
+const fsBundle = new Blob([await Bun.file(pgliteDataPath).arrayBuffer()]);
+const postgrestWasm = new Uint8Array(await Bun.file(postgrestWasmPath).arrayBuffer());
 
 const nano = await nanoSupabase({
   dataDir,
@@ -385,12 +391,15 @@ async function handleAdminRequest(req: Request): Promise<Response | null> {
   return null;
 }
 
+const INTERNAL_URL = "http://localhost:54321";
+
 const server = Bun.serve({
   port: httpPort,
   fetch: async (req: Request) => {
     const adminResponse = await handleAdminRequest(req);
     if (adminResponse) return adminResponse;
-    return nano.localFetch(req);
+    const internalUrl = req.url.replace(`http://localhost:${httpPort}`, INTERNAL_URL).replace(`http://127.0.0.1:${httpPort}`, INTERNAL_URL);
+    return nano.localFetch(new Request(internalUrl, req));
   },
 });
 
@@ -411,10 +420,7 @@ function cleanup(): void {
   try {
     unlinkSync(join(tmpDir, "pgcrypto.tar.gz"));
     unlinkSync(join(tmpDir, "uuid-ossp.tar.gz"));
-    rmdirSync(tmpDir);
-  } catch {
-    // best-effort cleanup
-  }
+  } catch {}
 }
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
