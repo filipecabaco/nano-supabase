@@ -124,6 +124,7 @@ export interface LocalSupabaseClientResult<T = SupabaseJsClient> {
 export async function initComponents(
   db: PGlite,
   storageBackend: StorageBackend | false | undefined,
+  postgrestWasmBytes?: Uint8Array,
 ): Promise<{
   parser: PostgrestParser;
   authHandler: AuthHandler;
@@ -132,7 +133,7 @@ export async function initComponents(
   const authHandler = new AuthHandler(db);
 
   // WASM load and auth schema DDL are independent — run in parallel
-  await Promise.all([PostgrestParser.init(), authHandler.initialize()]);
+  await Promise.all([PostgrestParser.init(postgrestWasmBytes), authHandler.initialize()]);
 
   // Storage roles depend on auth schema being created first
   let storageHandler: StorageHandler | undefined;

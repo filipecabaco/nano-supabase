@@ -55,3 +55,7 @@ PLAN.md
 # Prisma generated client
 examples/prisma/client/
 .npmrc
+
+# CLI build artifacts
+src/cli-assets.ts
+dist/nano-supabase

@@ -41,9 +41,9 @@ export class PostgrestParser {
    * Note: This uses the web target build which works in webcontainers and edge workers.
    * For Node.js, the native_postgrest_parser package needs to be built with --target nodejs.
    */
-  static async init(): Promise<void> {
+  static async init(wasmBytes?: Uint8Array): Promise<void> {
     if (!PostgrestParser.initPromise) {
-      PostgrestParser.initPromise = init();
+      PostgrestParser.initPromise = wasmBytes ? init({ module_or_path: wasmBytes.buffer as ArrayBuffer }) : init();
     }
     await PostgrestParser.initPromise;
   }

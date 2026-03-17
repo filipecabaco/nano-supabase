@@ -28,7 +28,7 @@ import { uuid_ossp } from "@electric-sql/pglite/contrib/uuid_ossp";
 
 export function createPGlite(
   dataDir?: string,
-  options?: Omit<PGliteOptions, "extensions"> & { extensions?: PGliteOptions["extensions"] },
+  options?: PGliteOptions & { extensions?: PGliteOptions["extensions"] },
 ): PGlite {
   const ext = { pgcrypto, uuid_ossp, ...options?.extensions };
   const opts = { ...options, extensions: ext };
