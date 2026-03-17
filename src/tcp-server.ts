@@ -1,3 +1,4 @@
+// @ts-nocheck — Bun-only file; uses Bun.listen and Node Buffer globals not available in Deno/tsc
 import type { PGlite } from "@electric-sql/pglite";
 import { PGlitePooler } from "./pooler.ts";
 import { AuthHandler } from "./auth/handler.ts";
