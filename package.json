@@ -13,6 +13,9 @@
       "default": "./dist/index.js"
     }
   },
+  "bin": {
+    "nano-supabase": "./dist/nano-supabase"
+  },
   "files": [
     "dist"
   ],
@@ -22,6 +25,7 @@
     "build:types": "tsc --emitDeclarationOnly",
     "build:dev": "tsc",
     "clean": "rm -rf dist",
+    "prepare": "bun run build:cli",
     "prepublishOnly": "npm run clean && npm run build",
     "test:bun": "bun test tests/",
     "test:bun:auth": "bun test tests/auth-integration.test.ts",
@@ -59,19 +63,10 @@
   "bugs": {
     "url": "https://github.com/filipecabaco/nano-supabase/issues"
   },
-  "peerDependencies": {
-    "@electric-sql/pglite": ">=0.3.0"
-  },
-  "peerDependenciesMeta": {
-    "@electric-sql/pglite": {
-      "optional": false
-    }
-  },
   "devDependencies": {
     "@electric-sql/pglite": "^0.3.16",
     "@electric-sql/pglite-socket": "^0.0.21",
     "@prisma/client": "^6.19.2",
-    "@supabase/supabase-js": "^2.93.3",
     "@types/node": "^25.1.0",
     "esbuild": "^0.27.3",
     "prisma": "^6.19.2",
@@ -79,9 +74,11 @@
     "typescript": "^5.9.3"
   },
   "dependencies": {
+    "@electric-sql/pglite": "^0.3.16",
     "@types/pg": "^8.18.0",
     "pg": "^8.20.0",
-    "postgrest-parser": "^0.1.1"
+    "postgrest-parser": "^0.1.1",
+    "@supabase/supabase-js": "^2.93.3"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
