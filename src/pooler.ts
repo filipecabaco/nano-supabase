@@ -26,6 +26,8 @@ export class PGlitePooler {
   private waitTimeSum = 0;
   private waitTimeCount = 0;
 
+  get pglite(): PGlite { return this.db; }
+
   constructor(db: PGlite, config: Partial<PoolerConfig> = {}) {
     this.db = db;
     const maxQueueSize = config.maxQueueSize ?? 1000;

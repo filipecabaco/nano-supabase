@@ -34,5 +34,5 @@
     "skipLibCheck": true
   },
   "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist", "**/*.test.ts", "src/cli.ts", "src/cli-commands.ts", "src/tcp-server.ts"]
+  "exclude": ["node_modules", "dist", "**/*.test.ts", "src/cli.ts", "src/cli-commands.ts"]
 }

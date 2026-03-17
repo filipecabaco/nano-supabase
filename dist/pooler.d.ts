@@ -15,6 +15,7 @@ export declare class PGlitePooler {
     private totalErrors;
     private waitTimeSum;
     private waitTimeCount;
+    get pglite(): PGlite;
     constructor(db: PGlite, config?: Partial<PoolerConfig>);
     static create(db: PGlite, config?: Partial<PoolerConfig>): Promise<PGlitePooler>;
     start(): Promise<void>;

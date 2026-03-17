@@ -1,4 +1,4 @@
-// @ts-nocheck — Bun-only file; uses Bun.listen and Node Buffer globals not available in Deno/tsc
+import { createServer, type Server, type Socket } from "node:net";
 import type { PGlite } from "@electric-sql/pglite";
 import { PGlitePooler } from "./pooler.ts";
 import { AuthHandler } from "./auth/handler.ts";
@@ -21,10 +21,8 @@ interface ConnectionState {
   statements: Map<string, PreparedStatement>;
   portals: Map<string, Portal>;
   processing: boolean;
-  errorState: boolean; // true after an extended query error, until Sync clears it
+  errorState: boolean;
 }
-
-type TCPSocket = Parameters<NonNullable<Parameters<typeof Bun.listen>[0]["socket"]["data"]>>[0];
 
 export interface TCPServerOptions {
   host?: string;
@@ -33,8 +31,8 @@ export interface TCPServerOptions {
 
 export class PGliteTCPServer {
   private readonly pooler: PGlitePooler;
-  private server: { stop(): void } | null = null;
-  private readonly connections = new Map<TCPSocket, ConnectionState>();
+  private server: Server | null = null;
+  private readonly connections = new Map<Socket, ConnectionState>();
 
   constructor(pooler: PGlitePooler) {
     this.pooler = pooler;
@@ -50,43 +48,48 @@ export class PGliteTCPServer {
   }
 
   async start(port = 5432, host = "127.0.0.1"): Promise<void> {
-    const self = this;
-    this.server = Bun.listen({
-      hostname: host,
-      port,
-      socket: {
-        open(socket) {
-          self.connections.set(socket, {
-            buffer: Buffer.alloc(0),
-            startupDone: false,
-            statements: new Map(),
-            portals: new Map(),
-            processing: false,
-            errorState: false,
-          });
-        },
-        data(socket, data) {
-          const state = self.connections.get(socket);
-          if (!state) return;
-          state.buffer = Buffer.concat([state.buffer, Buffer.from(data)]);
-          self.drain(socket, state).catch(() => {});
-        },
-        close(socket) { self.connections.delete(socket); },
-        error(socket, _err) { self.connections.delete(socket); },
-      },
+    this.server = createServer((socket: Socket) => {
+      this.connections.set(socket, {
+        buffer: Buffer.alloc(0),
+        startupDone: false,
+        statements: new Map(),
+        portals: new Map(),
+        processing: false,
+        errorState: false,
+      });
+
+      socket.on("data", (data: Buffer) => {
+        const state = this.connections.get(socket);
+        if (!state) return;
+        state.buffer = Buffer.concat([state.buffer, data]);
+        this.drain(socket, state).catch(() => {});
+      });
+
+      socket.on("close", () => this.connections.delete(socket));
+      socket.on("error", () => this.connections.delete(socket));
+    });
+
+    return new Promise((resolve, reject) => {
+      this.server!.on("error", reject);
+      this.server!.listen(port, host, () => resolve());
     });
   }
 
   async stop(): Promise<void> {
-    this.server?.stop();
+    for (const socket of this.connections.keys()) socket.destroy();
+    this.connections.clear();
     await this.pooler.stop();
+    return new Promise((resolve) => {
+      if (!this.server) return resolve();
+      this.server.close(() => resolve());
+    });
   }
 
   async [Symbol.asyncDispose](): Promise<void> {
     await this.stop();
   }
 
-  private async drain(socket: TCPSocket, state: ConnectionState): Promise<void> {
+  private async drain(socket: Socket, state: ConnectionState): Promise<void> {
     if (state.processing) return;
     state.processing = true;
     try {
@@ -105,7 +108,7 @@ export class PGliteTCPServer {
     }
   }
 
-  private handleStartup(socket: TCPSocket, state: ConnectionState): boolean {
+  private handleStartup(socket: Socket, state: ConnectionState): boolean {
     if (state.buffer.length < 8) return false;
     const len = state.buffer.readInt32BE(0);
     if (state.buffer.length < len) return false;
@@ -133,29 +136,26 @@ export class PGliteTCPServer {
     return { type, body };
   }
 
-  private async handleMessage(socket: TCPSocket, state: ConnectionState, type: number, body: Buffer): Promise<void> {
-    // In error state, discard all messages until Sync which resets and sends ReadyForQuery
+  private async handleMessage(socket: Socket, state: ConnectionState, type: number, body: Buffer): Promise<void> {
     if (state.errorState) {
-      if (type === 0x53) { state.errorState = false; socket.write(this.buildReadyForQuery()); } // S Sync
-      else if (type === 0x58) socket.end(); // X Terminate
+      if (type === 0x53) { state.errorState = false; socket.write(this.buildReadyForQuery()); }
+      else if (type === 0x58) socket.end();
       return;
     }
     switch (type) {
-      case 0x51: await this.onSimpleQuery(socket, body); break;        // Q
-      case 0x50: this.onParse(socket, state, body); break;             // P
-      case 0x42: await this.onBind(socket, state, body); break;        // B
-      case 0x44: this.onDescribe(socket, state, body); break;          // D
-      case 0x45: this.onExecute(socket, state, body); break;           // E
-      case 0x53: socket.write(this.buildReadyForQuery()); break;       // S Sync
-      case 0x48: break;                                                 // H Flush
-      case 0x43: socket.write(this.msg(0x33, Buffer.alloc(0))); break; // C Close → CloseComplete
-      case 0x58: socket.end(); break;                                   // X Terminate
+      case 0x51: await this.onSimpleQuery(socket, body); break;
+      case 0x50: this.onParse(socket, state, body); break;
+      case 0x42: await this.onBind(socket, state, body); break;
+      case 0x44: this.onDescribe(socket, state, body); break;
+      case 0x45: this.onExecute(socket, state, body); break;
+      case 0x53: socket.write(this.buildReadyForQuery()); break;
+      case 0x48: break;
+      case 0x43: socket.write(this.msg(0x33, Buffer.alloc(0))); break;
+      case 0x58: socket.end(); break;
     }
   }
 
-  // ── Simple Query ──────────────────────────────────────────────────────────
-
-  private async onSimpleQuery(socket: TCPSocket, body: Buffer): Promise<void> {
+  private async onSimpleQuery(socket: Socket, body: Buffer): Promise<void> {
     const sql = body.slice(0, -1).toString("utf8");
     const bufs: Buffer[] = [];
     try {
@@ -168,18 +168,16 @@ export class PGliteTCPServer {
     socket.write(Buffer.concat(bufs));
   }
 
-  // ── Extended Query ────────────────────────────────────────────────────────
-
-  private onParse(socket: TCPSocket, state: ConnectionState, body: Buffer): void {
+  private onParse(socket: Socket, state: ConnectionState, body: Buffer): void {
     const nameEnd = body.indexOf(0);
     const name = body.slice(0, nameEnd).toString();
     const queryEnd = body.indexOf(0, nameEnd + 1);
     const query = body.slice(nameEnd + 1, queryEnd).toString();
     state.statements.set(name, { query });
-    socket.write(this.msg(0x31, Buffer.alloc(0))); // ParseComplete
+    socket.write(this.msg(0x31, Buffer.alloc(0)));
   }
 
-  private async onBind(socket: TCPSocket, state: ConnectionState, body: Buffer): Promise<void> {
+  private async onBind(socket: Socket, state: ConnectionState, body: Buffer): Promise<void> {
     let offset = 0;
     const portalEnd = body.indexOf(0, offset);
     const portalName = body.slice(offset, portalEnd).toString();
@@ -190,7 +188,7 @@ export class PGliteTCPServer {
     offset = stmtEnd + 1;
 
     const formatCount = body.readInt16BE(offset); offset += 2;
-    offset += formatCount * 2; // skip format codes
+    offset += formatCount * 2;
 
     const paramCount = body.readInt16BE(offset); offset += 2;
     const params: (string | null)[] = [];
@@ -202,31 +200,25 @@ export class PGliteTCPServer {
 
     const query = state.statements.get(stmtName)?.query ?? "";
 
-    // Execute at Bind time and cache — so Describe and Execute can use the result
     let result: QueryResult | null = null;
     try {
       result = await this.execute(query, params.length ? params : undefined);
     } catch (err) {
-      // Per Postgres extended query protocol: send ErrorResponse on Bind failure,
-      // enter error state and wait for Sync before accepting new messages
       state.errorState = true;
       socket.write(this.buildError(err));
       return;
     }
 
     state.portals.set(portalName, { query, params, result: result! });
-    socket.write(this.msg(0x32, Buffer.alloc(0))); // BindComplete
+    socket.write(this.msg(0x32, Buffer.alloc(0)));
   }
 
-  private onDescribe(socket: TCPSocket, state: ConnectionState, body: Buffer): void {
-    const kind = body[0]; // 0x53='S' statement, 0x50='P' portal
+  private onDescribe(socket: Socket, state: ConnectionState, body: Buffer): void {
+    const kind = body[0];
     if (kind === 0x53) {
-      // ParameterDescription: 0 params (we don't analyse the statement)
       const pd = Buffer.alloc(2); pd.writeInt16BE(0, 0);
       socket.write(this.msg(0x74, pd));
     }
-
-    // RowDescription from cached portal result, or NoData
     if (kind === 0x50) {
       const portalName = body.slice(1, body.indexOf(0, 1)).toString();
       const portal = state.portals.get(portalName);
@@ -234,19 +226,18 @@ export class PGliteTCPServer {
       if (fields && fields.length > 0) {
         socket.write(this.buildRowDescription(fields as { name: string; dataTypeID: number }[]));
       } else {
-        socket.write(this.msg(0x6e, Buffer.alloc(0))); // NoData
+        socket.write(this.msg(0x6e, Buffer.alloc(0)));
       }
     }
   }
 
-  private onExecute(socket: TCPSocket, state: ConnectionState, body: Buffer): void {
+  private onExecute(socket: Socket, state: ConnectionState, body: Buffer): void {
     const portalEnd = body.indexOf(0);
     const portalName = body.slice(0, portalEnd).toString();
     const portal = state.portals.get(portalName);
 
     const bufs: Buffer[] = [];
     if (portal) {
-      // RowDescription already sent via Describe — only send DataRows + CommandComplete
       const { rows, fields } = portal.result as { rows: Record<string, unknown>[]; fields?: { name: string; dataTypeID: number }[] };
       if (fields && fields.length > 0) {
         for (const row of rows ?? []) bufs.push(this.buildDataRow(row, fields));
@@ -257,8 +248,6 @@ export class PGliteTCPServer {
     }
     socket.write(Buffer.concat(bufs));
   }
-
-  // ── Query execution ───────────────────────────────────────────────────────
 
   private async execute(sql: string, params?: (string | null)[]): Promise<QueryResult> {
     if (/pg_stat_statements/i.test(sql)) return { rows: [], fields: [] };
@@ -282,12 +271,8 @@ export class PGliteTCPServer {
     return last;
   }
 
-  // ── Wire protocol builders ────────────────────────────────────────────────
-
   private buildStartupResponse(): Buffer {
-    const parts: Buffer[] = [
-      this.msg(0x52, this.int32(0)), // AuthenticationOk
-    ];
+    const parts: Buffer[] = [this.msg(0x52, this.int32(0))];
     for (const [k, v] of [
       ["server_version", "15.1"],
       ["client_encoding", "UTF8"],
@@ -297,7 +282,7 @@ export class PGliteTCPServer {
     ] as [string, string][]) {
       parts.push(this.msg(0x53, Buffer.concat([this.cstring(k), this.cstring(v)])));
     }
-    parts.push(this.msg(0x4b, Buffer.concat([this.int32(1), this.int32(0)]))); // BackendKeyData
+    parts.push(this.msg(0x4b, Buffer.concat([this.int32(1), this.int32(0)])));
     parts.push(this.buildReadyForQuery());
     return Buffer.concat(parts);
   }
@@ -320,12 +305,12 @@ export class PGliteTCPServer {
     for (const f of fields) {
       parts.push(
         this.cstring(f.name),
-        this.int32(0),                       // table OID
-        this.int16(0),                       // column attr number
-        this.int32(f.dataTypeID || 25),      // data type OID (25=text)
-        this.int16(-1),                      // type size
-        this.int32(-1),                      // type modifier
-        this.int16(0),                       // format code (text)
+        this.int32(0),
+        this.int16(0),
+        this.int32(f.dataTypeID || 25),
+        this.int16(-1),
+        this.int32(-1),
+        this.int16(0),
       );
     }
     return this.msg(0x54, Buffer.concat(parts));

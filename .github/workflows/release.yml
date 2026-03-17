@@ -34,7 +34,7 @@ jobs:
             binary: nano-supabase-windows-x64.exe
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: oven-sh/setup-bun@v2
 

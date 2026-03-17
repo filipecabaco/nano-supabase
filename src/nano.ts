@@ -55,7 +55,6 @@ import type { StorageBackend } from "./storage/backend.ts";
 import { createPGlite } from "./pglite-factory.ts";
 import { initComponents } from "./client.ts";
 import { createLocalFetch } from "./fetch-adapter/index.ts";
-import { PGlitePooler } from "./pooler.ts";
 import { PGliteTCPServer } from "./tcp-server.ts";
 
 export interface NanoSupabaseOptions {
@@ -184,8 +183,7 @@ export async function nanoSupabase(options: NanoSupabaseOptions = {}): Promise<N
   if (tcp) {
     const port = typeof tcp === "object" ? (tcp.port ?? 5432) : 5432;
     const host = typeof tcp === "object" ? (tcp.host ?? "127.0.0.1") : "127.0.0.1";
-    const pooler = await PGlitePooler.create(db);
-    tcpServer = new PGliteTCPServer(pooler);
+    tcpServer = await PGliteTCPServer.create(db);
     await tcpServer.start(port, host);
     connectionString = `postgresql://postgres@${host}:${port}/postgres`;
   }

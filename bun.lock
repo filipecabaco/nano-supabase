@@ -6,6 +6,7 @@
       "name": "nano-supabase",
       "dependencies": {
         "@electric-sql/pglite": "^0.3.16",
+        "@electric-sql/pglite-socket": "^0.0.22",
         "@supabase/supabase-js": "^2.93.3",
         "@types/pg": "^8.18.0",
         "pg": "^8.20.0",
@@ -13,7 +14,6 @@
       },
       "devDependencies": {
         "@electric-sql/pglite": "^0.3.16",
-        "@electric-sql/pglite-socket": "^0.0.22",
         "@prisma/client": "^6.19.2",
         "@types/bun": "latest",
         "@types/node": "^25.1.0",
