@@ -98,13 +98,14 @@ Start options:
   --tcp-port=<port>            Postgres TCP port (default: ${DEFAULT_TCP_PORT})
   --service-role-key=<key>     Service role key (default: ${DEFAULT_SERVICE_ROLE_KEY})
   --detach                     Run in background and print JSON connection info
-  --pid-file=<path>            Write PID to file (useful with --detach)
+  --pid-file=<path>            Write PID to additional file (default location: /tmp/nano-supabase-<port>.pid)
   --mcp                        Start MCP server accessible via SSE (database, storage, development tools)
   --mcp-port=<port>            MCP server SSE port (default: 54322)
   --debug                      Enable debug logging
 
 Common options:
   --url=<url>                  Server URL (default: http://localhost:${DEFAULT_HTTP_PORT})
+  --json                       Output raw JSON instead of human-readable text
   --help                       Show this help
   --version                    Show version`);
   process.exit(0);
@@ -327,6 +328,8 @@ const nano = await nanoSupabase({
 });
 console.log = origConsoleLog;
 
+const defaultPidFilePath = `/tmp/nano-supabase-${httpPort}.pid`;
+await writeFile(defaultPidFilePath, String(process.pid));
 if (pidFile) {
   await writeFile(pidFile, String(process.pid));
 }
@@ -1056,6 +1059,7 @@ if (mcp) {
 }
 
 function cleanup(): void {
+  unlink(defaultPidFilePath).catch(() => {});
   if (pidFile) {
     unlink(pidFile).catch(() => {});
   }
