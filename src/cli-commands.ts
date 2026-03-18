@@ -537,40 +537,49 @@ export async function cmdSyncPush(args: string[]): Promise<{ exitCode: number; o
   try {
     client = await connectPg(remoteDbUrl);
 
-    await client.query(`CREATE SCHEMA IF NOT EXISTS supabase_migrations`);
-    await client.query(
-      `CREATE TABLE IF NOT EXISTS supabase_migrations.schema_migrations (
-        version text NOT NULL PRIMARY KEY,
-        name text,
-        statements text[]
-      )`,
+    const migTableRes = await client.query<{ exists: boolean }>(
+      `SELECT EXISTS (
+        SELECT 1 FROM information_schema.tables
+        WHERE table_schema = 'supabase_migrations' AND table_name = 'schema_migrations'
+      ) AS exists`,
     );
+    const hasMigrationTable = migTableRes.rows[0]?.exists ?? false;
 
-    const appliedRes = await client.query<{ version: string }>(
-      `SELECT version FROM supabase_migrations.schema_migrations ORDER BY version`,
-    );
-    const applied = new Set(appliedRes.rows.map((r) => r.version));
+    if (hasMigrationTable) {
+      const appliedRes = await client.query<{ version: string }>(
+        `SELECT version FROM supabase_migrations.schema_migrations ORDER BY version`,
+      );
+      const applied = new Set(appliedRes.rows.map((r) => r.version));
 
-    for (const file of localFiles) {
-      const match = file.match(MIGRATION_FILE_PATTERN)!;
-      const version = match[1];
-      const name = file.replace(/\.sql$/, "").slice(version.length + 1);
+      for (const file of localFiles) {
+        const match = file.match(MIGRATION_FILE_PATTERN)!;
+        const version = match[1];
+        const name = file.replace(/\.sql$/, "").slice(version.length + 1);
 
-      if (applied.has(version)) {
-        result.migrations.skipped++;
-        continue;
+        if (applied.has(version)) {
+          result.migrations.skipped++;
+          continue;
+        }
+
+        const sql = await readFile(join(migrationsDir, file), "utf8");
+        if (!dryRun) {
+          await client.query(sql);
+          await client.query(
+            `INSERT INTO supabase_migrations.schema_migrations(version, name, statements)
+             VALUES($1, $2, $3)`,
+            [version, name, sql.split(";").map((s) => s.trim()).filter(Boolean)],
+          );
+        }
+        result.migrations.applied++;
       }
-
-      const sql = await readFile(join(migrationsDir, file), "utf8");
-      if (!dryRun) {
-        await client.query(sql);
-        await client.query(
-          `INSERT INTO supabase_migrations.schema_migrations(version, name, statements)
-           VALUES($1, $2, $3)`,
-          [version, name, sql.split(";").map((s) => s.trim()).filter(Boolean)],
-        );
+    } else {
+      for (const file of localFiles) {
+        const sql = await readFile(join(migrationsDir, file), "utf8");
+        if (!dryRun) {
+          await client.query(sql);
+        }
+        result.migrations.applied++;
       }
-      result.migrations.applied++;
     }
 
     const localBucketsRes = await fetch(`${localUrl}/storage/v1/bucket`, { headers: adminHeaders(localKey) });
