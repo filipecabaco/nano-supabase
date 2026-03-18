@@ -171,6 +171,14 @@ export function createMcpHandler(
         return session.transport.handleRequest(req);
       }
 
+      if (sessionId && !sessions.has(sessionId)) {
+        return new Response(JSON.stringify({
+          jsonrpc: "2.0",
+          error: { code: -32001, message: "Session not found" },
+          id: null,
+        }), { status: 404, headers: { "Content-Type": "application/json" } });
+      }
+
       const transport = new WebStandardStreamableHTTPServerTransport({
         sessionIdGenerator: () => crypto.randomUUID(),
         enableJsonResponse: true,

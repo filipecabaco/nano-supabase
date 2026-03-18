@@ -362,18 +362,17 @@ describe("MCP Server", () => {
     }
   });
 
-  test("request without session returns 400", async () => {
+  test("request with unknown session returns 404", async () => {
     const nano = await nanoSupabase();
     try {
       const handler = makeHandler(nano);
-      await initSession(handler);
 
       const res = await sendMcpRequest(
         handler,
         { jsonrpc: "2.0", id: 1, method: "tools/list", params: {} },
         "nonexistent-session-id",
       );
-      assertEquals(res.status === 400 || res.status === 404, true);
+      assertEquals(res.status, 404);
     } finally {
       await nano.stop();
     }
