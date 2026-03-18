@@ -35,7 +35,8 @@
     "example:parser": "bun run examples/postgrest-parser.ts",
     "example:prisma": "tsx examples/prisma-tcp.ts",
     "prisma:generate": "prisma generate --schema=examples/prisma/schema.prisma",
-    "build:cli": "bun build src/cli.ts --compile --outfile dist/nano-supabase --target bun"
+    "build:cli": "bun build src/cli.ts --compile --outfile dist/nano-supabase --target bun",
+    "cli": "bun run src/cli.ts"
   },
   "keywords": [
     "pglite",

@@ -43,14 +43,26 @@ function getArgValue(args: string[], flag: string): string | undefined {
   const withEq = args.find((a) => a.startsWith(`${flag}=`));
   if (withEq) return withEq.slice(flag.length + 1);
   const idx = args.indexOf(flag);
-  if (idx !== -1 && idx + 1 < args.length && !args[idx + 1].startsWith("--")) return args[idx + 1];
+  if (idx !== -1 && idx + 1 < args.length && !args[idx + 1].startsWith("--"))
+    return args[idx + 1];
   return undefined;
 }
 
-const SUB_COMMANDS = ["start", "stop", "status", "db", "migration", "users", "storage", "gen"];
+const SUB_COMMANDS = [
+  "start",
+  "stop",
+  "status",
+  "db",
+  "migration",
+  "users",
+  "storage",
+  "gen",
+];
 const firstArg = argv[0];
-const subCommand = firstArg && SUB_COMMANDS.includes(firstArg) ? firstArg : "start";
-const subArgs = subCommand === "start" && firstArg !== "start" ? argv : argv.slice(1);
+const subCommand =
+  firstArg && SUB_COMMANDS.includes(firstArg) ? firstArg : "start";
+const subArgs =
+  subCommand === "start" && firstArg !== "start" ? argv : argv.slice(1);
 
 if (argv.includes("--help") || argv.includes("-h")) {
   console.log(`nano-supabase — local Supabase-compatible server
@@ -89,6 +101,8 @@ Start options:
   --service-role-key=<key>     Service role key (default: ${DEFAULT_SERVICE_ROLE_KEY})
   --detach                     Run in background and print JSON connection info
   --pid-file=<path>            Write PID to file (useful with --detach)
+  --mcp                        Start MCP server accessible via SSE (database, storage, development tools)
+  --mcp-port=<port>            MCP server SSE port (default: 54322)
   --debug                      Enable debug logging
 
 Common options:
@@ -117,7 +131,12 @@ async function runSubCommand(): Promise<void> {
     else if (op === "dump") result = await cmdDbDump(opArgs);
     else if (op === "reset") result = await cmdDbReset(opArgs);
     else {
-      process.stderr.write(JSON.stringify({ error: "unknown_command", message: `Unknown db command: ${op}` }) + "\n");
+      process.stderr.write(
+        JSON.stringify({
+          error: "unknown_command",
+          message: `Unknown db command: ${op}`,
+        }) + "\n",
+      );
       process.exit(1);
     }
   } else if (subCommand === "migration") {
@@ -127,7 +146,12 @@ async function runSubCommand(): Promise<void> {
     else if (op === "list") result = await cmdMigrationList(opArgs);
     else if (op === "up") result = await cmdMigrationUp(opArgs);
     else {
-      process.stderr.write(JSON.stringify({ error: "unknown_command", message: `Unknown migration command: ${op}` }) + "\n");
+      process.stderr.write(
+        JSON.stringify({
+          error: "unknown_command",
+          message: `Unknown migration command: ${op}`,
+        }) + "\n",
+      );
       process.exit(1);
     }
   } else if (subCommand === "users") {
@@ -138,18 +162,29 @@ async function runSubCommand(): Promise<void> {
     else if (op === "get") result = await cmdUsersGet(opArgs);
     else if (op === "delete") result = await cmdUsersDelete(opArgs);
     else {
-      process.stderr.write(JSON.stringify({ error: "unknown_command", message: `Unknown users command: ${op}` }) + "\n");
+      process.stderr.write(
+        JSON.stringify({
+          error: "unknown_command",
+          message: `Unknown users command: ${op}`,
+        }) + "\n",
+      );
       process.exit(1);
     }
   } else if (subCommand === "storage") {
     const op = subArgs[0];
     const opArgs = subArgs.slice(1);
     if (op === "list-buckets") result = await cmdStorageListBuckets(opArgs);
-    else if (op === "create-bucket") result = await cmdStorageCreateBucket(opArgs);
+    else if (op === "create-bucket")
+      result = await cmdStorageCreateBucket(opArgs);
     else if (op === "ls") result = await cmdStorageLs(opArgs);
     else if (op === "cp") result = await cmdStorageCp(opArgs);
     else {
-      process.stderr.write(JSON.stringify({ error: "unknown_command", message: `Unknown storage command: ${op}` }) + "\n");
+      process.stderr.write(
+        JSON.stringify({
+          error: "unknown_command",
+          message: `Unknown storage command: ${op}`,
+        }) + "\n",
+      );
       process.exit(1);
     }
   } else if (subCommand === "gen") {
@@ -157,11 +192,21 @@ async function runSubCommand(): Promise<void> {
     const opArgs = subArgs.slice(1);
     if (op === "types") result = await cmdGenTypes(opArgs);
     else {
-      process.stderr.write(JSON.stringify({ error: "unknown_command", message: `Unknown gen command: ${op}` }) + "\n");
+      process.stderr.write(
+        JSON.stringify({
+          error: "unknown_command",
+          message: `Unknown gen command: ${op}`,
+        }) + "\n",
+      );
       process.exit(1);
     }
   } else {
-    process.stderr.write(JSON.stringify({ error: "unknown_command", message: `Unknown command: ${subCommand}` }) + "\n");
+    process.stderr.write(
+      JSON.stringify({
+        error: "unknown_command",
+        message: `Unknown command: ${subCommand}`,
+      }) + "\n",
+    );
     process.exit(1);
   }
 
@@ -179,7 +224,11 @@ if (subCommand !== "start") {
 
 // --- Start command: server mode ---
 
-function parsePort(raw: string | undefined, fallback: number, name: string): number {
+function parsePort(
+  raw: string | undefined,
+  fallback: number,
+  name: string,
+): number {
   if (raw === undefined) return fallback;
   const n = parseInt(raw, 10);
   if (!Number.isInteger(n) || n < 1 || n > 65535) {
@@ -189,13 +238,25 @@ function parsePort(raw: string | undefined, fallback: number, name: string): num
   return n;
 }
 
-const httpPort = parsePort(getArgValue(subArgs, "--http-port"), DEFAULT_HTTP_PORT, "--http-port");
-const tcpPort = parsePort(getArgValue(subArgs, "--tcp-port"), DEFAULT_TCP_PORT, "--tcp-port");
+const httpPort = parsePort(
+  getArgValue(subArgs, "--http-port"),
+  DEFAULT_HTTP_PORT,
+  "--http-port",
+);
+const tcpPort = parsePort(
+  getArgValue(subArgs, "--tcp-port"),
+  DEFAULT_TCP_PORT,
+  "--tcp-port",
+);
 const dataDir = getArgValue(subArgs, "--data-dir");
 const serviceRoleKey =
-  getArgValue(subArgs, "--service-role-key") ?? process.env.NANO_SUPABASE_SERVICE_ROLE_KEY ?? DEFAULT_SERVICE_ROLE_KEY;
+  getArgValue(subArgs, "--service-role-key") ??
+  process.env.NANO_SUPABASE_SERVICE_ROLE_KEY ??
+  DEFAULT_SERVICE_ROLE_KEY;
 const debug = subArgs.includes("--debug");
 const detach = subArgs.includes("--detach");
+const mcp = subArgs.includes("--mcp");
+const mcpPort = parsePort(getArgValue(subArgs, "--mcp-port"), 54322, "--mcp-port");
 const pidFile = getArgValue(subArgs, "--pid-file");
 
 if (detach) {
@@ -206,7 +267,12 @@ if (detach) {
     ? [process.execPath, "start", ...serverArgs]
     : [process.argv[0], process.argv[1], "start", ...serverArgs];
 
-  const child = Bun.spawn({ cmd, detached: true, stdout: Bun.file("/dev/null"), stderr: Bun.file("/dev/null") });
+  const child = Bun.spawn({
+    cmd,
+    detached: true,
+    stdout: Bun.file("/dev/null"),
+    stderr: Bun.file("/dev/null"),
+  });
   child.unref();
 
   const serverUrl = `http://localhost:${httpPort}`;
@@ -229,7 +295,12 @@ if (detach) {
       // not ready yet
     }
   }
-  process.stderr.write(JSON.stringify({ error: "start_timeout", message: "Server did not start within 30s" }) + "\n");
+  process.stderr.write(
+    JSON.stringify({
+      error: "start_timeout",
+      message: "Server did not start within 30s",
+    }) + "\n",
+  );
   process.exit(1);
 }
 
@@ -253,8 +324,12 @@ const uuidOsspExt: Extension = {
 const wasmBytes = await Bun.file(pgliteWasmPath).arrayBuffer();
 const wasmModule = await WebAssembly.compile(wasmBytes);
 const fsBundle = new Blob([await Bun.file(pgliteDataPath).arrayBuffer()]);
-const postgrestWasm = new Uint8Array(await Bun.file(postgrestWasmPath).arrayBuffer());
+const postgrestWasm = new Uint8Array(
+  await Bun.file(postgrestWasmPath).arrayBuffer(),
+);
 
+const origConsoleLog = console.log;
+console.log = () => {};
 const nano = await nanoSupabase({
   dataDir,
   tcp: { port: tcpPort },
@@ -264,12 +339,15 @@ const nano = await nanoSupabase({
   postgrestWasmBytes: postgrestWasm,
   extensions: { pgcrypto: pgcryptoExt, uuid_ossp: uuidOsspExt },
 });
+console.log = origConsoleLog;
 
 if (pidFile) {
   await Bun.write(pidFile, String(process.pid));
 }
 
-async function ensureMigrationsTable(db: NanoSupabaseInstance["db"]): Promise<void> {
+async function ensureMigrationsTable(
+  db: NanoSupabaseInstance["db"],
+): Promise<void> {
   await db.exec(`
     CREATE TABLE IF NOT EXISTS _nano_migrations (
       name TEXT PRIMARY KEY,
@@ -281,10 +359,16 @@ async function ensureMigrationsTable(db: NanoSupabaseInstance["db"]): Promise<vo
 function requireServiceRole(req: Request): Response | null {
   const auth = req.headers.get("Authorization");
   if (auth !== `Bearer ${serviceRoleKey}`) {
-    return new Response(JSON.stringify({ error: "unauthorized", message: "Invalid service role key" }), {
-      status: 401,
-      headers: { "Content-Type": "application/json" },
-    });
+    return new Response(
+      JSON.stringify({
+        error: "unauthorized",
+        message: "Invalid service role key",
+      }),
+      {
+        status: 401,
+        headers: { "Content-Type": "application/json" },
+      },
+    );
   }
   return null;
 }
@@ -293,7 +377,9 @@ async function handleAdminRequest(req: Request): Promise<Response | null> {
   const url = new URL(req.url);
 
   if (url.pathname === "/health" && req.method === "GET") {
-    return new Response(JSON.stringify({ ok: true }), { headers: { "Content-Type": "application/json" } });
+    return new Response(JSON.stringify({ ok: true }), {
+      headers: { "Content-Type": "application/json" },
+    });
   }
 
   if (!url.pathname.startsWith("/admin/v1/")) return null;
@@ -302,7 +388,10 @@ async function handleAdminRequest(req: Request): Promise<Response | null> {
   if (authError) return authError;
 
   if (url.pathname === "/admin/v1/sql" && req.method === "POST") {
-    const { sql, params = [] } = (await req.json()) as { sql: string; params?: unknown[] };
+    const { sql, params = [] } = (await req.json()) as {
+      sql: string;
+      params?: unknown[];
+    };
     try {
       const result = await nano.db.query(sql, params);
       return new Response(
@@ -315,7 +404,10 @@ async function handleAdminRequest(req: Request): Promise<Response | null> {
       );
     } catch (e: unknown) {
       return new Response(
-        JSON.stringify({ error: "sql_error", message: e instanceof Error ? e.message : String(e) }),
+        JSON.stringify({
+          error: "sql_error",
+          message: e instanceof Error ? e.message : String(e),
+        }),
         { status: 400, headers: { "Content-Type": "application/json" } },
       );
     }
@@ -336,7 +428,9 @@ async function handleAdminRequest(req: Request): Promise<Response | null> {
     );
 
     if (wantJson) {
-      return new Response(JSON.stringify(result.rows), { headers: { "Content-Type": "application/json" } });
+      return new Response(JSON.stringify(result.rows), {
+        headers: { "Content-Type": "application/json" },
+      });
     }
 
     const tables: Record<string, string[]> = {};
@@ -358,10 +452,14 @@ async function handleAdminRequest(req: Request): Promise<Response | null> {
     );
     const tableNames = tables.rows.map((r) => r.tablename);
     if (tableNames.length > 0) {
-      await nano.db.exec(`DROP TABLE IF EXISTS ${tableNames.map((t) => `"${t}"`).join(", ")} CASCADE`);
+      await nano.db.exec(
+        `DROP TABLE IF EXISTS ${tableNames.map((t) => `"${t}"`).join(", ")} CASCADE`,
+      );
     }
     const migCount = await nano.db
-      .query<{ count: string }>(`SELECT COUNT(*)::text as count FROM _nano_migrations`)
+      .query<{
+        count: string;
+      }>(`SELECT COUNT(*)::text as count FROM _nano_migrations`)
       .catch(() => ({ rows: [{ count: "0" }] }));
     await nano.db.exec(`DELETE FROM _nano_migrations`).catch(() => {});
     return new Response(
@@ -378,14 +476,117 @@ async function handleAdminRequest(req: Request): Promise<Response | null> {
     const result = await nano.db.query<{ name: string; applied_at: string }>(
       `SELECT name, applied_at FROM _nano_migrations ORDER BY applied_at`,
     );
-    return new Response(JSON.stringify({ migrations: result.rows }), { headers: { "Content-Type": "application/json" } });
+    return new Response(JSON.stringify({ migrations: result.rows }), {
+      headers: { "Content-Type": "application/json" },
+    });
   }
 
-  if (url.pathname === "/admin/v1/migrations/applied" && req.method === "POST") {
+  if (
+    url.pathname === "/admin/v1/migrations/applied" &&
+    req.method === "POST"
+  ) {
     await ensureMigrationsTable(nano.db);
     const { name } = (await req.json()) as { name: string };
-    await nano.db.query(`INSERT INTO _nano_migrations (name) VALUES ($1) ON CONFLICT (name) DO NOTHING`, [name]);
-    return new Response(JSON.stringify({ recorded: true, name }), { headers: { "Content-Type": "application/json" } });
+    await nano.db.query(
+      `INSERT INTO _nano_migrations (name) VALUES ($1) ON CONFLICT (name) DO NOTHING`,
+      [name],
+    );
+    return new Response(JSON.stringify({ recorded: true, name }), {
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  return null;
+}
+
+async function handleManagementApiRequest(
+  req: Request,
+): Promise<Response | null> {
+  const url = new URL(req.url);
+  const mgmtMatch = url.pathname.match(/^\/v1\/projects\/([^/]+)(\/.*)?$/);
+  if (!mgmtMatch) return null;
+
+  const authError = requireServiceRole(req);
+  if (authError) return authError;
+
+  const ref = mgmtMatch[1];
+  const subpath = mgmtMatch[2] ?? "";
+  const json = { headers: { "Content-Type": "application/json" } };
+
+  if (subpath === "" && req.method === "GET") {
+    return new Response(
+      JSON.stringify({ id: ref, ref, name: "local", status: "ACTIVE_HEALTHY", region: "local", organization_id: "local", organization_slug: "local", created_at: new Date().toISOString() }),
+      json,
+    );
+  }
+
+  if (subpath === "/database/query" && req.method === "POST") {
+    const { query, parameters = [] } = (await req.json()) as { query: string; parameters?: unknown[] };
+    try {
+      const result = await nano.db.query(query, parameters);
+      return new Response(JSON.stringify(result.rows), json);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (msg.includes("cannot insert multiple commands into a prepared statement")) {
+        try {
+          await nano.db.exec(query);
+          return new Response(JSON.stringify([]), json);
+        } catch (e2: unknown) {
+          return new Response(
+            JSON.stringify({ message: e2 instanceof Error ? e2.message : String(e2) }),
+            { status: 400, ...json },
+          );
+        }
+      }
+      return new Response(JSON.stringify({ message: msg }), { status: 400, ...json });
+    }
+  }
+
+  if (subpath === "/database/migrations" && req.method === "GET") {
+    await ensureMigrationsTable(nano.db);
+    const result = await nano.db.query<{ name: string; applied_at: string }>(
+      `SELECT name, applied_at FROM _nano_migrations ORDER BY applied_at`,
+    );
+    return new Response(
+      JSON.stringify(result.rows.map((r) => ({ version: r.applied_at, name: r.name }))),
+      json,
+    );
+  }
+
+  if (subpath === "/database/migrations" && req.method === "POST") {
+    const { name, query } = (await req.json()) as { name: string; query: string };
+    await ensureMigrationsTable(nano.db);
+    try {
+      await nano.db.exec(query);
+      await nano.db.query(
+        `INSERT INTO _nano_migrations (name) VALUES ($1) ON CONFLICT (name) DO NOTHING`,
+        [name],
+      );
+      return new Response(JSON.stringify({ name }), json);
+    } catch (e: unknown) {
+      return new Response(
+        JSON.stringify({ message: e instanceof Error ? e.message : String(e) }),
+        { status: 400, ...json },
+      );
+    }
+  }
+
+  if (subpath === "/storage/buckets" && req.method === "GET") {
+    const internalReq = new Request(`http://localhost:${httpPort}/storage/v1/bucket`, {
+      headers: { Authorization: `Bearer ${serviceRoleKey}` },
+    });
+    const res = await nano.localFetch(internalReq);
+    return new Response(await res.text(), { status: res.status, ...json });
+  }
+
+  if (subpath === "/api-keys" && req.method === "GET") {
+    return new Response(
+      JSON.stringify([
+        { name: "anon", api_key: DEFAULT_ANON_KEY, type: "legacy" },
+        { name: "service_role", api_key: serviceRoleKey, type: "legacy" },
+      ]),
+      json,
+    );
   }
 
   return null;
@@ -398,24 +599,180 @@ const server = Bun.serve({
   fetch: async (req: Request) => {
     const adminResponse = await handleAdminRequest(req);
     if (adminResponse) return adminResponse;
-    const internalUrl = req.url.replace(`http://localhost:${httpPort}`, INTERNAL_URL).replace(`http://127.0.0.1:${httpPort}`, INTERNAL_URL);
+    const mgmtResponse = await handleManagementApiRequest(req);
+    if (mgmtResponse) return mgmtResponse;
+    const internalUrl = req.url
+      .replace(`http://localhost:${httpPort}`, INTERNAL_URL)
+      .replace(`http://127.0.0.1:${httpPort}`, INTERNAL_URL);
     return nano.localFetch(new Request(internalUrl, req));
   },
 });
 
-const startupInfo = {
-  url: `http://localhost:${httpPort}`,
-  anon_key: DEFAULT_ANON_KEY,
-  service_role_key: serviceRoleKey,
-  pg: nano.connectionString ?? `postgresql://postgres@127.0.0.1:${tcpPort}/postgres`,
-  pid: process.pid,
+const pgUrl =
+  nano.connectionString ??
+  `postgresql://postgres@127.0.0.1:${tcpPort}/postgres`;
+
+function emojiWidth(s: string): number {
+  let w = 0;
+  for (const ch of s) {
+    const cp = ch.codePointAt(0) ?? 0;
+    if (cp === 0xfe0e || (cp >= 0x200b && cp <= 0x200f)) continue;
+    if (cp === 0xfe0f) { w -= 1; continue; } // emoji variation selector: base char was text, keep as 1-wide
+    w += cp > 0x2000 ? 2 : 1;
+  }
+  return w;
+}
+
+function box(title: string, rows: [string, string][]): string {
+  const keyWidth = Math.max(...rows.map(([k]) => k.length));
+  const valWidth = Math.max(...rows.map(([, v]) => v.length));
+  const innerWidth = keyWidth + 3 + valWidth;
+  const titleVisualWidth = emojiWidth(title);
+  const titlePad = Math.max(0, innerWidth - titleVisualWidth);
+  const top = `╭${"─".repeat(innerWidth + 2)}╮`;
+  const titleLine = `│ ${title}${" ".repeat(titlePad)} │`;
+  const sep = `├${"─".repeat(keyWidth + 2)}┬${"─".repeat(valWidth + 2)}┤`;
+  const dataLines = rows.map(
+    ([k, v]) => `│ ${k.padEnd(keyWidth)} │ ${v.padEnd(valWidth)} │`,
+  );
+  const bottom = `╰${"─".repeat(keyWidth + 2)}┴${"─".repeat(valWidth + 2)}╯`;
+  return [top, titleLine, sep, ...dataLines, bottom].join("\n");
+}
+
+const c = {
+  light: "\x1b[38;2;62;207;142m", // #3ECF8E
+  mid: "\x1b[38;2;36;180;126m", // #24B47E
+  dark: "\x1b[38;2;26;138;92m", // #1A8A5C
+  reset: "\x1b[0m",
 };
 
-process.stdout.write(JSON.stringify(startupInfo) + "\n");
+// s=light, u=mid, p=dark — exact shape from brand logo
+const logo = [
+  `        ${c.light}░${c.mid}▓▓${c.reset}`,
+  `       ${c.mid}▓${c.dark}██${c.mid}▓${c.reset}`,
+  `     ${c.light}░${c.mid}▓${c.dark}███${c.mid}▓▓▓${c.reset}`,
+  `    ${c.mid}▓${c.dark}██████${c.mid}▓${c.reset}`,
+  `  ${c.light}░${c.mid}▓${c.dark}████████${c.mid}▓${c.light}░░░░░░░░░░${c.reset}`,
+  ` ${c.light}░${c.dark}██${c.mid}▓${c.dark}█████████${c.mid}▓▓▓▓▓▓▓▓▓▓${c.reset}`,
+  `${c.dark}█████████████${c.mid}▓▓▓▓▓▓▓▓▓${c.reset}`,
+  `${c.light}░${c.mid}▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓${c.light}░${c.reset}`,
+  `           ${c.mid}▓▓▓▓▓▓▓${c.reset}`,
+  `           ${c.mid}▓▓▓▓▓${c.light}░${c.reset}`,
+  `           ${c.mid}▓▓▓${c.light}░${c.reset}`,
+  `           ${c.mid}▓▓${c.light}░${c.reset}`,
+  ``,
+  `    nano-supabase  •  local dev server`,
+].join("\n");
+
+process.stdout.write(logo + "\n\n");
+process.stdout.write(
+  box("🌐 API", [
+    ["URL", `http://localhost:${httpPort}`],
+    ["REST", `http://localhost:${httpPort}/rest/v1`],
+    ["Auth", `http://localhost:${httpPort}/auth/v1`],
+    ["Storage", `http://localhost:${httpPort}/storage/v1`],
+  ]) + "\n\n",
+);
+process.stdout.write(box("🗄️  Database", [["URL", pgUrl]]) + "\n\n");
+process.stdout.write(
+  box("🔑 Auth Keys", [
+    ["Anon key", DEFAULT_ANON_KEY],
+    ["Service role key", serviceRoleKey],
+  ]) + "\n\n",
+);
+if (mcp) {
+  const mcpSseUrl = `http://localhost:${mcpPort}/sse`;
+  const mcpProc = Bun.spawn({
+    cmd: [
+      "bunx",
+      "@supabase/mcp-server-supabase",
+      "--access-token",
+      serviceRoleKey,
+      "--api-url",
+      `http://127.0.0.1:${httpPort}`,
+      "--project-ref",
+      "local",
+      "--features",
+      "database,storage,development,debugging",
+    ],
+    stdin: "pipe",
+    stdout: "pipe",
+    stderr: "inherit",
+  });
+
+  const sseClients = new Map<string, ReadableStreamDefaultController<string>>();
+
+  (async () => {
+    const reader = mcpProc.stdout.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        for (const controller of sseClients.values()) {
+          controller.enqueue(`data: ${line}\n\n`);
+        }
+      }
+    }
+  })();
+
+  Bun.serve({
+    port: mcpPort,
+    idleTimeout: 0,
+    fetch: async (req) => {
+      const url = new URL(req.url);
+      if (url.pathname === "/.well-known/oauth-authorization-server" || url.pathname === "/.well-known/openid-configuration") {
+        return new Response(JSON.stringify({ error: "not_supported" }), {
+          status: 404,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (req.method === "GET" && url.pathname === "/sse") {
+        const sid = crypto.randomUUID();
+        const stream = new ReadableStream<string>({
+          start(controller) {
+            sseClients.set(sid, controller);
+            controller.enqueue(`event: endpoint\ndata: /message?sessionId=${sid}\n\n`);
+            req.signal.addEventListener("abort", () => sseClients.delete(sid));
+          },
+        });
+        return new Response(stream, {
+          headers: {
+            "Content-Type": "text/event-stream",
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+          },
+        });
+      }
+      if (req.method === "POST" && url.pathname === "/message") {
+        const body = await req.text();
+        mcpProc.stdin!.write(body + "\n");
+        await mcpProc.stdin!.flush();
+        return new Response(null, { status: 202 });
+      }
+      return new Response("Not found", { status: 404 });
+    },
+  });
+
+  process.stdout.write(
+    box("🤖 MCP Server", [
+      ["Transport", "SSE"],
+      ["URL", mcpSseUrl],
+      ["Add to Claude Code", `claude mcp add --transport sse nano-supabase ${mcpSseUrl}`],
+    ]) + "\n\n",
+  );
+}
 
 function cleanup(): void {
   if (pidFile) {
-    try { unlinkSync(pidFile); } catch {}
+    try {
+      unlinkSync(pidFile);
+    } catch {}
   }
   try {
     unlinkSync(join(tmpDir, "pgcrypto.tar.gz"));
