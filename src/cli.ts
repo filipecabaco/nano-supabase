@@ -26,6 +26,8 @@ import {
   cmdStorageCp,
   cmdGenTypes,
 } from "./cli-commands.ts";
+import { createMcpHandler } from "./mcp-server.ts";
+import type { McpHandler } from "./mcp-server.ts";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const pgliteDist = __dirname;
@@ -99,8 +101,7 @@ Start options:
   --service-role-key=<key>     Service role key (default: ${DEFAULT_SERVICE_ROLE_KEY})
   --detach                     Run in background and print JSON connection info
   --pid-file=<path>            Write PID to additional file (default location: /tmp/nano-supabase-<port>.pid)
-  --mcp                        Start MCP server accessible via SSE (database, storage, development tools)
-  --mcp-port=<port>            MCP server SSE port (default: 54322)
+  --mcp                        Start MCP server on /mcp endpoint (Streamable HTTP transport)
   --debug                      Enable debug logging
 
 Common options:
@@ -255,7 +256,6 @@ const serviceRoleKey =
 const debug = subArgs.includes("--debug");
 const detach = subArgs.includes("--detach");
 const mcp = subArgs.includes("--mcp");
-const mcpPort = parsePort(getArgValue(subArgs, "--mcp-port"), 54322, "--mcp-port");
 const pidFile = getArgValue(subArgs, "--pid-file");
 
 if (detach) {
@@ -865,14 +865,21 @@ async function runAdvisors(type: "security" | "performance"): Promise<unknown[]>
 
 const INTERNAL_URL = "http://localhost:54321";
 
+const mcpHandler: McpHandler | null = mcp
+  ? createMcpHandler(nano, { httpPort, serviceRoleKey, anonKey: DEFAULT_ANON_KEY })
+  : null;
+
 const KNOWN_PREFIXES = ["/auth/v1/", "/rest/v1/", "/storage/v1/"];
 
 async function fetchHandler(req: Request): Promise<Response> {
+  const pathname = new URL(req.url).pathname;
+  if (pathname === "/mcp" && mcpHandler) {
+    return mcpHandler.handleRequest(req);
+  }
   const adminResponse = await handleAdminRequest(req);
   if (adminResponse) return adminResponse;
   const mgmtResponse = await handleManagementApiRequest(req);
   if (mgmtResponse) return mgmtResponse;
-  const pathname = new URL(req.url).pathname;
   if (!KNOWN_PREFIXES.some((p) => pathname.startsWith(p))) {
     return new Response(JSON.stringify({ error: "not_found" }), {
       status: 404,
@@ -987,73 +994,12 @@ process.stdout.write(
 );
 
 if (mcp) {
-  const mcpSseUrl = `http://localhost:${mcpPort}/sse`;
-  const mcpProc = spawn("npx", [
-    "@supabase/mcp-server-supabase",
-    "--access-token", serviceRoleKey,
-    "--api-url", `http://127.0.0.1:${httpPort}`,
-    "--project-ref", "local",
-    "--features", "database,storage,development,debugging",
-  ], {
-    stdio: ["pipe", "pipe", "inherit"],
-  });
-
-  const sseClients = new Map<string, { enqueue: (s: string) => void }>();
-
-  (async () => {
-    for await (const chunk of mcpProc.stdout!) {
-      const lines = (chunk as Buffer).toString().split("\n");
-      for (const line of lines) {
-        if (!line.trim()) continue;
-        for (const client of sseClients.values()) {
-          client.enqueue(`data: ${line}\n\n`);
-        }
-      }
-    }
-  })();
-
-  const mcpServer = createServer(async (nodeReq, nodeRes) => {
-    const url = new URL(`http://localhost:${mcpPort}${nodeReq.url}`);
-
-    if (url.pathname === "/.well-known/oauth-authorization-server" || url.pathname === "/.well-known/openid-configuration") {
-      nodeRes.writeHead(404, { "Content-Type": "application/json" });
-      nodeRes.end(JSON.stringify({ error: "not_supported" }));
-      return;
-    }
-
-    if (nodeReq.method === "GET" && url.pathname === "/sse") {
-      const sid = crypto.randomUUID();
-      nodeRes.writeHead(200, {
-        "Content-Type": "text/event-stream",
-        "Cache-Control": "no-cache",
-        "Connection": "keep-alive",
-      });
-      nodeRes.write(`event: endpoint\ndata: /message?sessionId=${sid}\n\n`);
-      sseClients.set(sid, { enqueue: (s: string) => nodeRes.write(s) });
-      nodeReq.on("close", () => sseClients.delete(sid));
-      return;
-    }
-
-    if (nodeReq.method === "POST" && url.pathname === "/message") {
-      const chunks: Buffer[] = [];
-      for await (const chunk of nodeReq) chunks.push(chunk as Buffer);
-      const body = Buffer.concat(chunks).toString();
-      mcpProc.stdin!.write(body + "\n");
-      nodeRes.writeHead(202);
-      nodeRes.end();
-      return;
-    }
-
-    nodeRes.writeHead(404);
-    nodeRes.end("Not found");
-  });
-  mcpServer.listen(mcpPort);
-
+  const mcpUrl = `http://localhost:${httpPort}/mcp`;
   process.stdout.write(
     box("\ud83e\udd16 MCP Server", [
-      ["Transport", "SSE"],
-      ["URL", mcpSseUrl],
-      ["Add to Claude Code", `claude mcp add --transport sse nano-supabase ${mcpSseUrl}`],
+      ["Transport", "Streamable HTTP"],
+      ["URL", mcpUrl],
+      ["Add to Claude Code", `claude mcp add --transport http nano-supabase ${mcpUrl}`],
     ]) + "\n\n",
   );
 }
