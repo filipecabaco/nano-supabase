@@ -31,31 +31,46 @@ import {
   cmdStorageCreateBucket,
   cmdStorageLs,
   cmdGenTypes,
+  cmdSyncPush,
+  cmdSyncPull,
 } from "../src/cli-commands.ts";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CLI = join(__dirname, "../dist/cli.js");
 const HTTP_PORT = 54388;
 const TCP_PORT = 54389;
+const REMOTE_HTTP_PORT = 54390;
+const REMOTE_TCP_PORT = 54391;
 const URL = `http://localhost:${HTTP_PORT}`;
+const REMOTE_URL = `http://localhost:${REMOTE_HTTP_PORT}`;
+const REMOTE_DB_URL = `postgresql://postgres@127.0.0.1:${REMOTE_TCP_PORT}/postgres`;
 const KEY = "local-service-role-key";
 const ARGS = [`--url=${URL}`, `--service-role-key=${KEY}`, "--json"];
+const SYNC_ARGS = [
+  `--url=${URL}`,
+  `--service-role-key=${KEY}`,
+  `--remote-url=${REMOTE_URL}`,
+  `--remote-service-role-key=${KEY}`,
+  `--remote-db-url=${REMOTE_DB_URL}`,
+  "--json",
+];
 
 let server: ChildProcess;
+let remoteServer: ChildProcess;
 let migrationsDir: string;
 
-async function waitForHealth(timeout = 30_000): Promise<void> {
+async function waitForHealth(url: string, timeout = 30_000): Promise<void> {
   const deadline = Date.now() + timeout;
   while (Date.now() < deadline) {
     try {
-      const res = await fetch(`${URL}/health`);
+      const res = await fetch(`${url}/health`);
       if (res.ok) return;
     } catch {
       // not ready yet
     }
     await new Promise((r) => setTimeout(r, 200));
   }
-  throw new Error("Server did not become healthy within timeout");
+  throw new Error(`Server at ${url} did not become healthy within timeout`);
 }
 
 beforeAll(async () => {
@@ -64,11 +79,16 @@ beforeAll(async () => {
     stdio: "ignore",
     detached: false,
   });
-  await waitForHealth();
+  remoteServer = spawn("node", [CLI, "start", `--http-port=${REMOTE_HTTP_PORT}`, `--tcp-port=${REMOTE_TCP_PORT}`], {
+    stdio: "ignore",
+    detached: false,
+  });
+  await Promise.all([waitForHealth(URL), waitForHealth(REMOTE_URL)]);
 });
 
 afterAll(() => {
   server.kill("SIGTERM");
+  remoteServer.kill("SIGTERM");
   rmSync(migrationsDir, { recursive: true, force: true });
 });
 
@@ -308,5 +328,147 @@ describe("gen types", () => {
 
     const content = await Bun.file(outFile).text();
     assertExists(content.includes("export interface Database"));
+  });
+});
+
+describe("sync", () => {
+  let syncMigrationsDir: string;
+
+  beforeAll(() => {
+    syncMigrationsDir = mkdtempSync(join(tmpdir(), "nano-sync-test-migrations-"));
+  });
+
+  afterAll(() => {
+    rmSync(syncMigrationsDir, { recursive: true, force: true });
+  });
+
+  test("push applies local migrations to remote", async () => {
+    const migArgs = [...ARGS, `--migrations-dir=${syncMigrationsDir}`];
+
+    const newResult = await cmdMigrationNew([...migArgs, "sync_push_table"]);
+    assertEquals(newResult.exitCode, 0);
+    const { file } = JSON.parse(newResult.output);
+    writeFileSync(file, "CREATE TABLE sync_push_items (id SERIAL PRIMARY KEY, label TEXT)");
+
+    const localUp = await cmdMigrationUp(migArgs);
+    assertEquals(localUp.exitCode, 0);
+
+    const pushResult = await cmdSyncPush([
+      ...SYNC_ARGS,
+      `--migrations-dir=${syncMigrationsDir}`,
+      "--no-storage",
+    ]);
+    assertEquals(pushResult.exitCode, 0);
+    const pushData = JSON.parse(pushResult.output);
+    assertEquals(pushData.migrations.applied, 1);
+
+    const remoteCheck = await cmdDbExec([
+      `--url=${REMOTE_URL}`,
+      `--service-role-key=${KEY}`,
+      "--json",
+      "--sql",
+      "SELECT count(*) AS c FROM information_schema.tables WHERE table_name = 'sync_push_items'",
+    ]);
+    assertEquals(remoteCheck.exitCode, 0);
+    const remoteData = JSON.parse(remoteCheck.output);
+    assertEquals(Number(remoteData.rows[0].c), 1);
+  });
+
+  test("push skips already-applied migrations", async () => {
+    const pushResult = await cmdSyncPush([
+      ...SYNC_ARGS,
+      `--migrations-dir=${syncMigrationsDir}`,
+      "--no-storage",
+    ]);
+    assertEquals(pushResult.exitCode, 0);
+    const pushData = JSON.parse(pushResult.output);
+    assertEquals(pushData.migrations.applied, 0);
+    assertEquals(pushData.migrations.skipped, 1);
+  });
+
+  test("push creates missing buckets on remote", async () => {
+    await cmdStorageCreateBucket([...ARGS, "sync-push-bucket"]);
+
+    const pushResult = await cmdSyncPush([
+      ...SYNC_ARGS,
+      `--migrations-dir=${syncMigrationsDir}`,
+      "--no-migrations",
+    ]);
+    assertEquals(pushResult.exitCode, 0);
+    const pushData = JSON.parse(pushResult.output);
+    assertExists(pushData.storage.buckets >= 1);
+
+    const remoteBuckets = await fetch(`${REMOTE_URL}/storage/v1/bucket`, {
+      headers: { Authorization: `Bearer ${KEY}` },
+    });
+    const bucketsData = (await remoteBuckets.json()) as Array<{ name: string }>;
+    assertExists(bucketsData.find((b) => b.name === "sync-push-bucket"));
+  });
+
+  test("pull creates missing buckets on local", async () => {
+    await fetch(`${REMOTE_URL}/storage/v1/bucket`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ id: "sync-pull-bucket", name: "sync-pull-bucket", public: false }),
+    });
+
+    const pullResult = await cmdSyncPull([
+      ...SYNC_ARGS,
+      `--migrations-dir=${syncMigrationsDir}`,
+      "--no-migrations",
+    ]);
+    assertEquals(pullResult.exitCode, 0);
+    const pullData = JSON.parse(pullResult.output);
+    assertEquals(pullData.storage.buckets, 1);
+
+    const localBuckets = await fetch(`${URL}/storage/v1/bucket`, {
+      headers: { Authorization: `Bearer ${KEY}` },
+    });
+    const bucketsData = (await localBuckets.json()) as Array<{ name: string }>;
+    assertExists(bucketsData.find((b) => b.name === "sync-pull-bucket"));
+  });
+
+  test("dry-run does not apply changes", async () => {
+    const newMigrationsDir = mkdtempSync(join(tmpdir(), "nano-sync-dryrun-"));
+    try {
+      const newResult = await cmdMigrationNew([...ARGS, `--migrations-dir=${newMigrationsDir}`, "dryrun_table"]);
+      const { file } = JSON.parse(newResult.output);
+      writeFileSync(file, "CREATE TABLE dryrun_items (id SERIAL PRIMARY KEY)");
+
+      const pushResult = await cmdSyncPush([
+        ...SYNC_ARGS,
+        `--migrations-dir=${newMigrationsDir}`,
+        "--no-storage",
+        "--dry-run",
+      ]);
+      assertEquals(pushResult.exitCode, 0);
+      const pushData = JSON.parse(pushResult.output);
+      assertEquals(pushData.migrations.applied, 1);
+
+      const remoteCheck = await cmdDbExec([
+        `--url=${REMOTE_URL}`,
+        `--service-role-key=${KEY}`,
+        "--json",
+        "--sql",
+        "SELECT count(*) AS c FROM information_schema.tables WHERE table_name = 'dryrun_items'",
+      ]);
+      assertEquals(remoteCheck.exitCode, 0);
+      assertEquals(Number(JSON.parse(remoteCheck.output).rows[0].c), 0);
+    } finally {
+      rmSync(newMigrationsDir, { recursive: true, force: true });
+    }
+  });
+
+  test("push fails when --remote-db-url is missing and migrations not skipped", async () => {
+    const result = await cmdSyncPush([
+      `--url=${URL}`,
+      `--service-role-key=${KEY}`,
+      `--remote-url=${REMOTE_URL}`,
+      `--remote-service-role-key=${KEY}`,
+      "--json",
+    ]);
+    assertEquals(result.exitCode, 1);
+    const data = JSON.parse(result.output);
+    assertEquals(data.error, "missing_remote_db_url");
   });
 });

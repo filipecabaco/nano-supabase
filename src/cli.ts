@@ -25,6 +25,8 @@ import {
   cmdStorageLs,
   cmdStorageCp,
   cmdGenTypes,
+  cmdSyncPush,
+  cmdSyncPull,
 } from "./cli-commands.ts";
 import { createMcpHandler } from "./mcp-server.ts";
 import type { McpHandler } from "./mcp-server.ts";
@@ -57,6 +59,7 @@ const SUB_COMMANDS = [
   "users",
   "storage",
   "gen",
+  "sync",
 ];
 const firstArg = argv[0];
 const subCommand =
@@ -93,6 +96,17 @@ Commands:
   storage cp <src> <dst>     Upload or download files
 
   gen types             Generate TypeScript types
+
+  sync push             Push local migrations and buckets to a remote Supabase project
+  sync pull             Pull remote schema and buckets into local instance
+
+Sync options:
+  --remote-url=<url>               Remote Supabase project URL (or SUPABASE_URL)
+  --remote-service-role-key=<k>    Remote service role key (or SUPABASE_SERVICE_ROLE_KEY)
+  --remote-db-url=<url>            Remote Postgres connection string (or SUPABASE_DB_URL)
+  --no-migrations                  Skip migration sync
+  --no-storage                     Skip storage bucket sync
+  --dry-run                        Preview without writing
 
 Start options:
   --data-dir=<path>            Persistence directory (default: in-memory)
@@ -196,6 +210,20 @@ async function runSubCommand(): Promise<void> {
         JSON.stringify({
           error: "unknown_command",
           message: `Unknown gen command: ${op}`,
+        }) + "\n",
+      );
+      process.exit(1);
+    }
+  } else if (subCommand === "sync") {
+    const op = subArgs[0];
+    const opArgs = subArgs.slice(1);
+    if (op === "push") result = await cmdSyncPush(opArgs);
+    else if (op === "pull") result = await cmdSyncPull(opArgs);
+    else {
+      process.stderr.write(
+        JSON.stringify({
+          error: "unknown_command",
+          message: `Unknown sync operation: ${op}. Use push or pull.`,
         }) + "\n",
       );
       process.exit(1);

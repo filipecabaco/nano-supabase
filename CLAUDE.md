@@ -1,5 +1,7 @@
 # CLAUDE.md
 
+> API surface and integration patterns for AI agents: @AGENTS.md
+
 ## What is this?
 
 nano-supabase — lightweight Supabase emulation running entirely in-process using PGlite (Postgres via WASM). Auth (JWT + RLS), storage (pluggable backends), PostgREST parsing (WASM), connection pooling. Zero network calls, cross-runtime (Node, Deno, Bun, browser, edge).

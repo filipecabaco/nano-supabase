@@ -1,6 +1,7 @@
 import { existsSync, readdirSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import pg from "pg";
 
 const DEFAULT_URL = "http://localhost:54321";
 const DEFAULT_HTTP_PORT = 54321;
@@ -503,6 +504,245 @@ export async function cmdGenTypes(args: string[]): Promise<{ exitCode: number; o
   } catch (e: unknown) {
     return fail("request_failed", e instanceof Error ? e.message : String(e), json);
   }
+}
+
+async function connectPg(dbUrl: string): Promise<pg.Client> {
+  const client = new pg.Client({ connectionString: dbUrl });
+  await client.connect();
+  return client;
+}
+
+async function detectRemoteMigrationTable(client: pg.Client): Promise<"supabase" | "nano"> {
+  const res = await client.query<{ schema_name: string }>(
+    `SELECT schema_name FROM information_schema.schemata WHERE schema_name = 'supabase_migrations'`,
+  );
+  return res.rows.length > 0 ? "supabase" : "nano";
+}
+
+async function getRemoteAppliedMigrations(client: pg.Client, kind: "supabase" | "nano"): Promise<Set<string>> {
+  if (kind === "supabase") {
+    const res = await client.query<{ name: string }>(
+      `SELECT name FROM supabase_migrations.schema_migrations ORDER BY name`,
+    );
+    return new Set(res.rows.map((r) => r.name));
+  }
+  await client.query(
+    `CREATE TABLE IF NOT EXISTS _nano_migrations (name TEXT PRIMARY KEY, applied_at TIMESTAMPTZ DEFAULT NOW())`,
+  );
+  const res = await client.query<{ name: string }>(
+    `SELECT name FROM _nano_migrations ORDER BY name`,
+  );
+  return new Set(res.rows.map((r) => r.name));
+}
+
+async function recordRemoteMigration(client: pg.Client, name: string, kind: "supabase" | "nano"): Promise<void> {
+  if (kind === "supabase") {
+    await client.query(
+      `INSERT INTO supabase_migrations.schema_migrations (name) VALUES ($1) ON CONFLICT (name) DO NOTHING`,
+      [name],
+    );
+  } else {
+    await client.query(
+      `INSERT INTO _nano_migrations (name) VALUES ($1) ON CONFLICT (name) DO NOTHING`,
+      [name],
+    );
+  }
+}
+
+export async function cmdSyncPush(args: string[]): Promise<{ exitCode: number; output: string }> {
+  const json = args.includes("--json");
+  const dryRun = args.includes("--dry-run");
+  const skipMigrations = args.includes("--no-migrations");
+  const skipStorage = args.includes("--no-storage");
+
+  const localUrl = getUrl(args);
+  const localKey = getServiceRoleKey(args);
+  const remoteUrl = getArgValue(args, "--remote-url") ?? process.env.SUPABASE_URL;
+  const remoteKey = getArgValue(args, "--remote-service-role-key") ?? process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const remoteDbUrl = getArgValue(args, "--remote-db-url") ?? process.env.SUPABASE_DB_URL;
+  const migrationsDir = getArgValue(args, "--migrations-dir") ?? DEFAULT_MIGRATIONS_DIR;
+
+  if (!remoteDbUrl && !skipMigrations) return fail("missing_remote_db_url", "Provide --remote-db-url for migrations sync", json);
+  if (!remoteUrl && !skipStorage) return fail("missing_remote_url", "Provide --remote-url for storage sync", json);
+  if (!remoteKey && !skipStorage) return fail("missing_remote_key", "Provide --remote-service-role-key for storage sync", json);
+
+  const result = { migrations: { applied: 0, skipped: 0 }, storage: { buckets: 0 } };
+
+  if (!skipMigrations && remoteDbUrl) {
+    const localFiles = existsSync(migrationsDir)
+      ? readdirSync(migrationsDir).filter((f) => f.endsWith(".sql")).sort()
+      : [];
+
+    let client: pg.Client | undefined;
+    try {
+      client = await connectPg(remoteDbUrl);
+      const kind = await detectRemoteMigrationTable(client);
+      const applied = await getRemoteAppliedMigrations(client, kind);
+      const pending = localFiles.filter((f) => !applied.has(f));
+      result.migrations.skipped = localFiles.length - pending.length;
+
+      for (const file of pending) {
+        const sql = await readFile(join(migrationsDir, file), "utf8");
+        if (!dryRun) {
+          await client.query(sql);
+          await recordRemoteMigration(client, file, kind);
+        }
+        result.migrations.applied++;
+      }
+    } catch (e: unknown) {
+      if (client) await client.end().catch(() => {});
+      return fail("migration_failed", e instanceof Error ? e.message : String(e), json);
+    }
+    await client.end().catch(() => {});
+  }
+
+  if (!skipStorage && remoteUrl && remoteKey) {
+    try {
+      const bucketsRes = await fetch(`${localUrl}/storage/v1/bucket`, { headers: adminHeaders(localKey) });
+      const buckets = (await bucketsRes.json()) as Array<{ id: string; name: string; public: boolean }>;
+
+      const remoteBucketsRes = await fetch(`${remoteUrl}/storage/v1/bucket`, { headers: adminHeaders(remoteKey) });
+      const remoteBuckets = (await remoteBucketsRes.json()) as Array<{ id: string; name: string }>;
+      const remoteBucketNames = new Set(remoteBuckets.map((b) => b.name));
+
+      for (const bucket of buckets) {
+        if (!remoteBucketNames.has(bucket.name)) {
+          if (!dryRun) {
+            await fetch(`${remoteUrl}/storage/v1/bucket`, {
+              method: "POST",
+              headers: adminHeaders(remoteKey),
+              body: JSON.stringify({ id: bucket.name, name: bucket.name, public: bucket.public }),
+            });
+          }
+          result.storage.buckets++;
+        }
+      }
+    } catch (e: unknown) {
+      return fail("storage_failed", e instanceof Error ? e.message : String(e), json);
+    }
+  }
+
+  const target = remoteUrl ?? remoteDbUrl ?? "remote";
+  const text = [
+    `Sync push to ${target}${dryRun ? " (dry run)" : ""}`,
+    ``,
+    `Migrations:  ${result.migrations.applied} applied, ${result.migrations.skipped} skipped`,
+    `Storage:     ${result.storage.buckets} buckets created`,
+  ].join("\n");
+  return ok(result, json, text);
+}
+
+export async function cmdSyncPull(args: string[]): Promise<{ exitCode: number; output: string }> {
+  const json = args.includes("--json");
+  const dryRun = args.includes("--dry-run");
+  const skipMigrations = args.includes("--no-migrations");
+  const skipStorage = args.includes("--no-storage");
+
+  const localUrl = getUrl(args);
+  const localKey = getServiceRoleKey(args);
+  const remoteUrl = getArgValue(args, "--remote-url") ?? process.env.SUPABASE_URL;
+  const remoteKey = getArgValue(args, "--remote-service-role-key") ?? process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const remoteDbUrl = getArgValue(args, "--remote-db-url") ?? process.env.SUPABASE_DB_URL;
+  const migrationsDir = getArgValue(args, "--migrations-dir") ?? DEFAULT_MIGRATIONS_DIR;
+
+  if (!remoteDbUrl && !skipMigrations) return fail("missing_remote_db_url", "Provide --remote-db-url for migrations sync", json);
+  if (!remoteUrl && !skipStorage) return fail("missing_remote_url", "Provide --remote-url for storage sync", json);
+  if (!remoteKey && !skipStorage) return fail("missing_remote_key", "Provide --remote-service-role-key for storage sync", json);
+
+  const result = { migrations: { written: 0 }, storage: { buckets: 0 } };
+
+  if (!skipMigrations && remoteDbUrl) {
+    let client: pg.Client | undefined;
+    try {
+      client = await connectPg(remoteDbUrl);
+
+      const localAppliedRes = await fetch(`${localUrl}/admin/v1/migrations`, { headers: adminHeaders(localKey) });
+      const localAppliedData = (await localAppliedRes.json()) as { migrations: Array<{ name: string }> };
+      const localApplied = new Set((localAppliedData.migrations ?? []).map((m) => m.name));
+
+      const remoteKind = await detectRemoteMigrationTable(client);
+      const remoteApplied = await getRemoteAppliedMigrations(client, remoteKind);
+      const missing = [...remoteApplied].filter((name) => !localApplied.has(name));
+
+      if (missing.length > 0) {
+        const schemaRes = await client.query<{ table_name: string; column_name: string; data_type: string; is_nullable: string }>(
+          `SELECT table_name, column_name, data_type, is_nullable
+           FROM information_schema.columns
+           WHERE table_schema = 'public'
+           ORDER BY table_name, ordinal_position`,
+        );
+
+        const tables: Record<string, string[]> = {};
+        for (const row of schemaRes.rows) {
+          if (!tables[row.table_name]) tables[row.table_name] = [];
+          tables[row.table_name].push(`  ${row.column_name} ${row.data_type}${row.is_nullable === "NO" ? " NOT NULL" : ""}`);
+        }
+        const ddl = Object.entries(tables)
+          .map(([name, cols]) => `CREATE TABLE IF NOT EXISTS ${name} (\n${cols.join(",\n")}\n);`)
+          .join("\n\n");
+
+        const timestamp = new Date().toISOString().replace(/[-:T.Z]/g, "").slice(0, 14);
+        const filename = `${timestamp}_pulled_schema.sql`;
+        const filePath = join(migrationsDir, filename);
+
+        if (!dryRun) {
+          await writeFile(filePath, ddl);
+          await fetch(`${localUrl}/admin/v1/migrations/applied`, {
+            method: "POST",
+            headers: adminHeaders(localKey),
+            body: JSON.stringify({ name: filename }),
+          });
+          for (const name of missing) {
+            await fetch(`${localUrl}/admin/v1/migrations/applied`, {
+              method: "POST",
+              headers: adminHeaders(localKey),
+              body: JSON.stringify({ name }),
+            });
+          }
+        }
+        result.migrations.written = 1;
+      }
+    } catch (e: unknown) {
+      if (client) await client.end().catch(() => {});
+      return fail("migration_failed", e instanceof Error ? e.message : String(e), json);
+    }
+    await client.end().catch(() => {});
+  }
+
+  if (!skipStorage && remoteUrl && remoteKey) {
+    try {
+      const remoteBucketsRes = await fetch(`${remoteUrl}/storage/v1/bucket`, { headers: adminHeaders(remoteKey) });
+      const remoteBuckets = (await remoteBucketsRes.json()) as Array<{ id: string; name: string; public: boolean }>;
+
+      const localBucketsRes = await fetch(`${localUrl}/storage/v1/bucket`, { headers: adminHeaders(localKey) });
+      const localBuckets = (await localBucketsRes.json()) as Array<{ id: string; name: string }>;
+      const localBucketNames = new Set(localBuckets.map((b) => b.name));
+
+      for (const bucket of remoteBuckets) {
+        if (!localBucketNames.has(bucket.name)) {
+          if (!dryRun) {
+            await fetch(`${localUrl}/storage/v1/bucket`, {
+              method: "POST",
+              headers: adminHeaders(localKey),
+              body: JSON.stringify({ id: bucket.name, name: bucket.name, public: bucket.public }),
+            });
+          }
+          result.storage.buckets++;
+        }
+      }
+    } catch (e: unknown) {
+      return fail("storage_failed", e instanceof Error ? e.message : String(e), json);
+    }
+  }
+
+  const source = remoteUrl ?? remoteDbUrl ?? "remote";
+  const text = [
+    `Sync pull from ${source}${dryRun ? " (dry run)" : ""}`,
+    ``,
+    `Migrations:  ${result.migrations.written} file(s) written`,
+    `Storage:     ${result.storage.buckets} buckets created`,
+  ].join("\n");
+  return ok(result, json, text);
 }
 
 function pgTypeToTs(pgType: string): string {

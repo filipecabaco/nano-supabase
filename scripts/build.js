@@ -45,7 +45,7 @@ async function build() {
   // CLI bundle (Node.js, with shebang) — pglite is bundled in
   await esbuild.build({
     ...commonOptions,
-    external: commonExternals,
+    external: [...commonExternals, 'pg', 'pg-native'],
     platform: 'node',
     entryPoints: [join(rootDir, 'src/cli.ts')],
     outfile: join(rootDir, 'dist/cli.js'),
