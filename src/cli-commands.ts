@@ -1,4 +1,5 @@
 import { existsSync, readdirSync } from "node:fs";
+import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 const DEFAULT_URL = "http://localhost:54321";
@@ -71,7 +72,7 @@ export async function cmdStop(args: string[]): Promise<{ exitCode: number; outpu
   const pidFile = getArgValue(args, "--pid-file");
   if (!pidFile) return fail("missing_pid_file", "Provide --pid-file");
   try {
-    const pid = parseInt(await Bun.file(pidFile).text(), 10);
+    const pid = parseInt(await readFile(pidFile, "utf8"), 10);
     if (Number.isNaN(pid)) return fail("invalid_pid", "PID file does not contain a valid number");
     process.kill(pid, "SIGTERM");
     for (let i = 0; i < 50; i++) {
@@ -99,7 +100,7 @@ export async function cmdDbExec(args: string[]): Promise<{ exitCode: number; out
     sql = sqlArg;
   } else if (fileArg) {
     try {
-      sql = await Bun.file(fileArg).text();
+      sql = await readFile(fileArg, "utf8");
     } catch {
       return fail("file_not_found", `Cannot read file: ${fileArg}`);
     }
@@ -129,7 +130,7 @@ export async function cmdDbReset(args: string[]): Promise<{ exitCode: number; ou
   return adminFetch(url, "/admin/v1/reset", key, "POST", {});
 }
 
-export function cmdMigrationNew(args: string[]): { exitCode: number; output: string } {
+export async function cmdMigrationNew(args: string[]): Promise<{ exitCode: number; output: string }> {
   const name = args.find((a) => !a.startsWith("--"));
   if (!name) return fail("missing_name", "Provide a migration name");
   const migrationsDir = getArgValue(args, "--migrations-dir") ?? DEFAULT_MIGRATIONS_DIR;
@@ -140,7 +141,7 @@ export function cmdMigrationNew(args: string[]): { exitCode: number; output: str
   const filename = `${timestamp}_${name.replace(/\s+/g, "_")}.sql`;
   const filePath = join(migrationsDir, filename);
   try {
-    Bun.write(filePath, `-- Migration: ${name}\n`);
+    await writeFile(filePath, `-- Migration: ${name}\n`);
     return ok({ file: filePath });
   } catch (e: unknown) {
     return fail("write_failed", e instanceof Error ? e.message : String(e));
@@ -189,7 +190,7 @@ export async function cmdMigrationUp(args: string[]): Promise<{ exitCode: number
 
     const results: Array<{ file: string; status: string; error?: string }> = [];
     for (const file of pending) {
-      const sql = await Bun.file(join(migrationsDir, file)).text();
+      const sql = await readFile(join(migrationsDir, file), "utf8");
       const sqlRes = await fetch(`${url}/admin/v1/sql`, {
         method: "POST",
         headers: adminHeaders(key),
@@ -339,22 +340,19 @@ export async function cmdStorageCp(args: string[]): Promise<{ exitCode: number; 
 
   try {
     if (!isRemote(src) && isRemote(dst)) {
-      // Upload: local → storage (format: bucket://path/to/file)
       const colonSlashSlash = dst.indexOf("://");
       const bucket = dst.slice(0, colonSlashSlash);
       const afterScheme = dst.slice(colonSlashSlash + 3);
       const objectPath = afterScheme || src.split("/").pop()!;
-      const file = Bun.file(src);
-      const fileBuffer = await file.arrayBuffer();
+      const fileBuffer = await readFile(src);
       const res = await fetch(`${url}/storage/v1/object/${bucket}/${objectPath}`, {
         method: "POST",
-        headers: { Authorization: `Bearer ${key}`, "Content-Type": file.type || "application/octet-stream" },
+        headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/octet-stream" },
         body: fileBuffer,
       });
       const data = await res.json();
       return res.ok ? ok(data) : { exitCode: 1, output: JSON.stringify(data) };
     } else if (isRemote(src) && !isRemote(dst)) {
-      // Download: storage → local (format: bucket://path/to/file)
       const colonSlashSlash = src.indexOf("://");
       const bucket = src.slice(0, colonSlashSlash);
       const objectPath = src.slice(colonSlashSlash + 3);
@@ -362,7 +360,7 @@ export async function cmdStorageCp(args: string[]): Promise<{ exitCode: number; 
         headers: { Authorization: `Bearer ${key}` },
       });
       if (!res.ok) return { exitCode: 1, output: JSON.stringify(await res.json()) };
-      await Bun.write(dst, res);
+      await writeFile(dst, Buffer.from(await res.arrayBuffer()));
       return ok({ downloaded: dst });
     } else {
       return fail("invalid_paths", "One of src or dst must be a storage path (bucket://path)");
@@ -429,7 +427,7 @@ export async function cmdGenTypes(args: string[]): Promise<{ exitCode: number; o
 
     const types = lines.join("\n");
     if (outputFile) {
-      await Bun.write(outputFile, types);
+      await writeFile(outputFile, types);
       return ok({ file: outputFile });
     }
     return { exitCode: 0, output: types };

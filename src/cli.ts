@@ -1,15 +1,10 @@
-#!/usr/bin/env bun
-
-import { unlinkSync, mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { readFile, writeFile, unlink } from "node:fs/promises";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+import { spawn } from "node:child_process";
+import { createServer } from "node:http";
 import type { Extension } from "@electric-sql/pglite";
 
-import pgliteWasmPath from "../node_modules/@electric-sql/pglite/dist/pglite.wasm" with { type: "file" };
-import pgliteDataPath from "../node_modules/@electric-sql/pglite/dist/pglite.data" with { type: "file" };
-import pgcryptoPath from "../node_modules/@electric-sql/pglite/dist/pgcrypto.tar.gz" with { type: "file" };
-import uuidOsspPath from "../node_modules/@electric-sql/pglite/dist/uuid-ossp.tar.gz" with { type: "file" };
-import postgrestWasmPath from "../node_modules/postgrest-parser/pkg/postgrest_parser_bg.wasm" with { type: "file" };
 import { nanoSupabase } from "./nano.ts";
 import type { NanoSupabaseInstance } from "./nano.ts";
 import {
@@ -31,6 +26,9 @@ import {
   cmdStorageCp,
   cmdGenTypes,
 } from "./cli-commands.ts";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const pgliteDist = join(__dirname, "../node_modules/@electric-sql/pglite/dist");
 
 const DEFAULT_HTTP_PORT = 54321;
 const DEFAULT_TCP_PORT = 5432;
@@ -142,7 +140,7 @@ async function runSubCommand(): Promise<void> {
   } else if (subCommand === "migration") {
     const op = subArgs[0];
     const opArgs = subArgs.slice(1);
-    if (op === "new") result = cmdMigrationNew(opArgs);
+    if (op === "new") result = await cmdMigrationNew(opArgs);
     else if (op === "list") result = await cmdMigrationList(opArgs);
     else if (op === "up") result = await cmdMigrationUp(opArgs);
     else {
@@ -210,12 +208,12 @@ async function runSubCommand(): Promise<void> {
     process.exit(1);
   }
 
-  if (result.exitCode !== 0) {
-    process.stderr.write(result.output + "\n");
+  if (result!.exitCode !== 0) {
+    process.stderr.write(result!.output + "\n");
   } else {
-    process.stdout.write(result.output + "\n");
+    process.stdout.write(result!.output + "\n");
   }
-  process.exit(result.exitCode);
+  process.exit(result!.exitCode);
 }
 
 if (subCommand !== "start") {
@@ -261,17 +259,9 @@ const pidFile = getArgValue(subArgs, "--pid-file");
 
 if (detach) {
   const serverArgs = subArgs.filter((a) => a !== "--detach");
-  // In compiled binaries, argv[1] is a virtual /$bunfs path; execPath is the real binary
-  const isCompiledBinary = process.argv[1]?.startsWith("/$bunfs") ?? true;
-  const cmd = isCompiledBinary
-    ? [process.execPath, "start", ...serverArgs]
-    : [process.argv[0], process.argv[1], "start", ...serverArgs];
-
-  const child = Bun.spawn({
-    cmd,
+  const child = spawn(process.execPath, [process.argv[1], "start", ...serverArgs], {
     detached: true,
-    stdout: Bun.file("/dev/null"),
-    stderr: Bun.file("/dev/null"),
+    stdio: "ignore",
   });
   child.unref();
 
@@ -304,29 +294,25 @@ if (detach) {
   process.exit(1);
 }
 
-const tmpDir = mkdtempSync(join(tmpdir(), "nano-supabase-"));
-await Bun.write(join(tmpDir, "pgcrypto.tar.gz"), Bun.file(pgcryptoPath));
-await Bun.write(join(tmpDir, "uuid-ossp.tar.gz"), Bun.file(uuidOsspPath));
+const wasmBytes = await readFile(join(pgliteDist, "pglite.wasm"));
+const wasmModule = await WebAssembly.compile(wasmBytes);
+const fsBundle = new Blob([await readFile(join(pgliteDist, "pglite.data"))]);
+const postgrestWasm = new Uint8Array(
+  await readFile(join(__dirname, "postgrest_parser_bg.wasm")),
+);
 
 const pgcryptoExt: Extension = {
   name: "pgcrypto",
   setup: async (_pg, _emscriptenOpts) => ({
-    bundlePath: new URL(`file://${join(tmpDir, "pgcrypto.tar.gz")}`),
+    bundlePath: new URL(`file://${join(pgliteDist, "pgcrypto.tar.gz")}`),
   }),
 };
 const uuidOsspExt: Extension = {
   name: "uuid-ossp",
   setup: async (_pg, _emscriptenOpts) => ({
-    bundlePath: new URL(`file://${join(tmpDir, "uuid-ossp.tar.gz")}`),
+    bundlePath: new URL(`file://${join(pgliteDist, "uuid-ossp.tar.gz")}`),
   }),
 };
-
-const wasmBytes = await Bun.file(pgliteWasmPath).arrayBuffer();
-const wasmModule = await WebAssembly.compile(wasmBytes);
-const fsBundle = new Blob([await Bun.file(pgliteDataPath).arrayBuffer()]);
-const postgrestWasm = new Uint8Array(
-  await Bun.file(postgrestWasmPath).arrayBuffer(),
-);
 
 const origConsoleLog = console.log;
 console.log = () => {};
@@ -342,7 +328,7 @@ const nano = await nanoSupabase({
 console.log = origConsoleLog;
 
 if (pidFile) {
-  await Bun.write(pidFile, String(process.pid));
+  await writeFile(pidFile, String(process.pid));
 }
 
 async function ensureMigrationsTable(
@@ -589,24 +575,341 @@ async function handleManagementApiRequest(
     );
   }
 
+  if ((subpath === "/advisors/security" || subpath === "/advisors/performance") && req.method === "GET") {
+    const type = subpath === "/advisors/security" ? "security" : "performance";
+    const lints = await runAdvisors(type);
+    return new Response(JSON.stringify({ lints }), json);
+  }
+
   return null;
+}
+
+const EXCLUDED_SCHEMAS = `'pg_catalog','information_schema','auth','storage','vault','extensions','cron','net','pgmq','realtime','supabase_functions','supabase_migrations','pgsodium','pgsodium_masks','pgtle','pgbouncer','graphql','graphql_public','tiger','topology'`;
+
+async function runAdvisors(type: "security" | "performance"): Promise<unknown[]> {
+  const results: unknown[] = [];
+
+  if (type === "security") {
+    // rls_disabled_in_public: tables in public schema without RLS
+    try {
+      const rows = await nano.db.query<{ schema: string; name: string }>(`
+        SELECT n.nspname AS schema, c.relname AS name
+        FROM pg_catalog.pg_class c
+        JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+        LEFT JOIN pg_catalog.pg_depend d ON d.objid = c.oid AND d.deptype = 'e'
+        WHERE c.relkind = 'r'
+          AND n.nspname = 'public'
+          AND c.relrowsecurity = false
+          AND d.objid IS NULL
+        ORDER BY c.relname
+      `);
+      for (const row of rows.rows) {
+        results.push({
+          name: "rls_disabled_in_public",
+          title: "RLS Disabled in Public",
+          level: "ERROR",
+          facing: "EXTERNAL",
+          categories: ["SECURITY"],
+          description: "Table is in the public schema and does not have Row Level Security enabled.",
+          detail: `Table "${row.schema}"."${row.name}" is publicly accessible without RLS.`,
+          remediation: "https://supabase.com/docs/guides/database/postgres/row-level-security",
+          metadata: { schema: row.schema, name: row.name, type: "table" },
+          cache_key: `rls_disabled_in_public_${row.schema}_${row.name}`,
+        });
+      }
+    } catch { /* table may not exist */ }
+
+    // rls_enabled_no_policy: RLS enabled but no policies defined
+    try {
+      const rows = await nano.db.query<{ schema: string; name: string }>(`
+        SELECT n.nspname AS schema, c.relname AS name
+        FROM pg_catalog.pg_class c
+        JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+        LEFT JOIN pg_catalog.pg_policy p ON p.polrelid = c.oid
+        LEFT JOIN pg_catalog.pg_depend d ON d.objid = c.oid AND d.deptype = 'e'
+        WHERE c.relkind = 'r'
+          AND c.relrowsecurity = true
+          AND n.nspname NOT IN (${EXCLUDED_SCHEMAS})
+          AND d.objid IS NULL
+        GROUP BY n.nspname, c.relname
+        HAVING count(p.oid) = 0
+        ORDER BY c.relname
+      `);
+      for (const row of rows.rows) {
+        results.push({
+          name: "rls_enabled_no_policy",
+          title: "RLS Enabled With No Policies",
+          level: "INFO",
+          facing: "EXTERNAL",
+          categories: ["SECURITY"],
+          description: "Table has RLS enabled but no policies defined. All non-owner access is blocked.",
+          detail: `Table "${row.schema}"."${row.name}" has RLS enabled but no policies exist.`,
+          remediation: "https://supabase.com/docs/guides/database/postgres/row-level-security",
+          metadata: { schema: row.schema, name: row.name, type: "table" },
+          cache_key: `rls_enabled_no_policy_${row.schema}_${row.name}`,
+        });
+      }
+    } catch { /* table may not exist */ }
+
+    // policy_exists_rls_disabled: policies exist but RLS is not enabled
+    try {
+      const rows = await nano.db.query<{ schema: string; name: string }>(`
+        SELECT DISTINCT n.nspname AS schema, c.relname AS name
+        FROM pg_catalog.pg_policy p
+        JOIN pg_catalog.pg_class c ON c.oid = p.polrelid
+        JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+        LEFT JOIN pg_catalog.pg_depend d ON d.objid = c.oid AND d.deptype = 'e'
+        WHERE c.relrowsecurity = false
+          AND n.nspname NOT IN (${EXCLUDED_SCHEMAS})
+          AND d.objid IS NULL
+        ORDER BY c.relname
+      `);
+      for (const row of rows.rows) {
+        results.push({
+          name: "policy_exists_rls_disabled",
+          title: "Policy Exists but RLS is Disabled",
+          level: "ERROR",
+          facing: "EXTERNAL",
+          categories: ["SECURITY"],
+          description: "A policy exists on the table but Row Level Security is not enabled, so the policy has no effect.",
+          detail: `Table "${row.schema}"."${row.name}" has policies but RLS is disabled — policies are silently ignored.`,
+          remediation: "https://supabase.com/docs/guides/database/postgres/row-level-security",
+          metadata: { schema: row.schema, name: row.name, type: "table" },
+          cache_key: `policy_exists_rls_disabled_${row.schema}_${row.name}`,
+        });
+      }
+    } catch { /* table may not exist */ }
+
+    // function_search_path_mutable: security definer functions without fixed search_path
+    try {
+      const rows = await nano.db.query<{ schema: string; name: string }>(`
+        SELECT n.nspname AS schema, p.proname AS name
+        FROM pg_catalog.pg_proc p
+        JOIN pg_catalog.pg_namespace n ON p.pronamespace = n.oid
+        LEFT JOIN pg_catalog.pg_depend d ON p.oid = d.objid AND d.deptype = 'e'
+        WHERE p.prosecdef = true
+          AND n.nspname NOT IN (${EXCLUDED_SCHEMAS})
+          AND d.objid IS NULL
+          AND NOT EXISTS (
+            SELECT 1 FROM unnest(coalesce(p.proconfig, '{}')) AS cfg
+            WHERE cfg LIKE 'search_path=%'
+          )
+        ORDER BY p.proname
+      `);
+      for (const row of rows.rows) {
+        results.push({
+          name: "function_search_path_mutable",
+          title: "Function with Mutable Search Path",
+          level: "WARN",
+          facing: "EXTERNAL",
+          categories: ["SECURITY"],
+          description: "Security definer function without a fixed search_path is vulnerable to search_path injection.",
+          detail: `Function "${row.schema}"."${row.name}" is SECURITY DEFINER but has no fixed search_path.`,
+          remediation: "https://supabase.com/docs/guides/database/functions#security-definer-vs-invoker",
+          metadata: { schema: row.schema, name: row.name, type: "function" },
+          cache_key: `function_search_path_mutable_${row.schema}_${row.name}`,
+        });
+      }
+    } catch { /* table may not exist */ }
+  }
+
+  if (type === "performance") {
+    // unindexed_foreign_keys
+    try {
+      const rows = await nano.db.query<{ schema: string; table: string; fkey: string }>(`
+        WITH foreign_keys AS (
+          SELECT
+            cl.relnamespace::regnamespace::text AS schema_name,
+            cl.relname AS table_name,
+            cl.oid AS table_oid,
+            ct.conname AS fkey_name,
+            ct.conkey AS col_attnums
+          FROM pg_catalog.pg_constraint ct
+          JOIN pg_catalog.pg_class cl ON ct.conrelid = cl.oid
+          LEFT JOIN pg_catalog.pg_depend d ON d.objid = cl.oid AND d.deptype = 'e'
+          WHERE ct.contype = 'f'
+            AND d.objid IS NULL
+            AND cl.relnamespace::regnamespace::text NOT IN (${EXCLUDED_SCHEMAS})
+        ),
+        indexes AS (
+          SELECT
+            pi.indrelid AS table_oid,
+            string_to_array(pi.indkey::text, ' ')::smallint[] AS col_attnums
+          FROM pg_catalog.pg_index pi
+          WHERE pi.indisvalid
+        )
+        SELECT fk.schema_name AS schema, fk.table_name AS table, fk.fkey_name AS fkey
+        FROM foreign_keys fk
+        LEFT JOIN indexes idx
+          ON fk.table_oid = idx.table_oid
+          AND fk.col_attnums = idx.col_attnums[1:array_length(fk.col_attnums, 1)]
+        WHERE idx.table_oid IS NULL
+        ORDER BY fk.table_name
+      `);
+      for (const row of rows.rows) {
+        results.push({
+          name: "unindexed_foreign_keys",
+          title: "Unindexed Foreign Keys",
+          level: "INFO",
+          facing: "EXTERNAL",
+          categories: ["PERFORMANCE"],
+          description: "Foreign key constraint without a covering index may cause slow queries on JOIN and cascade operations.",
+          detail: `Foreign key "${row.fkey}" on table "${row.schema}"."${row.table}" has no covering index.`,
+          remediation: "https://supabase.com/docs/guides/database/database-linter?lint=0001_unindexed_foreign_keys",
+          metadata: { schema: row.schema, name: row.table, type: "table", fkey_name: row.fkey },
+          cache_key: `unindexed_foreign_keys_${row.schema}_${row.table}_${row.fkey}`,
+        });
+      }
+    } catch { /* table may not exist */ }
+
+    // no_primary_key
+    try {
+      const rows = await nano.db.query<{ schema: string; name: string }>(`
+        SELECT n.nspname AS schema, c.relname AS name
+        FROM pg_catalog.pg_class c
+        JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+        LEFT JOIN pg_catalog.pg_index i ON i.indrelid = c.oid AND i.indisprimary
+        LEFT JOIN pg_catalog.pg_depend d ON c.oid = d.objid AND d.deptype = 'e'
+        WHERE c.relkind = 'r'
+          AND n.nspname NOT IN (${EXCLUDED_SCHEMAS})
+          AND d.objid IS NULL
+        GROUP BY n.nspname, c.relname
+        HAVING bool_or(coalesce(i.indisprimary, false)) = false
+        ORDER BY c.relname
+      `);
+      for (const row of rows.rows) {
+        results.push({
+          name: "no_primary_key",
+          title: "No Primary Key",
+          level: "INFO",
+          facing: "EXTERNAL",
+          categories: ["PERFORMANCE"],
+          description: "Table has no primary key, which degrades performance for large datasets and replication.",
+          detail: `Table "${row.schema}"."${row.name}" does not have a primary key.`,
+          remediation: "https://supabase.com/docs/guides/database/database-linter?lint=0004_no_primary_key",
+          metadata: { schema: row.schema, name: row.name, type: "table" },
+          cache_key: `no_primary_key_${row.schema}_${row.name}`,
+        });
+      }
+    } catch { /* table may not exist */ }
+
+    // duplicate_index
+    try {
+      const rows = await nano.db.query<{ schema: string; table: string; index: string; duplicate_of: string }>(`
+        SELECT
+          schemaname AS schema,
+          tablename AS table,
+          indexname AS index,
+          min(indexname) OVER (PARTITION BY schemaname, tablename, replace(indexdef, indexname, '')) AS duplicate_of
+        FROM pg_indexes
+        WHERE schemaname NOT IN (${EXCLUDED_SCHEMAS})
+          AND indexname != min(indexname) OVER (PARTITION BY schemaname, tablename, replace(indexdef, indexname, ''))
+        ORDER BY tablename, indexname
+      `);
+      for (const row of rows.rows) {
+        results.push({
+          name: "duplicate_index",
+          title: "Duplicate Index",
+          level: "WARN",
+          facing: "EXTERNAL",
+          categories: ["PERFORMANCE"],
+          description: "Duplicate indexes waste storage and slow down writes without providing any query benefit.",
+          detail: `Index "${row.index}" on "${row.schema}"."${row.table}" is a duplicate of "${row.duplicate_of}".`,
+          remediation: "https://supabase.com/docs/guides/database/database-linter?lint=0009_duplicate_index",
+          metadata: { schema: row.schema, name: row.table, type: "table" },
+          cache_key: `duplicate_index_${row.schema}_${row.table}_${row.index}`,
+        });
+      }
+    } catch { /* table may not exist */ }
+
+    // multiple_permissive_policies
+    try {
+      const rows = await nano.db.query<{ schema: string; table: string; command: string }>(`
+        SELECT
+          n.nspname AS schema,
+          c.relname AS table,
+          CASE p.polcmd WHEN 'r' THEN 'SELECT' WHEN 'a' THEN 'INSERT' WHEN 'w' THEN 'UPDATE' WHEN 'd' THEN 'DELETE' ELSE 'ALL' END AS command
+        FROM pg_catalog.pg_policy p
+        JOIN pg_catalog.pg_class c ON c.oid = p.polrelid
+        JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+        LEFT JOIN pg_catalog.pg_depend d ON c.oid = d.objid AND d.deptype = 'e'
+        WHERE p.polpermissive = true
+          AND n.nspname NOT IN (${EXCLUDED_SCHEMAS})
+          AND d.objid IS NULL
+        GROUP BY n.nspname, c.relname, p.polcmd
+        HAVING count(*) > 1
+        ORDER BY c.relname
+      `);
+      for (const row of rows.rows) {
+        results.push({
+          name: "multiple_permissive_policies",
+          title: "Multiple Permissive Policies",
+          level: "WARN",
+          facing: "EXTERNAL",
+          categories: ["PERFORMANCE"],
+          description: "Multiple permissive policies for the same command are OR-ed together, causing each to be evaluated for every row.",
+          detail: `Table "${row.schema}"."${row.table}" has multiple permissive policies for ${row.command}.`,
+          remediation: "https://supabase.com/docs/guides/database/database-linter?lint=0006_multiple_permissive_policies",
+          metadata: { schema: row.schema, name: row.table, type: "table" },
+          cache_key: `multiple_permissive_policies_${row.schema}_${row.table}_${row.command}`,
+        });
+      }
+    } catch { /* table may not exist */ }
+  }
+
+  return results;
 }
 
 const INTERNAL_URL = "http://localhost:54321";
 
-const server = Bun.serve({
-  port: httpPort,
-  fetch: async (req: Request) => {
-    const adminResponse = await handleAdminRequest(req);
-    if (adminResponse) return adminResponse;
-    const mgmtResponse = await handleManagementApiRequest(req);
-    if (mgmtResponse) return mgmtResponse;
-    const internalUrl = req.url
-      .replace(`http://localhost:${httpPort}`, INTERNAL_URL)
-      .replace(`http://127.0.0.1:${httpPort}`, INTERNAL_URL);
-    return nano.localFetch(new Request(internalUrl, req));
-  },
-});
+const KNOWN_PREFIXES = ["/auth/v1/", "/rest/v1/", "/storage/v1/"];
+
+async function fetchHandler(req: Request): Promise<Response> {
+  const adminResponse = await handleAdminRequest(req);
+  if (adminResponse) return adminResponse;
+  const mgmtResponse = await handleManagementApiRequest(req);
+  if (mgmtResponse) return mgmtResponse;
+  const pathname = new URL(req.url).pathname;
+  if (!KNOWN_PREFIXES.some((p) => pathname.startsWith(p))) {
+    return new Response(JSON.stringify({ error: "not_found" }), {
+      status: 404,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+  const internalUrl = req.url
+    .replace(`http://localhost:${httpPort}`, INTERNAL_URL)
+    .replace(`http://127.0.0.1:${httpPort}`, INTERNAL_URL);
+  return nano.localFetch(new Request(internalUrl, req));
+}
+
+function createNodeServer(handler: (req: Request) => Promise<Response>) {
+  return createServer(async (nodeReq, nodeRes) => {
+    const url = `http://localhost:${httpPort}${nodeReq.url}`;
+    const chunks: Buffer[] = [];
+    for await (const chunk of nodeReq) chunks.push(chunk as Buffer);
+    const body = chunks.length > 0 ? Buffer.concat(chunks) : undefined;
+    const req = new Request(url, {
+      method: nodeReq.method,
+      headers: nodeReq.headers as HeadersInit,
+      body: body?.length ? body : undefined,
+    });
+    try {
+      const res = await handler(req);
+      const resHeaders: Record<string, string> = {};
+      res.headers.forEach((v, k) => { resHeaders[k] = v; });
+      nodeRes.writeHead(res.status, resHeaders);
+      nodeRes.end(Buffer.from(await res.arrayBuffer()));
+    } catch (e) {
+      if (!nodeRes.headersSent) {
+        nodeRes.writeHead(500, { "Content-Type": "application/json" });
+        nodeRes.end(JSON.stringify({ error: "internal_error" }));
+      }
+    }
+  });
+}
+
+const server = createNodeServer(fetchHandler);
+server.listen(httpPort);
 
 const pgUrl =
   nano.connectionString ??
@@ -617,7 +920,7 @@ function emojiWidth(s: string): number {
   for (const ch of s) {
     const cp = ch.codePointAt(0) ?? 0;
     if (cp === 0xfe0e || (cp >= 0x200b && cp <= 0x200f)) continue;
-    if (cp === 0xfe0f) { w -= 1; continue; } // emoji variation selector: base char was text, keep as 1-wide
+    if (cp === 0xfe0f) { w -= 1; continue; }
     w += cp > 0x2000 ? 2 : 1;
   }
   return w;
@@ -629,138 +932,122 @@ function box(title: string, rows: [string, string][]): string {
   const innerWidth = keyWidth + 3 + valWidth;
   const titleVisualWidth = emojiWidth(title);
   const titlePad = Math.max(0, innerWidth - titleVisualWidth);
-  const top = `╭${"─".repeat(innerWidth + 2)}╮`;
-  const titleLine = `│ ${title}${" ".repeat(titlePad)} │`;
-  const sep = `├${"─".repeat(keyWidth + 2)}┬${"─".repeat(valWidth + 2)}┤`;
+  const top = `\u256d${"─".repeat(innerWidth + 2)}\u256e`;
+  const titleLine = `\u2502 ${title}${" ".repeat(titlePad)} \u2502`;
+  const sep = `\u251c${"─".repeat(keyWidth + 2)}\u252c${"─".repeat(valWidth + 2)}\u2524`;
   const dataLines = rows.map(
-    ([k, v]) => `│ ${k.padEnd(keyWidth)} │ ${v.padEnd(valWidth)} │`,
+    ([k, v]) => `\u2502 ${k.padEnd(keyWidth)} \u2502 ${v.padEnd(valWidth)} \u2502`,
   );
-  const bottom = `╰${"─".repeat(keyWidth + 2)}┴${"─".repeat(valWidth + 2)}╯`;
+  const bottom = `\u2570${"─".repeat(keyWidth + 2)}\u2534${"─".repeat(valWidth + 2)}\u256f`;
   return [top, titleLine, sep, ...dataLines, bottom].join("\n");
 }
 
 const c = {
-  light: "\x1b[38;2;62;207;142m", // #3ECF8E
-  mid: "\x1b[38;2;36;180;126m", // #24B47E
-  dark: "\x1b[38;2;26;138;92m", // #1A8A5C
+  light: "\x1b[38;2;62;207;142m",
+  mid: "\x1b[38;2;36;180;126m",
+  dark: "\x1b[38;2;26;138;92m",
   reset: "\x1b[0m",
 };
 
-// s=light, u=mid, p=dark — exact shape from brand logo
 const logo = [
-  `        ${c.light}░${c.mid}▓▓${c.reset}`,
-  `       ${c.mid}▓${c.dark}██${c.mid}▓${c.reset}`,
-  `     ${c.light}░${c.mid}▓${c.dark}███${c.mid}▓▓▓${c.reset}`,
-  `    ${c.mid}▓${c.dark}██████${c.mid}▓${c.reset}`,
-  `  ${c.light}░${c.mid}▓${c.dark}████████${c.mid}▓${c.light}░░░░░░░░░░${c.reset}`,
-  ` ${c.light}░${c.dark}██${c.mid}▓${c.dark}█████████${c.mid}▓▓▓▓▓▓▓▓▓▓${c.reset}`,
-  `${c.dark}█████████████${c.mid}▓▓▓▓▓▓▓▓▓${c.reset}`,
-  `${c.light}░${c.mid}▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓${c.light}░${c.reset}`,
-  `           ${c.mid}▓▓▓▓▓▓▓${c.reset}`,
-  `           ${c.mid}▓▓▓▓▓${c.light}░${c.reset}`,
-  `           ${c.mid}▓▓▓${c.light}░${c.reset}`,
-  `           ${c.mid}▓▓${c.light}░${c.reset}`,
+  `        ${c.light}\u2591${c.mid}\u2593\u2593${c.reset}`,
+  `       ${c.mid}\u2593${c.dark}\u2588\u2588${c.mid}\u2593${c.reset}`,
+  `     ${c.light}\u2591${c.mid}\u2593${c.dark}\u2588\u2588\u2588${c.mid}\u2593\u2593\u2593${c.reset}`,
+  `    ${c.mid}\u2593${c.dark}\u2588\u2588\u2588\u2588\u2588\u2588${c.mid}\u2593${c.reset}`,
+  `  ${c.light}\u2591${c.mid}\u2593${c.dark}\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588${c.mid}\u2593${c.light}\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591${c.reset}`,
+  ` ${c.light}\u2591${c.dark}\u2588\u2588${c.mid}\u2593${c.dark}\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588${c.mid}\u2593\u2593\u2593\u2593\u2593\u2593\u2593\u2593\u2593\u2593${c.reset}`,
+  `${c.dark}\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588${c.mid}\u2593\u2593\u2593\u2593\u2593\u2593\u2593\u2593\u2593${c.reset}`,
+  `${c.light}\u2591${c.mid}\u2593\u2593\u2593\u2593\u2593\u2593\u2593\u2593\u2593\u2593\u2593\u2593\u2593\u2593\u2593\u2593\u2593\u2593\u2593${c.light}\u2591${c.reset}`,
+  `           ${c.mid}\u2593\u2593\u2593\u2593\u2593\u2593\u2593${c.reset}`,
+  `           ${c.mid}\u2593\u2593\u2593\u2593\u2593${c.light}\u2591${c.reset}`,
+  `           ${c.mid}\u2593\u2593\u2593${c.light}\u2591${c.reset}`,
+  `           ${c.mid}\u2593\u2593${c.light}\u2591${c.reset}`,
   ``,
-  `    nano-supabase  •  local dev server`,
+  `    nano-supabase  \u2022  local dev server`,
 ].join("\n");
 
 process.stdout.write(logo + "\n\n");
 process.stdout.write(
-  box("🌐 API", [
+  box("\ud83c\udf10 API", [
     ["URL", `http://localhost:${httpPort}`],
     ["REST", `http://localhost:${httpPort}/rest/v1`],
     ["Auth", `http://localhost:${httpPort}/auth/v1`],
     ["Storage", `http://localhost:${httpPort}/storage/v1`],
   ]) + "\n\n",
 );
-process.stdout.write(box("🗄️  Database", [["URL", pgUrl]]) + "\n\n");
+process.stdout.write(box("\ud83d\uddc4\ufe0f  Database", [["URL", pgUrl]]) + "\n\n");
 process.stdout.write(
-  box("🔑 Auth Keys", [
+  box("\ud83d\udd11 Auth Keys", [
     ["Anon key", DEFAULT_ANON_KEY],
     ["Service role key", serviceRoleKey],
   ]) + "\n\n",
 );
+
 if (mcp) {
   const mcpSseUrl = `http://localhost:${mcpPort}/sse`;
-  const mcpProc = Bun.spawn({
-    cmd: [
-      "bunx",
-      "@supabase/mcp-server-supabase",
-      "--access-token",
-      serviceRoleKey,
-      "--api-url",
-      `http://127.0.0.1:${httpPort}`,
-      "--project-ref",
-      "local",
-      "--features",
-      "database,storage,development,debugging",
-    ],
-    stdin: "pipe",
-    stdout: "pipe",
-    stderr: "inherit",
+  const mcpProc = spawn("npx", [
+    "@supabase/mcp-server-supabase",
+    "--access-token", serviceRoleKey,
+    "--api-url", `http://127.0.0.1:${httpPort}`,
+    "--project-ref", "local",
+    "--features", "database,storage,development,debugging",
+  ], {
+    stdio: ["pipe", "pipe", "inherit"],
   });
 
-  const sseClients = new Map<string, ReadableStreamDefaultController<string>>();
+  const sseClients = new Map<string, { enqueue: (s: string) => void }>();
 
   (async () => {
-    const reader = mcpProc.stdout.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split("\n");
-      buffer = lines.pop() ?? "";
+    for await (const chunk of mcpProc.stdout!) {
+      const lines = (chunk as Buffer).toString().split("\n");
       for (const line of lines) {
         if (!line.trim()) continue;
-        for (const controller of sseClients.values()) {
-          controller.enqueue(`data: ${line}\n\n`);
+        for (const client of sseClients.values()) {
+          client.enqueue(`data: ${line}\n\n`);
         }
       }
     }
   })();
 
-  Bun.serve({
-    port: mcpPort,
-    idleTimeout: 0,
-    fetch: async (req) => {
-      const url = new URL(req.url);
-      if (url.pathname === "/.well-known/oauth-authorization-server" || url.pathname === "/.well-known/openid-configuration") {
-        return new Response(JSON.stringify({ error: "not_supported" }), {
-          status: 404,
-          headers: { "Content-Type": "application/json" },
-        });
-      }
-      if (req.method === "GET" && url.pathname === "/sse") {
-        const sid = crypto.randomUUID();
-        const stream = new ReadableStream<string>({
-          start(controller) {
-            sseClients.set(sid, controller);
-            controller.enqueue(`event: endpoint\ndata: /message?sessionId=${sid}\n\n`);
-            req.signal.addEventListener("abort", () => sseClients.delete(sid));
-          },
-        });
-        return new Response(stream, {
-          headers: {
-            "Content-Type": "text/event-stream",
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-          },
-        });
-      }
-      if (req.method === "POST" && url.pathname === "/message") {
-        const body = await req.text();
-        mcpProc.stdin!.write(body + "\n");
-        await mcpProc.stdin!.flush();
-        return new Response(null, { status: 202 });
-      }
-      return new Response("Not found", { status: 404 });
-    },
+  const mcpServer = createServer(async (nodeReq, nodeRes) => {
+    const url = new URL(`http://localhost:${mcpPort}${nodeReq.url}`);
+
+    if (url.pathname === "/.well-known/oauth-authorization-server" || url.pathname === "/.well-known/openid-configuration") {
+      nodeRes.writeHead(404, { "Content-Type": "application/json" });
+      nodeRes.end(JSON.stringify({ error: "not_supported" }));
+      return;
+    }
+
+    if (nodeReq.method === "GET" && url.pathname === "/sse") {
+      const sid = crypto.randomUUID();
+      nodeRes.writeHead(200, {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive",
+      });
+      nodeRes.write(`event: endpoint\ndata: /message?sessionId=${sid}\n\n`);
+      sseClients.set(sid, { enqueue: (s: string) => nodeRes.write(s) });
+      nodeReq.on("close", () => sseClients.delete(sid));
+      return;
+    }
+
+    if (nodeReq.method === "POST" && url.pathname === "/message") {
+      const chunks: Buffer[] = [];
+      for await (const chunk of nodeReq) chunks.push(chunk as Buffer);
+      const body = Buffer.concat(chunks).toString();
+      mcpProc.stdin!.write(body + "\n");
+      nodeRes.writeHead(202);
+      nodeRes.end();
+      return;
+    }
+
+    nodeRes.writeHead(404);
+    nodeRes.end("Not found");
   });
+  mcpServer.listen(mcpPort);
 
   process.stdout.write(
-    box("🤖 MCP Server", [
+    box("\ud83e\udd16 MCP Server", [
       ["Transport", "SSE"],
       ["URL", mcpSseUrl],
       ["Add to Claude Code", `claude mcp add --transport sse nano-supabase ${mcpSseUrl}`],
@@ -770,19 +1057,13 @@ if (mcp) {
 
 function cleanup(): void {
   if (pidFile) {
-    try {
-      unlinkSync(pidFile);
-    } catch {}
+    unlink(pidFile).catch(() => {});
   }
-  try {
-    unlinkSync(join(tmpDir, "pgcrypto.tar.gz"));
-    unlinkSync(join(tmpDir, "uuid-ossp.tar.gz"));
-  } catch {}
 }
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.on(signal, async () => {
-    server.stop();
+    server.close();
     await nano.stop();
     cleanup();
     process.exit(0);

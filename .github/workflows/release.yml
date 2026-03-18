@@ -6,65 +6,42 @@ on:
       - "v*"
 
 jobs:
-  build:
-    name: Build ${{ matrix.target }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        include:
-          - target: bun-darwin-arm64
-            os: macos-latest
-            bun_target: bun-darwin-arm64
-            binary: nano-supabase-darwin-arm64
-          - target: bun-darwin-x64
-            os: macos-13
-            bun_target: bun-darwin-x64
-            binary: nano-supabase-darwin-x64
-          - target: bun-linux-x64-musl
-            os: ubuntu-latest
-            bun_target: bun-linux-x64-musl
-            binary: nano-supabase-linux-x64
-          - target: bun-linux-arm64-musl
-            os: ubuntu-latest
-            bun_target: bun-linux-arm64-musl
-            binary: nano-supabase-linux-arm64
-          - target: bun-windows-x64
-            os: ubuntu-latest
-            bun_target: bun-windows-x64
-            binary: nano-supabase-windows-x64.exe
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
 
     steps:
       - uses: actions/checkout@v6
 
-      - uses: oven-sh/setup-bun@v2
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
 
       - name: Install dependencies
-        run: bun install
+        run: npm install
 
-      - name: Build binary
-        run: bun build src/cli.ts --compile --outfile dist/${{ matrix.binary }} --target ${{ matrix.bun_target }}
+      - name: Build
+        run: npm run build
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.binary }}
-          path: dist/${{ matrix.binary }}
+      - name: Run tests
+        run: bun test tests/
 
-  release:
-    name: Create Release
-    needs: build
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
+      - name: Run CLI tests
+        run: bun test tests/cli.test.ts
 
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          path: dist
-          merge-multiple: true
+      - name: Publish to npm
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/*
           generate_release_notes: true

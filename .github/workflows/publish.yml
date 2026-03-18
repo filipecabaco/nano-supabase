@@ -27,6 +27,9 @@ jobs:
       - name: Run tests
         run: bun test tests/
 
+      - name: Run CLI tests
+        run: bun test tests/cli.test.ts
+
   publish:
     needs: build-and-test
     runs-on: ubuntu-latest

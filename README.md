@@ -14,22 +14,20 @@ bun add github:filipecabaco/nano-supabase @electric-sql/pglite
 
 `@electric-sql/pglite` is a peer dependency and must be installed separately.
 
-### As a CLI (single binary)
+### As a CLI
 
-Install globally with bun (compiles a self-contained binary for your platform):
+Install globally with npm (works on Node.js 18+, including Claude Code cloud environments):
 
 ```bash
-bun install -g github:filipecabaco/nano-supabase
+npm install -g nano-supabase
 nano-supabase start
 ```
 
-Or download and run the binary directly:
+Or run without installing:
 
 ```bash
-./nano-supabase start
+npx nano-supabase start
 ```
-
-The binary (~78MB) bundles the Bun runtime — no external dependencies required.
 
 ## Quick Start
 
@@ -180,7 +178,9 @@ Vite's dev server pre-bundles dependencies with esbuild, which breaks PGlite's W
 
 ## Runtime Compatibility
 
-Node.js, Deno, Bun, browsers, Cloudflare Workers, Vercel Edge. Uses Web Crypto API only.
+**Library**: Node.js, Deno, Bun, browsers, Cloudflare Workers, Vercel Edge. Uses Web Crypto API only.
+
+**CLI**: Node.js 18+ required. Works in any environment where `npm install -g` runs, including Claude Code cloud containers.
 
 ## Demo
 
@@ -248,13 +248,13 @@ pnpm example:prisma    # run the demo
 ## Development
 
 ```bash
-pnpm install
-pnpm run build           # esbuild -> dist/
+bun install
+node scripts/build.js    # esbuild -> dist/ (library + CLI)
 bun test tests/          # run tests
-pnpm run example:basic   # pooler demo
-pnpm run example:server  # TCP wire protocol server
-pnpm prisma:generate     # generate Prisma client (run once)
-pnpm run example:prisma  # Prisma + PGlite demo
+bun run example:basic    # pooler demo
+bun run example:server   # TCP wire protocol server
+bun run prisma:generate  # generate Prisma client (run once)
+bun run example:prisma   # Prisma + PGlite demo
 ```
 
 ## License

@@ -13,12 +13,14 @@
       "default": "./dist/index.js"
     }
   },
+  "bin": {
+    "nano-supabase": "./dist/cli.js"
+  },
   "files": [
     "dist"
   ],
   "scripts": {
-    "build": "npm run build:bundle && npm run build:types",
-    "build:bundle": "node scripts/build.js",
+    "build": "node scripts/build.js && npm run build:types",
     "build:types": "tsc --emitDeclarationOnly",
     "build:dev": "tsc",
     "clean": "rm -rf dist",
@@ -35,8 +37,7 @@
     "example:parser": "bun run examples/postgrest-parser.ts",
     "example:prisma": "tsx examples/prisma-tcp.ts",
     "prisma:generate": "prisma generate --schema=examples/prisma/schema.prisma",
-    "build:cli": "bun build src/cli.ts --compile --outfile dist/nano-supabase --target bun",
-    "cli": "bun run src/cli.ts"
+    "cli": "node dist/cli.js"
   },
   "keywords": [
     "pglite",
