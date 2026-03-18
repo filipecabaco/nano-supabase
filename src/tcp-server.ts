@@ -1,4 +1,5 @@
 import { createServer, type Server, type Socket } from "node:net";
+import { Buffer } from "node:buffer";
 import type { PGlite } from "@electric-sql/pglite";
 import { PGlitePooler } from "./pooler.ts";
 import { AuthHandler } from "./auth/handler.ts";
