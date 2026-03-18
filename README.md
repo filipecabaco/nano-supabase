@@ -177,32 +177,22 @@ Generates TypeScript types from the current database schema, compatible with `@s
 
 ### Sync
 
-Sync migrations and storage buckets between a local nano-supabase instance and a remote Supabase project (hosted or Supabase CLI local stack).
+Sync migrations between a local nano-supabase instance and a remote Supabase project (hosted or Supabase CLI local stack).
 
 ```bash
-# Push local migrations and buckets to a remote project
-nano-supabase sync push \
-  --remote-db-url=postgresql://postgres:password@db.project.supabase.co:5432/postgres \
-  --remote-url=https://project.supabase.co \
-  --remote-service-role-key=<key>
+# Push local migrations to a remote project
+nano-supabase sync push --remote-db-url=postgresql://postgres:password@db.project.supabase.co:5432/postgres
 
-# Pull remote schema and buckets into local instance
-nano-supabase sync pull \
-  --remote-db-url=postgresql://postgres:password@db.project.supabase.co:5432/postgres \
-  --remote-url=https://project.supabase.co \
-  --remote-service-role-key=<key>
+# Pull remote schema into local instance
+nano-supabase sync pull --remote-db-url=postgresql://postgres:password@db.project.supabase.co:5432/postgres
 
 # Preview without applying
-nano-supabase sync push --dry-run ...
-
-# Skip migrations or storage independently
-nano-supabase sync push --no-migrations ...
-nano-supabase sync pull --no-storage ...
+nano-supabase sync push --dry-run --remote-db-url=<url>
 ```
 
 Sync detects whether the remote uses Supabase CLI's `supabase_migrations.schema_migrations` table or nano-supabase's `_nano_migrations` table and adapts accordingly.
 
-Environment variables substitute flags: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_DB_URL`.
+Environment variable substitute flag: `SUPABASE_DB_URL`.
 
 ### MCP Server
 

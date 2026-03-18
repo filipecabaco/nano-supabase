@@ -512,235 +512,183 @@ async function connectPg(dbUrl: string): Promise<pg.Client> {
   return client;
 }
 
-async function detectRemoteMigrationTable(client: pg.Client): Promise<"supabase" | "nano"> {
-  const res = await client.query<{ schema_name: string }>(
-    `SELECT schema_name FROM information_schema.schemata WHERE schema_name = 'supabase_migrations'`,
-  );
-  return res.rows.length > 0 ? "supabase" : "nano";
-}
 
-async function getRemoteAppliedMigrations(client: pg.Client, kind: "supabase" | "nano"): Promise<Set<string>> {
-  if (kind === "supabase") {
-    const res = await client.query<{ name: string }>(
-      `SELECT name FROM supabase_migrations.schema_migrations ORDER BY name`,
-    );
-    return new Set(res.rows.map((r) => r.name));
-  }
-  await client.query(
-    `CREATE TABLE IF NOT EXISTS _nano_migrations (name TEXT PRIMARY KEY, applied_at TIMESTAMPTZ DEFAULT NOW())`,
-  );
-  const res = await client.query<{ name: string }>(
-    `SELECT name FROM _nano_migrations ORDER BY name`,
-  );
-  return new Set(res.rows.map((r) => r.name));
-}
-
-async function recordRemoteMigration(client: pg.Client, name: string, kind: "supabase" | "nano"): Promise<void> {
-  if (kind === "supabase") {
-    await client.query(
-      `INSERT INTO supabase_migrations.schema_migrations (name) VALUES ($1) ON CONFLICT (name) DO NOTHING`,
-      [name],
-    );
-  } else {
-    await client.query(
-      `INSERT INTO _nano_migrations (name) VALUES ($1) ON CONFLICT (name) DO NOTHING`,
-      [name],
-    );
-  }
-}
+const MIGRATION_FILE_PATTERN = /^(\d+)_.*\.sql$/;
 
 export async function cmdSyncPush(args: string[]): Promise<{ exitCode: number; output: string }> {
   const json = args.includes("--json");
   const dryRun = args.includes("--dry-run");
-  const skipMigrations = args.includes("--no-migrations");
-  const skipStorage = args.includes("--no-storage");
 
-  const localUrl = getUrl(args);
-  const localKey = getServiceRoleKey(args);
-  const remoteUrl = getArgValue(args, "--remote-url") ?? process.env.SUPABASE_URL;
-  const remoteKey = getArgValue(args, "--remote-service-role-key") ?? process.env.SUPABASE_SERVICE_ROLE_KEY;
   const remoteDbUrl = getArgValue(args, "--remote-db-url") ?? process.env.SUPABASE_DB_URL;
   const migrationsDir = getArgValue(args, "--migrations-dir") ?? DEFAULT_MIGRATIONS_DIR;
 
-  if (!remoteDbUrl && !skipMigrations) return fail("missing_remote_db_url", "Provide --remote-db-url for migrations sync", json);
-  if (!remoteUrl && !skipStorage) return fail("missing_remote_url", "Provide --remote-url for storage sync", json);
-  if (!remoteKey && !skipStorage) return fail("missing_remote_key", "Provide --remote-service-role-key for storage sync", json);
+  if (!remoteDbUrl) return fail("missing_remote_db_url", "Provide --remote-db-url", json);
 
-  const result = { migrations: { applied: 0, skipped: 0 }, storage: { buckets: 0 } };
+  const localUrl = getUrl(args);
+  const localKey = getServiceRoleKey(args);
+  const result = { migrations: { applied: 0, skipped: 0 }, buckets: { upserted: 0 } };
 
-  if (!skipMigrations && remoteDbUrl) {
-    const localFiles = existsSync(migrationsDir)
-      ? readdirSync(migrationsDir).filter((f) => f.endsWith(".sql")).sort()
-      : [];
+  const localFiles = existsSync(migrationsDir)
+    ? readdirSync(migrationsDir).filter((f) => MIGRATION_FILE_PATTERN.test(f)).sort()
+    : [];
 
-    let client: pg.Client | undefined;
-    try {
-      client = await connectPg(remoteDbUrl);
-      const kind = await detectRemoteMigrationTable(client);
-      const applied = await getRemoteAppliedMigrations(client, kind);
-      const pending = localFiles.filter((f) => !applied.has(f));
-      result.migrations.skipped = localFiles.length - pending.length;
+  let client: pg.Client | undefined;
+  try {
+    client = await connectPg(remoteDbUrl);
 
-      for (const file of pending) {
-        const sql = await readFile(join(migrationsDir, file), "utf8");
-        if (!dryRun) {
-          await client.query(sql);
-          await recordRemoteMigration(client, file, kind);
-        }
-        result.migrations.applied++;
+    await client.query(`CREATE SCHEMA IF NOT EXISTS supabase_migrations`);
+    await client.query(
+      `CREATE TABLE IF NOT EXISTS supabase_migrations.schema_migrations (
+        version text NOT NULL PRIMARY KEY,
+        name text,
+        statements text[]
+      )`,
+    );
+
+    const appliedRes = await client.query<{ version: string }>(
+      `SELECT version FROM supabase_migrations.schema_migrations ORDER BY version`,
+    );
+    const applied = new Set(appliedRes.rows.map((r) => r.version));
+
+    for (const file of localFiles) {
+      const match = file.match(MIGRATION_FILE_PATTERN)!;
+      const version = match[1];
+      const name = file.replace(/\.sql$/, "").slice(version.length + 1);
+
+      if (applied.has(version)) {
+        result.migrations.skipped++;
+        continue;
       }
-    } catch (e: unknown) {
-      if (client) await client.end().catch(() => {});
-      return fail("migration_failed", e instanceof Error ? e.message : String(e), json);
-    }
-    await client.end().catch(() => {});
-  }
 
-  if (!skipStorage && remoteUrl && remoteKey) {
-    try {
-      const bucketsRes = await fetch(`${localUrl}/storage/v1/bucket`, { headers: adminHeaders(localKey) });
-      const buckets = (await bucketsRes.json()) as Array<{ id: string; name: string; public: boolean }>;
-
-      const remoteBucketsRes = await fetch(`${remoteUrl}/storage/v1/bucket`, { headers: adminHeaders(remoteKey) });
-      const remoteBuckets = (await remoteBucketsRes.json()) as Array<{ id: string; name: string }>;
-      const remoteBucketNames = new Set(remoteBuckets.map((b) => b.name));
-
-      for (const bucket of buckets) {
-        if (!remoteBucketNames.has(bucket.name)) {
-          if (!dryRun) {
-            await fetch(`${remoteUrl}/storage/v1/bucket`, {
-              method: "POST",
-              headers: adminHeaders(remoteKey),
-              body: JSON.stringify({ id: bucket.name, name: bucket.name, public: bucket.public }),
-            });
-          }
-          result.storage.buckets++;
-        }
+      const sql = await readFile(join(migrationsDir, file), "utf8");
+      if (!dryRun) {
+        await client.query(sql);
+        await client.query(
+          `INSERT INTO supabase_migrations.schema_migrations(version, name, statements)
+           VALUES($1, $2, $3)`,
+          [version, name, sql.split(";").map((s) => s.trim()).filter(Boolean)],
+        );
       }
-    } catch (e: unknown) {
-      return fail("storage_failed", e instanceof Error ? e.message : String(e), json);
+      result.migrations.applied++;
     }
-  }
 
-  const target = remoteUrl ?? remoteDbUrl ?? "remote";
+    const localBucketsRes = await fetch(`${localUrl}/storage/v1/bucket`, { headers: adminHeaders(localKey) });
+    const localBuckets = (await localBucketsRes.json()) as Array<{ id: string; name: string; public: boolean; file_size_limit: number | null; allowed_mime_types: string[] | null }>;
+
+    for (const bucket of localBuckets) {
+      if (!dryRun) {
+        await client.query(
+          `INSERT INTO storage.buckets(id, name, public, file_size_limit, allowed_mime_types)
+           VALUES($1, $2, $3, $4, $5)
+           ON CONFLICT (id) DO UPDATE SET
+             name = EXCLUDED.name,
+             public = EXCLUDED.public,
+             file_size_limit = EXCLUDED.file_size_limit,
+             allowed_mime_types = EXCLUDED.allowed_mime_types,
+             updated_at = now()`,
+          [bucket.id, bucket.name, bucket.public, bucket.file_size_limit, bucket.allowed_mime_types],
+        );
+      }
+      result.buckets.upserted++;
+    }
+  } catch (e: unknown) {
+    if (client) await client.end().catch(() => {});
+    return fail("sync_failed", e instanceof Error ? e.message : String(e), json);
+  }
+  await client.end().catch(() => {});
+
   const text = [
-    `Sync push to ${target}${dryRun ? " (dry run)" : ""}`,
+    `Sync push to ${remoteDbUrl}${dryRun ? " (dry run)" : ""}`,
     ``,
     `Migrations:  ${result.migrations.applied} applied, ${result.migrations.skipped} skipped`,
-    `Storage:     ${result.storage.buckets} buckets created`,
+    `Buckets:     ${result.buckets.upserted} upserted`,
   ].join("\n");
   return ok(result, json, text);
 }
 
+const EXCLUDED_SCHEMAS = [
+  "pg_catalog", "information_schema", "pg_toast",
+  "auth", "storage", "realtime", "supabase_functions", "supabase_migrations",
+  "extensions", "pgbouncer",
+  "cron", "dbdev", "graphql", "graphql_public", "net", "pgmq",
+  "pgsodium", "pgtle", "repack", "tiger", "tiger_data", "topology", "vault",
+  "_analytics", "_realtime", "_supavisor",
+];
+
 export async function cmdSyncPull(args: string[]): Promise<{ exitCode: number; output: string }> {
   const json = args.includes("--json");
   const dryRun = args.includes("--dry-run");
-  const skipMigrations = args.includes("--no-migrations");
-  const skipStorage = args.includes("--no-storage");
 
-  const localUrl = getUrl(args);
-  const localKey = getServiceRoleKey(args);
-  const remoteUrl = getArgValue(args, "--remote-url") ?? process.env.SUPABASE_URL;
-  const remoteKey = getArgValue(args, "--remote-service-role-key") ?? process.env.SUPABASE_SERVICE_ROLE_KEY;
   const remoteDbUrl = getArgValue(args, "--remote-db-url") ?? process.env.SUPABASE_DB_URL;
   const migrationsDir = getArgValue(args, "--migrations-dir") ?? DEFAULT_MIGRATIONS_DIR;
 
-  if (!remoteDbUrl && !skipMigrations) return fail("missing_remote_db_url", "Provide --remote-db-url for migrations sync", json);
-  if (!remoteUrl && !skipStorage) return fail("missing_remote_url", "Provide --remote-url for storage sync", json);
-  if (!remoteKey && !skipStorage) return fail("missing_remote_key", "Provide --remote-service-role-key for storage sync", json);
+  if (!remoteDbUrl) return fail("missing_remote_db_url", "Provide --remote-db-url", json);
 
-  const result = { migrations: { written: 0 }, storage: { buckets: 0 } };
+  const localUrl = getUrl(args);
+  const localKey = getServiceRoleKey(args);
+  const result = { migrations: { written: 0 }, buckets: { upserted: 0 } };
 
-  if (!skipMigrations && remoteDbUrl) {
-    let client: pg.Client | undefined;
-    try {
-      client = await connectPg(remoteDbUrl);
+  let client: pg.Client | undefined;
+  try {
+    client = await connectPg(remoteDbUrl);
 
-      const localAppliedRes = await fetch(`${localUrl}/admin/v1/migrations`, { headers: adminHeaders(localKey) });
-      const localAppliedData = (await localAppliedRes.json()) as { migrations: Array<{ name: string }> };
-      const localApplied = new Set((localAppliedData.migrations ?? []).map((m) => m.name));
+    const schemaRes = await client.query<{ table_schema: string; table_name: string; column_name: string; data_type: string; is_nullable: string }>(
+      `SELECT table_schema, table_name, column_name, data_type, is_nullable
+       FROM information_schema.columns
+       WHERE table_schema NOT IN (${EXCLUDED_SCHEMAS.map((_, i) => `$${i + 1}`).join(", ")})
+       ORDER BY table_schema, table_name, ordinal_position`,
+      EXCLUDED_SCHEMAS,
+    );
 
-      const remoteKind = await detectRemoteMigrationTable(client);
-      const remoteApplied = await getRemoteAppliedMigrations(client, remoteKind);
-      const missing = [...remoteApplied].filter((name) => !localApplied.has(name));
-
-      if (missing.length > 0) {
-        const schemaRes = await client.query<{ table_name: string; column_name: string; data_type: string; is_nullable: string }>(
-          `SELECT table_name, column_name, data_type, is_nullable
-           FROM information_schema.columns
-           WHERE table_schema = 'public'
-           ORDER BY table_name, ordinal_position`,
-        );
-
-        const tables: Record<string, string[]> = {};
-        for (const row of schemaRes.rows) {
-          if (!tables[row.table_name]) tables[row.table_name] = [];
-          tables[row.table_name].push(`  ${row.column_name} ${row.data_type}${row.is_nullable === "NO" ? " NOT NULL" : ""}`);
-        }
-        const ddl = Object.entries(tables)
-          .map(([name, cols]) => `CREATE TABLE IF NOT EXISTS ${name} (\n${cols.join(",\n")}\n);`)
-          .join("\n\n");
-
-        const timestamp = new Date().toISOString().replace(/[-:T.Z]/g, "").slice(0, 14);
-        const filename = `${timestamp}_pulled_schema.sql`;
-        const filePath = join(migrationsDir, filename);
-
-        if (!dryRun) {
-          await writeFile(filePath, ddl);
-          await fetch(`${localUrl}/admin/v1/migrations/applied`, {
-            method: "POST",
-            headers: adminHeaders(localKey),
-            body: JSON.stringify({ name: filename }),
-          });
-          for (const name of missing) {
-            await fetch(`${localUrl}/admin/v1/migrations/applied`, {
-              method: "POST",
-              headers: adminHeaders(localKey),
-              body: JSON.stringify({ name }),
-            });
-          }
-        }
-        result.migrations.written = 1;
-      }
-    } catch (e: unknown) {
-      if (client) await client.end().catch(() => {});
-      return fail("migration_failed", e instanceof Error ? e.message : String(e), json);
+    const tables: Record<string, string[]> = {};
+    for (const row of schemaRes.rows) {
+      const key = `${row.table_schema}.${row.table_name}`;
+      if (!tables[key]) tables[key] = [];
+      tables[key].push(`  ${row.column_name} ${row.data_type}${row.is_nullable === "NO" ? " NOT NULL" : ""}`);
     }
-    await client.end().catch(() => {});
-  }
 
-  if (!skipStorage && remoteUrl && remoteKey) {
-    try {
-      const remoteBucketsRes = await fetch(`${remoteUrl}/storage/v1/bucket`, { headers: adminHeaders(remoteKey) });
-      const remoteBuckets = (await remoteBucketsRes.json()) as Array<{ id: string; name: string; public: boolean }>;
+    const ddl = Object.entries(tables)
+      .map(([key, cols]) => {
+        const [schema, name] = key.split(".");
+        const qualified = schema === "public" ? name : `${schema}.${name}`;
+        return `CREATE TABLE IF NOT EXISTS ${qualified} (\n${cols.join(",\n")}\n);`;
+      })
+      .join("\n\n");
 
-      const localBucketsRes = await fetch(`${localUrl}/storage/v1/bucket`, { headers: adminHeaders(localKey) });
-      const localBuckets = (await localBucketsRes.json()) as Array<{ id: string; name: string }>;
-      const localBucketNames = new Set(localBuckets.map((b) => b.name));
+    const timestamp = new Date().toISOString().replace(/[-:T.Z]/g, "").slice(0, 14);
+    const filename = `${timestamp}_pulled_schema.sql`;
+    const filePath = join(migrationsDir, filename);
 
-      for (const bucket of remoteBuckets) {
-        if (!localBucketNames.has(bucket.name)) {
-          if (!dryRun) {
-            await fetch(`${localUrl}/storage/v1/bucket`, {
-              method: "POST",
-              headers: adminHeaders(localKey),
-              body: JSON.stringify({ id: bucket.name, name: bucket.name, public: bucket.public }),
-            });
-          }
-          result.storage.buckets++;
-        }
-      }
-    } catch (e: unknown) {
-      return fail("storage_failed", e instanceof Error ? e.message : String(e), json);
+    if (!dryRun) {
+      await writeFile(filePath, ddl);
     }
-  }
+    result.migrations.written = 1;
 
-  const source = remoteUrl ?? remoteDbUrl ?? "remote";
+    const remoteBucketsRes = await client.query<{ id: string; name: string; public: boolean; file_size_limit: number | null; allowed_mime_types: string[] | null }>(
+      `SELECT id, name, public, file_size_limit, allowed_mime_types FROM storage.buckets`,
+    );
+
+    for (const bucket of remoteBucketsRes.rows) {
+      if (!dryRun) {
+        await fetch(`${localUrl}/storage/v1/bucket`, {
+          method: "POST",
+          headers: { ...adminHeaders(localKey), "Content-Type": "application/json" },
+          body: JSON.stringify({ id: bucket.id, name: bucket.name, public: bucket.public, fileSizeLimit: bucket.file_size_limit, allowedMimeTypes: bucket.allowed_mime_types }),
+        });
+      }
+      result.buckets.upserted++;
+    }
+  } catch (e: unknown) {
+    if (client) await client.end().catch(() => {});
+    return fail("sync_failed", e instanceof Error ? e.message : String(e), json);
+  }
+  await client.end().catch(() => {});
+
   const text = [
-    `Sync pull from ${source}${dryRun ? " (dry run)" : ""}`,
+    `Sync pull from ${remoteDbUrl}${dryRun ? " (dry run)" : ""}`,
     ``,
     `Migrations:  ${result.migrations.written} file(s) written`,
-    `Storage:     ${result.storage.buckets} buckets created`,
+    `Buckets:     ${result.buckets.upserted} upserted`,
   ].join("\n");
   return ok(result, json, text);
 }

@@ -124,12 +124,12 @@ npx nano-supabase migration new add_todos
 npx nano-supabase migration up
 npx nano-supabase gen types --output types.ts
 
-# Sync with hosted Supabase project
-npx nano-supabase sync push --remote-db-url=<url> --remote-url=<url> --remote-service-role-key=<key>
-npx nano-supabase sync pull --remote-db-url=<url> --remote-url=<url> --remote-service-role-key=<key>
+# Sync migrations with hosted Supabase project
+npx nano-supabase sync push --remote-db-url=<url>
+npx nano-supabase sync pull --remote-db-url=<url>
 ```
 
-Environment variables: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_DB_URL`.
+Environment variables: `SUPABASE_DB_URL` (substitutes `--remote-db-url` for sync commands).
 
 ## MCP Server
 
