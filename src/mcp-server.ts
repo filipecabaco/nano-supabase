@@ -39,6 +39,276 @@ async function ensureMigrationsTable(db: NanoSupabaseInstance["db"]): Promise<vo
   `);
 }
 
+interface LintResult {
+  name: string;
+  title: string;
+  level: string;
+  categories: string[];
+  description: string;
+  detail?: string;
+  schema?: string;
+  table?: string;
+  metadata?: Record<string, unknown>;
+}
+
+const LINT_SQL = /* SQL */ `
+set local search_path = '';
+
+(
+with foreign_keys as (
+    select
+        cl.relnamespace::regnamespace::text as schema_name,
+        cl.relname as table_name,
+        cl.oid as table_oid,
+        ct.conname as fkey_name,
+        ct.conkey as col_attnums
+    from
+        pg_catalog.pg_constraint ct
+        join pg_catalog.pg_class cl
+            on ct.conrelid = cl.oid
+        left join pg_catalog.pg_depend d
+            on d.objid = cl.oid
+            and d.deptype = 'e'
+    where
+        ct.contype = 'f'
+        and d.objid is null
+        and cl.relnamespace::regnamespace::text not in (
+            'pg_catalog', 'information_schema', 'auth', 'storage', 'vault', 'extensions'
+        )
+),
+index_ as (
+    select
+        pi.indrelid as table_oid,
+        indexrelid::regclass as index_,
+        string_to_array(indkey::text, ' ')::smallint[] as col_attnums
+    from
+        pg_catalog.pg_index pi
+    where
+        indisvalid
+)
+select
+    'unindexed_foreign_keys' as name,
+    'Unindexed foreign keys' as title,
+    'INFO' as level,
+    'EXTERNAL' as facing,
+    array['PERFORMANCE'] as categories,
+    'Identifies foreign key constraints without a covering index, which can impact database performance.' as description,
+    format(
+        'Table \`%s.%s\` has a foreign key \`%s\` without a covering index. This can lead to slow queries.',
+        fk.schema_name,
+        fk.table_name,
+        fk.fkey_name
+    ) as detail,
+    fk.schema_name as schema,
+    fk.table_name as table,
+    jsonb_build_object('fkey_name', fk.fkey_name, 'fkey_columns', fk.col_attnums) as metadata
+from
+    foreign_keys fk
+    left join index_ idx
+        on fk.table_oid = idx.table_oid
+        and fk.col_attnums = idx.col_attnums
+where
+    idx.index_ is null
+)
+
+union all
+
+(
+select
+    'no_primary_key' as name,
+    'No primary key' as title,
+    'INFO' as level,
+    'EXTERNAL' as facing,
+    array['PERFORMANCE'] as categories,
+    'Tables without a primary key can be inefficient to interact with.' as description,
+    format(
+        'Table \`%s.%s\` does not have a primary key.',
+        n.nspname,
+        c.relname
+    ) as detail,
+    n.nspname::text as schema,
+    c.relname::text as table,
+    '{}'::jsonb as metadata
+from
+    pg_catalog.pg_class c
+    join pg_catalog.pg_namespace n on n.oid = c.relnamespace
+    left join pg_catalog.pg_index i on i.indrelid = c.oid and i.indisprimary
+    left join pg_catalog.pg_depend d on d.objid = c.oid and d.deptype = 'e'
+where
+    c.relkind = 'r'
+    and n.nspname not in ('pg_catalog', 'information_schema', 'auth', 'storage', 'vault', 'extensions', 'supabase_migrations')
+    and d.objid is null
+    and i.indrelid is null
+)
+
+union all
+
+(
+select
+    'rls_disabled_in_public' as name,
+    'RLS disabled in public' as title,
+    'WARN' as level,
+    'EXTERNAL' as facing,
+    array['SECURITY'] as categories,
+    'Tables in the public schema with RLS disabled.' as description,
+    format(
+        'Table \`%s.%s\` is in the public schema with RLS disabled. This is a security risk.',
+        n.nspname,
+        c.relname
+    ) as detail,
+    n.nspname::text as schema,
+    c.relname::text as table,
+    '{}'::jsonb as metadata
+from
+    pg_catalog.pg_class c
+    join pg_catalog.pg_namespace n on n.oid = c.relnamespace
+    left join pg_catalog.pg_depend d on d.objid = c.oid and d.deptype = 'e'
+where
+    c.relkind = 'r'
+    and n.nspname = 'public'
+    and d.objid is null
+    and not c.relrowsecurity
+)
+
+union all
+
+(
+select
+    'rls_enabled_no_policy' as name,
+    'RLS enabled with no policies' as title,
+    'WARN' as level,
+    'EXTERNAL' as facing,
+    array['SECURITY'] as categories,
+    'Tables with RLS enabled but no policies, blocking all access.' as description,
+    format(
+        'Table \`%s.%s\` has RLS enabled but no policies defined. All access is blocked.',
+        n.nspname,
+        c.relname
+    ) as detail,
+    n.nspname::text as schema,
+    c.relname::text as table,
+    '{}'::jsonb as metadata
+from
+    pg_catalog.pg_class c
+    join pg_catalog.pg_namespace n on n.oid = c.relnamespace
+    left join pg_catalog.pg_policy p on p.polrelid = c.oid
+    left join pg_catalog.pg_depend d on d.objid = c.oid and d.deptype = 'e'
+where
+    c.relkind = 'r'
+    and n.nspname not in ('pg_catalog', 'information_schema', 'auth', 'storage', 'vault', 'extensions')
+    and d.objid is null
+    and c.relrowsecurity
+    and p.polrelid is null
+)
+
+union all
+
+(
+select
+    'policy_exists_rls_disabled' as name,
+    'Policy exists but RLS is not enabled' as title,
+    'WARN' as level,
+    'EXTERNAL' as facing,
+    array['SECURITY'] as categories,
+    'Tables with RLS policies defined but RLS is not enabled, so policies have no effect.' as description,
+    format(
+        'Table \`%s.%s\` has RLS policies but RLS is not enabled.',
+        n.nspname,
+        c.relname
+    ) as detail,
+    n.nspname::text as schema,
+    c.relname::text as table,
+    '{}'::jsonb as metadata
+from
+    pg_catalog.pg_class c
+    join pg_catalog.pg_namespace n on n.oid = c.relnamespace
+    join pg_catalog.pg_policy p on p.polrelid = c.oid
+    left join pg_catalog.pg_depend d on d.objid = c.oid and d.deptype = 'e'
+where
+    c.relkind = 'r'
+    and n.nspname not in ('pg_catalog', 'information_schema', 'auth', 'storage', 'vault', 'extensions')
+    and d.objid is null
+    and not c.relrowsecurity
+group by n.nspname, c.relname
+)
+
+union all
+
+(
+select
+    'duplicate_index' as name,
+    'Duplicate index' as title,
+    'WARN' as level,
+    'EXTERNAL' as facing,
+    array['PERFORMANCE'] as categories,
+    'Identifies indexes that have the same definition as another index.' as description,
+    format(
+        'Index \`%s\` on \`%s.%s\` is a duplicate.',
+        a.indexrelid::regclass::text,
+        n.nspname,
+        c.relname
+    ) as detail,
+    n.nspname::text as schema,
+    c.relname::text as table,
+    jsonb_build_object('index_name', a.indexrelid::regclass::text) as metadata
+from
+    pg_catalog.pg_index a
+    join pg_catalog.pg_class c on a.indrelid = c.oid
+    join pg_catalog.pg_namespace n on c.relnamespace = n.oid
+    left join pg_catalog.pg_depend d on d.objid = c.oid and d.deptype = 'e'
+where
+    n.nspname not in ('pg_catalog', 'information_schema', 'auth', 'storage', 'vault', 'extensions')
+    and d.objid is null
+    and exists (
+        select 1
+        from pg_catalog.pg_index b
+        where a.indrelid = b.indrelid
+          and a.indexrelid != b.indexrelid
+          and a.indkey::text = b.indkey::text
+          and a.indclass::text = b.indclass::text
+          and a.indoption::text = b.indoption::text
+          and coalesce(a.indexprs::text, '') = coalesce(b.indexprs::text, '')
+          and coalesce(a.indpred::text, '') = coalesce(b.indpred::text, '')
+          and a.indexrelid::text > b.indexrelid::text
+    )
+)
+
+union all
+
+(
+select
+    'extension_in_public' as name,
+    'Extension in public schema' as title,
+    'WARN' as level,
+    'EXTERNAL' as facing,
+    array['SECURITY'] as categories,
+    'Extensions installed in the public schema can pose security risks.' as description,
+    format(
+        'Extension \`%s\` is installed in the public schema.',
+        e.extname
+    ) as detail,
+    n.nspname::text as schema,
+    e.extname::text as table,
+    '{}'::jsonb as metadata
+from
+    pg_catalog.pg_extension e
+    join pg_catalog.pg_namespace n on e.extnamespace = n.oid
+where
+    n.nspname = 'public'
+)
+`;
+
+async function runLints(db: NanoSupabaseInstance["db"]): Promise<LintResult[]> {
+  try {
+    const results = await db.exec(LINT_SQL);
+    const lastResult = results[results.length - 1];
+    if (!lastResult?.rows) return [];
+    return lastResult.rows as unknown as LintResult[];
+  } catch {
+    return [];
+  }
+}
+
 function buildPlatform(
   nano: NanoSupabaseInstance,
   config: McpServerConfig,
@@ -142,8 +412,14 @@ function buildPlatform(
 
     debugging: {
       async getLogs(_projectId: string, _options: unknown) { return []; },
-      async getSecurityAdvisors(_projectId: string) { return []; },
-      async getPerformanceAdvisors(_projectId: string) { return []; },
+      async getSecurityAdvisors(_projectId: string) {
+        const lints = await runLints(db);
+        return lints.filter((l) => l.categories.includes("SECURITY"));
+      },
+      async getPerformanceAdvisors(_projectId: string) {
+        const lints = await runLints(db);
+        return lints.filter((l) => l.categories.includes("PERFORMANCE"));
+      },
     },
   };
 }

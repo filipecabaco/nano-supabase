@@ -310,9 +310,11 @@ describe("MCP Server", () => {
     }
   });
 
-  test("get_advisors returns without error", async () => {
+  test("get_advisors security returns RLS lint for unprotected table", async () => {
     const nano = await nanoSupabase();
     try {
+      await nano.db.exec("CREATE TABLE public.advisor_test (id serial primary key, name text);");
+
       const handler = makeHandler(nano);
       const sessionId = await initSession(handler);
 
@@ -330,7 +332,39 @@ describe("MCP Server", () => {
 
       const data = await callRes.json();
       assertExists(data.result);
-      assertExists(data.result.content);
+      const text = data.result.content.find((c: { type: string }) => c.type === "text").text;
+      assertEquals(text.includes("rls_disabled_in_public"), true);
+      assertEquals(text.includes("advisor_test"), true);
+    } finally {
+      await nano.stop();
+    }
+  });
+
+  test("get_advisors performance returns no_primary_key lint", async () => {
+    const nano = await nanoSupabase();
+    try {
+      await nano.db.exec("CREATE TABLE public.no_pk_test (name text);");
+
+      const handler = makeHandler(nano);
+      const sessionId = await initSession(handler);
+
+      const callRes = await sendMcpRequest(
+        handler,
+        {
+          jsonrpc: "2.0",
+          id: 2,
+          method: "tools/call",
+          params: { name: "get_advisors", arguments: { type: "performance" } },
+        },
+        sessionId,
+      );
+      assertEquals(callRes.status, 200);
+
+      const data = await callRes.json();
+      assertExists(data.result);
+      const text = data.result.content.find((c: { type: string }) => c.type === "text").text;
+      assertEquals(text.includes("no_primary_key"), true);
+      assertEquals(text.includes("no_pk_test"), true);
     } finally {
       await nano.stop();
     }
