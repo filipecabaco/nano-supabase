@@ -7,6 +7,22 @@ on:
     branches: [main]
 
 jobs:
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
   build:
     runs-on: ubuntu-latest
     steps:
@@ -42,6 +58,8 @@ jobs:
             files: tests/fetch-adapter.test.ts
           - name: applications
             files: tests/applications.test.ts tests/full-user-flow.test.ts
+          - name: mcp
+            files: tests/mcp-server.test.ts
 
     name: bun / ${{ matrix.concern.name }}
     steps:
