@@ -131,6 +131,14 @@ npx nano-supabase sync pull --remote-db-url=<url>
 
 Environment variables: `SUPABASE_DB_URL` (substitutes `--remote-db-url` for sync commands).
 
+## Sync Pull behavior
+
+`sync pull` snapshots the remote schema into a timestamped migration file:
+
+- If `supabase_migrations.schema_migrations` exists on the remote, it reconstructs DDL from `information_schema.columns` (excludes internal Supabase schemas).
+- If that table is absent (e.g. a plain Postgres DB or non-Supabase host), it falls back to `pg_dump --schema-only --no-owner --no-acl --schema=public`. Requires `pg_dump` to be installed on the host machine.
+- No file is written if the resulting DDL is empty.
+
 ## MCP Server
 
 The CLI exposes an MCP server on `/mcp` (Streamable HTTP transport) when started with `--mcp`. Powered by `@supabase/mcp-server-supabase`.

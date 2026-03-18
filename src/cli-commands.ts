@@ -1,6 +1,7 @@
 import { existsSync, readdirSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { spawnSync } from "node:child_process";
 import pg from "pg";
 
 const DEFAULT_URL = "http://localhost:54321";
@@ -632,37 +633,58 @@ export async function cmdSyncPull(args: string[]): Promise<{ exitCode: number; o
   try {
     client = await connectPg(remoteDbUrl);
 
-    const schemaRes = await client.query<{ table_schema: string; table_name: string; column_name: string; data_type: string; is_nullable: string }>(
-      `SELECT table_schema, table_name, column_name, data_type, is_nullable
-       FROM information_schema.columns
-       WHERE table_schema NOT IN (${EXCLUDED_SCHEMAS.map((_, i) => `$${i + 1}`).join(", ")})
-       ORDER BY table_schema, table_name, ordinal_position`,
-      EXCLUDED_SCHEMAS,
+    const migTableRes = await client.query<{ exists: boolean }>(
+      `SELECT EXISTS (
+        SELECT 1 FROM information_schema.tables
+        WHERE table_schema = 'supabase_migrations' AND table_name = 'schema_migrations'
+      ) AS exists`,
     );
+    const hasMigrationTable = migTableRes.rows[0]?.exists ?? false;
 
-    const tables: Record<string, string[]> = {};
-    for (const row of schemaRes.rows) {
-      const key = `${row.table_schema}.${row.table_name}`;
-      if (!tables[key]) tables[key] = [];
-      tables[key].push(`  ${row.column_name} ${row.data_type}${row.is_nullable === "NO" ? " NOT NULL" : ""}`);
+    let ddl: string;
+    if (hasMigrationTable) {
+      const schemaRes = await client.query<{ table_schema: string; table_name: string; column_name: string; data_type: string; is_nullable: string }>(
+        `SELECT table_schema, table_name, column_name, data_type, is_nullable
+         FROM information_schema.columns
+         WHERE table_schema NOT IN (${EXCLUDED_SCHEMAS.map((_, i) => `$${i + 1}`).join(", ")})
+         ORDER BY table_schema, table_name, ordinal_position`,
+        EXCLUDED_SCHEMAS,
+      );
+
+      const tables: Record<string, string[]> = {};
+      for (const row of schemaRes.rows) {
+        const key = `${row.table_schema}.${row.table_name}`;
+        if (!tables[key]) tables[key] = [];
+        tables[key].push(`  ${row.column_name} ${row.data_type}${row.is_nullable === "NO" ? " NOT NULL" : ""}`);
+      }
+
+      ddl = Object.entries(tables)
+        .map(([key, cols]) => {
+          const [schema, name] = key.split(".");
+          const qualified = schema === "public" ? name : `${schema}.${name}`;
+          return `CREATE TABLE IF NOT EXISTS ${qualified} (\n${cols.join(",\n")}\n);`;
+        })
+        .join("\n\n");
+    } else {
+      const pgDump = spawnSync("pg_dump", [
+        "--schema-only", "--no-owner", "--no-acl",
+        "--schema=public",
+        remoteDbUrl,
+      ], { encoding: "utf8" });
+      if (pgDump.status !== 0) throw new Error(`pg_dump failed: ${pgDump.stderr}`);
+      ddl = pgDump.stdout;
     }
-
-    const ddl = Object.entries(tables)
-      .map(([key, cols]) => {
-        const [schema, name] = key.split(".");
-        const qualified = schema === "public" ? name : `${schema}.${name}`;
-        return `CREATE TABLE IF NOT EXISTS ${qualified} (\n${cols.join(",\n")}\n);`;
-      })
-      .join("\n\n");
 
     const timestamp = new Date().toISOString().replace(/[-:T.Z]/g, "").slice(0, 14);
     const filename = `${timestamp}_pulled_schema.sql`;
     const filePath = join(migrationsDir, filename);
 
-    if (!dryRun) {
-      await writeFile(filePath, ddl);
+    if (ddl) {
+      if (!dryRun) {
+        await writeFile(filePath, ddl);
+      }
+      result.migrations.written = 1;
     }
-    result.migrations.written = 1;
 
     const remoteBucketsRes = await client.query<{ id: string; name: string; public: boolean; file_size_limit: number | null; allowed_mime_types: string[] | null }>(
       `SELECT id, name, public, file_size_limit, allowed_mime_types FROM storage.buckets`,
