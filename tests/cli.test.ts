@@ -39,7 +39,7 @@ const HTTP_PORT = 54388;
 const TCP_PORT = 54389;
 const URL = `http://localhost:${HTTP_PORT}`;
 const KEY = "local-service-role-key";
-const ARGS = [`--url=${URL}`, `--service-role-key=${KEY}`];
+const ARGS = [`--url=${URL}`, `--service-role-key=${KEY}`, "--json"];
 
 let server: ChildProcess;
 let migrationsDir: string;
@@ -82,7 +82,7 @@ describe("status", () => {
   });
 
   test("reports server as not running when nothing is listening", async () => {
-    const result = await cmdStatus([`--url=http://localhost:19999`]);
+    const result = await cmdStatus([`--url=http://localhost:19999`, "--json"]);
     assertEquals(result.exitCode, 0);
     const data = JSON.parse(result.output);
     assertEquals(data.running, false);
@@ -205,7 +205,7 @@ describe("migrations", () => {
     const result = await cmdMigrationUp([...ARGS, "--migrations-dir=/nonexistent/path"]);
     assertEquals(result.exitCode, 0);
     const data = JSON.parse(result.output);
-    assertEquals(data.applied, []);
+    assertEquals(data.results, []);
   });
 });
 
