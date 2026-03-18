@@ -1,7 +1,6 @@
 import { readFile, writeFile, unlink } from "node:fs/promises";
 import { join, dirname } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
-import { createRequire } from "node:module";
+import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 import { createServer } from "node:http";
 import type { Extension } from "@electric-sql/pglite";
@@ -29,8 +28,7 @@ import {
 } from "./cli-commands.ts";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const _require = createRequire(import.meta.url);
-const pgliteDist = dirname(_require.resolve("@electric-sql/pglite"));
+const pgliteDist = __dirname;
 
 const DEFAULT_HTTP_PORT = 54321;
 const DEFAULT_TCP_PORT = 5432;

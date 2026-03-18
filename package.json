@@ -71,8 +71,15 @@
     "tsx": "^4.21.0",
     "typescript": "^5.9.3"
   },
+  "peerDependencies": {
+    "@electric-sql/pglite": ">=0.3.16"
+  },
+  "peerDependenciesMeta": {
+    "@electric-sql/pglite": {
+      "optional": true
+    }
+  },
   "dependencies": {
-    "@electric-sql/pglite": "^0.3.16",
     "@types/pg": "^8.18.0",
     "pg": "^8.20.0",
     "postgrest-parser": "^0.1.1",
