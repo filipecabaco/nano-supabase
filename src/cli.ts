@@ -31,6 +31,8 @@ import {
   cmdStorageCp,
   cmdGenTypes,
 } from "./cli-commands.ts";
+import { createMcpHandler } from "./mcp-server.ts";
+import type { McpHandler } from "./mcp-server.ts";
 
 const DEFAULT_HTTP_PORT = 54321;
 const DEFAULT_TCP_PORT = 5432;
@@ -101,8 +103,7 @@ Start options:
   --service-role-key=<key>     Service role key (default: ${DEFAULT_SERVICE_ROLE_KEY})
   --detach                     Run in background and print JSON connection info
   --pid-file=<path>            Write PID to file (useful with --detach)
-  --mcp                        Start MCP server accessible via SSE (database, storage, development tools)
-  --mcp-port=<port>            MCP server SSE port (default: 54322)
+  --mcp                        Start MCP server on /mcp endpoint (Streamable HTTP transport)
   --debug                      Enable debug logging
 
 Common options:
@@ -256,7 +257,6 @@ const serviceRoleKey =
 const debug = subArgs.includes("--debug");
 const detach = subArgs.includes("--detach");
 const mcp = subArgs.includes("--mcp");
-const mcpPort = parsePort(getArgValue(subArgs, "--mcp-port"), 54322, "--mcp-port");
 const pidFile = getArgValue(subArgs, "--pid-file");
 
 if (detach) {
@@ -594,9 +594,18 @@ async function handleManagementApiRequest(
 
 const INTERNAL_URL = "http://localhost:54321";
 
+const mcpHandler: McpHandler | null = mcp
+  ? createMcpHandler(nano, { httpPort, serviceRoleKey, anonKey: DEFAULT_ANON_KEY })
+  : null;
+
 const server = Bun.serve({
   port: httpPort,
+  idleTimeout: 0,
   fetch: async (req: Request) => {
+    const url = new URL(req.url);
+    if (url.pathname === "/mcp" && mcpHandler) {
+      return mcpHandler.handleRequest(req);
+    }
     const adminResponse = await handleAdminRequest(req);
     if (adminResponse) return adminResponse;
     const mgmtResponse = await handleManagementApiRequest(req);
@@ -681,89 +690,12 @@ process.stdout.write(
   ]) + "\n\n",
 );
 if (mcp) {
-  const mcpSseUrl = `http://localhost:${mcpPort}/sse`;
-  const mcpProc = Bun.spawn({
-    cmd: [
-      "bunx",
-      "@supabase/mcp-server-supabase",
-      "--access-token",
-      serviceRoleKey,
-      "--api-url",
-      `http://127.0.0.1:${httpPort}`,
-      "--project-ref",
-      "local",
-      "--features",
-      "database,storage,development,debugging",
-    ],
-    stdin: "pipe",
-    stdout: "pipe",
-    stderr: "inherit",
-  });
-
-  const sseClients = new Map<string, ReadableStreamDefaultController<string>>();
-
-  (async () => {
-    const reader = mcpProc.stdout.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split("\n");
-      buffer = lines.pop() ?? "";
-      for (const line of lines) {
-        if (!line.trim()) continue;
-        for (const controller of sseClients.values()) {
-          controller.enqueue(`data: ${line}\n\n`);
-        }
-      }
-    }
-  })();
-
-  Bun.serve({
-    port: mcpPort,
-    idleTimeout: 0,
-    fetch: async (req) => {
-      const url = new URL(req.url);
-      if (url.pathname === "/.well-known/oauth-authorization-server" || url.pathname === "/.well-known/openid-configuration") {
-        return new Response(JSON.stringify({ error: "not_supported" }), {
-          status: 404,
-          headers: { "Content-Type": "application/json" },
-        });
-      }
-      if (req.method === "GET" && url.pathname === "/sse") {
-        const sid = crypto.randomUUID();
-        const stream = new ReadableStream<string>({
-          start(controller) {
-            sseClients.set(sid, controller);
-            controller.enqueue(`event: endpoint\ndata: /message?sessionId=${sid}\n\n`);
-            req.signal.addEventListener("abort", () => sseClients.delete(sid));
-          },
-        });
-        return new Response(stream, {
-          headers: {
-            "Content-Type": "text/event-stream",
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-          },
-        });
-      }
-      if (req.method === "POST" && url.pathname === "/message") {
-        const body = await req.text();
-        mcpProc.stdin!.write(body + "\n");
-        await mcpProc.stdin!.flush();
-        return new Response(null, { status: 202 });
-      }
-      return new Response("Not found", { status: 404 });
-    },
-  });
-
+  const mcpUrl = `http://localhost:${httpPort}/mcp`;
   process.stdout.write(
     box("🤖 MCP Server", [
-      ["Transport", "SSE"],
-      ["URL", mcpSseUrl],
-      ["Add to Claude Code", `claude mcp add --transport sse nano-supabase ${mcpSseUrl}`],
+      ["Transport", "Streamable HTTP"],
+      ["URL", mcpUrl],
+      ["Add to Claude Code", `claude mcp add --transport http nano-supabase ${mcpUrl}`],
     ]) + "\n\n",
   );
 }
