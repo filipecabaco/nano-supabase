@@ -32,10 +32,12 @@ function pgTypeToTs(pgType: string): string {
 
 async function ensureMigrationsTable(db: NanoSupabaseInstance["db"]): Promise<void> {
   await db.exec(`
-    CREATE TABLE IF NOT EXISTS _nano_migrations (
-      name TEXT PRIMARY KEY,
-      applied_at TIMESTAMPTZ DEFAULT NOW()
-    )
+    CREATE SCHEMA IF NOT EXISTS supabase_migrations;
+    CREATE TABLE IF NOT EXISTS supabase_migrations.schema_migrations (
+      version TEXT PRIMARY KEY,
+      statements TEXT[],
+      name TEXT
+    );
   `);
 }
 
@@ -90,18 +92,22 @@ function buildPlatform(
 
       async listMigrations(_projectId: string) {
         await ensureMigrationsTable(db);
-        const result = await db.query<{ name: string; applied_at: string }>(
-          `SELECT name, applied_at FROM _nano_migrations ORDER BY applied_at`,
+        const result = await db.query<{ version: string; name: string }>(
+          `SELECT version, name FROM supabase_migrations.schema_migrations ORDER BY version`,
         );
-        return result.rows.map((r) => ({ version: r.applied_at, name: r.name }));
+        return result.rows.map((r) => ({ version: r.version, name: r.name }));
       },
 
       async applyMigration(_projectId: string, options: { name: string; query: string }): Promise<void> {
         await ensureMigrationsTable(db);
         await db.exec(options.query);
+        const versionMatch = options.name.match(/^([0-9]+)/);
+        const version = versionMatch ? versionMatch[1] : Date.now().toString();
+        const statements = options.query.split(";").map((s) => s.trim()).filter(Boolean);
         await db.query(
-          `INSERT INTO _nano_migrations (name) VALUES ($1) ON CONFLICT (name) DO NOTHING`,
-          [options.name],
+          `INSERT INTO supabase_migrations.schema_migrations (version, name, statements) VALUES ($1, $2, $3)
+           ON CONFLICT (version) DO UPDATE SET name = EXCLUDED.name, statements = EXCLUDED.statements`,
+          [version, options.name, statements],
         );
       },
     },
