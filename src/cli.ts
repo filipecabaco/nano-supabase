@@ -413,15 +413,25 @@ async function handleAdminRequest(req: Request): Promise<Response | null> {
       params?: unknown[];
     };
     try {
-      const result = await nano.db.query(sql, params);
-      return new Response(
-        JSON.stringify({
-          rows: result.rows,
-          rowCount: result.rows.length,
-          fields: result.fields.map((f: { name: string }) => f.name),
-        }),
-        { headers: { "Content-Type": "application/json" } },
-      );
+      try {
+        const result = await nano.db.query(sql, params);
+        return new Response(
+          JSON.stringify({
+            rows: result.rows,
+            rowCount: result.rows.length,
+            fields: result.fields.map((f: { name: string }) => f.name),
+          }),
+          { headers: { "Content-Type": "application/json" } },
+        );
+      } catch (inner: unknown) {
+        const msg = inner instanceof Error ? inner.message : String(inner);
+        if (!msg.includes("cannot insert multiple commands into a prepared statement")) throw inner;
+        await nano.db.exec(sql);
+        return new Response(
+          JSON.stringify({ rows: [], rowCount: 0, fields: [] }),
+          { headers: { "Content-Type": "application/json" } },
+        );
+      }
     } catch (e: unknown) {
       return new Response(
         JSON.stringify({

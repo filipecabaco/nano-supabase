@@ -235,6 +235,26 @@ describe("migrations", () => {
     const data = JSON.parse(result.output);
     assertEquals(data.results, []);
   });
+
+  test("up applies migration with multiple statements", async () => {
+    const args = [...ARGS, `--migrations-dir=${migrationsDir}`];
+    const create = await cmdMigrationNew([...args, "multi_statement"]);
+    assertEquals(create.exitCode, 0);
+    const { file } = JSON.parse(create.output);
+    writeFileSync(file, [
+      "CREATE TABLE categories (id SERIAL PRIMARY KEY, label TEXT NOT NULL);",
+      "CREATE TABLE items (id SERIAL PRIMARY KEY, category_id INT REFERENCES categories(id));",
+    ].join("\n"));
+
+    const up = await cmdMigrationUp(args);
+    assertEquals(up.exitCode, 0);
+    const upData = JSON.parse(up.output);
+    const result = upData.results.find((r: { file: string }) => r.file.includes("multi_statement"));
+    assertEquals(result.status, "applied");
+
+    const verify = await cmdDbExec([...ARGS, "--sql", "SELECT id FROM categories LIMIT 0"]);
+    assertEquals(verify.exitCode, 0);
+  });
 });
 
 describe("users", () => {
