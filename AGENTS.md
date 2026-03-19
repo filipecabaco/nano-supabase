@@ -97,6 +97,28 @@ CREATE TABLE IF NOT EXISTS todos (
 
 Using `nano.db` directly is an escape hatch for ad-hoc queries and tests — **do not use it to define schema that should persist or be synced**.
 
+## Extensions
+
+`pgcrypto` and `uuid-ossp` are always loaded. Add others via the `extensions` option:
+
+```typescript
+import { vector } from '@electric-sql/pglite/vector'
+import { nanoSupabase } from 'nano-supabase'
+
+const nano = await nanoSupabase({ extensions: { vector } })
+await nano.db.exec('CREATE EXTENSION IF NOT EXISTS vector')
+```
+
+CLI: pass `--extensions=name1,name2` when starting the server. Each name maps to a `name.tar.gz` bundle from PGlite's dist. After starting, enable with `CREATE EXTENSION IF NOT EXISTS name`.
+
+Some extensions have dependencies that must also be listed — e.g. `earthdistance` requires `cube`:
+
+```bash
+npx nano-supabase start --extensions=cube,earthdistance
+```
+
+Full list: https://pglite.dev/extensions/
+
 ## Key Constraints
 
 - **`@electric-sql/pglite` is a peer dependency** — must be installed separately
@@ -132,6 +154,11 @@ npx nano-supabase start                     # HTTP on :54321, Postgres TCP on :5
 npx nano-supabase start --data-dir=./data   # persist to disk
 npx nano-supabase start --mcp               # MCP server on /mcp
 npx nano-supabase start --detach            # background mode
+
+# Load extensions at startup
+npx nano-supabase start --extensions=vector
+npx nano-supabase start --extensions=vector,pg_trgm,bloom
+npx nano-supabase start --extensions=cube,earthdistance  # earthdistance requires cube
 
 npx nano-supabase db exec --sql "SELECT * FROM todos"
 npx nano-supabase migration new add_todos
@@ -207,7 +234,7 @@ Example setup script for a cloud environment (`.claude/setup.sh`):
 
 ```bash
 #!/bin/bash
-npm install
+pnpm install
 npx nano-supabase start --detach --mcp --data-dir=./.nano-supabase-data
 ```
 

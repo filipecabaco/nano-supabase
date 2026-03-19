@@ -20,21 +20,21 @@
     "dist"
   ],
   "scripts": {
-    "build": "node scripts/build.js && npm run build:types",
+    "build": "node scripts/build.js && pnpm run build:types",
     "build:types": "tsc --emitDeclarationOnly",
     "build:dev": "tsc",
     "clean": "rm -rf dist",
-    "prepublishOnly": "npm run clean && npm run build",
-    "test:bun": "bun test tests/",
-    "test:bun:auth": "bun test tests/auth-integration.test.ts",
-    "test:bun:data": "bun test tests/integration.test.ts tests/supabase-client.test.ts",
-    "test:bun:storage": "bun test tests/storage.test.ts",
-    "test:bun:fetch": "bun test tests/fetch-adapter.test.ts",
-    "test:bun:apps": "bun test tests/applications.test.ts tests/full-user-flow.test.ts",
+    "prepublishOnly": "pnpm run clean && pnpm run build",
+    "test": "vitest run tests/",
+    "test:auth": "vitest run tests/auth-integration.test.ts",
+    "test:data": "vitest run tests/integration.test.ts tests/supabase-client.test.ts",
+    "test:storage": "vitest run tests/storage.test.ts",
+    "test:fetch": "vitest run tests/fetch-adapter.test.ts",
+    "test:apps": "vitest run tests/applications.test.ts tests/full-user-flow.test.ts",
+    "test:perf": "vitest run tests/performance.test.ts",
+    "test:cli": "vitest run tests/cli.test.ts",
     "example:basic": "tsx examples/basic.ts",
     "example:server": "tsx examples/tcp-server.ts",
-    "example:supabase": "bun run examples/supabase-client.ts",
-    "example:parser": "bun run examples/postgrest-parser.ts",
     "example:prisma": "tsx examples/prisma-tcp.ts",
     "prisma:generate": "prisma generate --schema=examples/prisma/schema.prisma",
     "cli": "node dist/cli.js"
@@ -61,18 +61,18 @@
     "url": "https://github.com/filipecabaco/nano-supabase/issues"
   },
   "devDependencies": {
-    "@electric-sql/pglite": "^0.3.16",
+    "@electric-sql/pglite": "0.4.0",
     "@electric-sql/pglite-socket": "^0.0.22",
     "@prisma/client": "^6.19.2",
-    "@types/bun": "latest",
     "@types/node": "^25.1.0",
     "esbuild": "^0.27.3",
     "prisma": "^6.19.2",
     "tsx": "^4.21.0",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.0"
   },
   "peerDependencies": {
-    "@electric-sql/pglite": ">=0.3.16"
+    "@electric-sql/pglite": ">=0.4.0"
   },
   "peerDependenciesMeta": {
     "@electric-sql/pglite": {

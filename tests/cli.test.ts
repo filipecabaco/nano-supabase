@@ -5,9 +5,9 @@
  * from a user's perspective: migrations, users, storage, type generation, etc.
  */
 
-import { describe, test, beforeAll, afterAll } from "bun:test";
+import { describe, test, beforeAll, afterAll } from "vitest";
 import { spawn, type ChildProcess } from "node:child_process";
-import { mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, rmSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -354,7 +354,7 @@ describe("gen types", () => {
     const data = JSON.parse(result.output);
     assertEquals(data.file, outFile);
 
-    const content = await Bun.file(outFile).text();
+    const content = readFileSync(outFile, "utf-8");
     assertExists(content.includes("export interface Database"));
   });
 });
@@ -512,7 +512,7 @@ describe("sync", () => {
 
       const files = readdirSync(emptyPullDir).filter((f: string) => f.endsWith(".sql"));
       assertEquals(files.length, 1);
-      const content = await Bun.file(join(emptyPullDir, files[0])).text();
+      const content = readFileSync(join(emptyPullDir, files[0]), "utf-8");
       assertExists(content.includes("pulled_empty_source"));
     } finally {
       rmSync(emptyPullDir, { recursive: true, force: true });

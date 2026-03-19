@@ -60,7 +60,7 @@ async function build() {
 
   // Copy PGlite binary assets to dist (so CLI is self-contained)
   const pgliteDistDir = join(rootDir, 'node_modules/@electric-sql/pglite/dist')
-  for (const file of ['pglite.wasm', 'pglite.data', 'pgcrypto.tar.gz', 'uuid-ossp.tar.gz']) {
+  for (const file of ['pglite.wasm', 'initdb.wasm', 'pglite.data', 'pgcrypto.tar.gz', 'uuid-ossp.tar.gz']) {
     copyFileSync(join(pgliteDistDir, file), join(rootDir, 'dist', file))
   }
 

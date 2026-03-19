@@ -1,6 +1,7 @@
 import { readFile, writeFile, unlink } from "node:fs/promises";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { createRequire } from "node:module";
 import { spawn } from "node:child_process";
 import { createServer } from "node:http";
 import type { Extension } from "@electric-sql/pglite";
@@ -114,6 +115,7 @@ Start options:
   --http-port=<port>           HTTP API port (default: ${DEFAULT_HTTP_PORT})
   --tcp-port=<port>            Postgres TCP port (default: ${DEFAULT_TCP_PORT})
   --service-role-key=<key>     Service role key (default: ${DEFAULT_SERVICE_ROLE_KEY})
+  --extensions=<names>         Comma-separated list of PGlite extensions to load (e.g. vector,pg_trgm)
   --detach                     Run in background and print JSON connection info
   --pid-file=<path>            Write PID to additional file (default location: /tmp/nano-supabase-<port>.pid)
   --mcp                        Start MCP server on /mcp endpoint (Streamable HTTP transport)
@@ -286,6 +288,10 @@ const debug = subArgs.includes("--debug");
 const detach = subArgs.includes("--detach");
 const mcp = subArgs.includes("--mcp");
 const pidFile = getArgValue(subArgs, "--pid-file");
+const extensionNames = (getArgValue(subArgs, "--extensions") ?? "")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
 
 if (detach) {
   const serverArgs = subArgs.filter((a) => a !== "--detach");
@@ -344,6 +350,38 @@ const uuidOsspExt: Extension = {
   }),
 };
 
+const _require = createRequire(import.meta.url);
+const pglitePackageDist = dirname(_require.resolve("@electric-sql/pglite"));
+
+const extraExtensions: Record<string, Extension> = {};
+for (const name of extensionNames) {
+  let tarPath = join(pgliteDist, `${name}.tar.gz`);
+  try {
+    await readFile(tarPath);
+  } catch {
+    const fallback = join(pglitePackageDist, `${name}.tar.gz`);
+    try {
+      await readFile(fallback);
+      tarPath = fallback;
+    } catch {
+      process.stderr.write(
+        JSON.stringify({
+          error: "unknown_extension",
+          message: `Extension "${name}" not found. Available extensions are listed at https://pglite.dev/extensions/`,
+        }) + "\n",
+      );
+      process.exit(1);
+    }
+  }
+  const resolvedPath = tarPath;
+  extraExtensions[name.replace(/-/g, "_")] = {
+    name,
+    setup: async (_pg, _emscriptenOpts) => ({
+      bundlePath: new URL(`file://${resolvedPath}`),
+    }),
+  };
+}
+
 const origConsoleLog = console.log;
 console.log = () => {};
 const nano = await nanoSupabase({
@@ -353,7 +391,7 @@ const nano = await nanoSupabase({
   wasmModule,
   fsBundle,
   postgrestWasmBytes: postgrestWasm,
-  extensions: { pgcrypto: pgcryptoExt, uuid_ossp: uuidOsspExt },
+  extensions: { pgcrypto: pgcryptoExt, uuid_ossp: uuidOsspExt, ...extraExtensions },
 });
 console.log = origConsoleLog;
 

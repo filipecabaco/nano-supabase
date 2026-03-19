@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { PGlite } from "@electric-sql/pglite";
 
 import { createFetchAdapter } from "../src/client.ts";
@@ -347,7 +347,7 @@ describe("initialization performance", () => {
     const { localFetch, authHandler, parser } = await createFetchAdapter({ db });
     const elapsed = performance.now() - start;
 
-    expect(localFetch).toBeFunction();
+    expect(typeof localFetch).toBe("function");
     expect(authHandler).toBeDefined();
     expect(parser).toBeDefined();
     expect(elapsed).toBeLessThan(5000);

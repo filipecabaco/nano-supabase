@@ -9,7 +9,7 @@ A TypeScript library that provides a **Supabase-compatible API** running entirel
 ### As a library
 
 ```bash
-bun add github:filipecabaco/nano-supabase @electric-sql/pglite
+npm install nano-supabase @electric-sql/pglite
 ```
 
 `@electric-sql/pglite` is a peer dependency and must be installed separately.
@@ -115,6 +115,47 @@ const { data: { signedUrl } } = await supabase.storage
 
 Default backend is in-memory. Implement the `StorageBackend` interface for persistence.
 
+## Extensions
+
+PGlite supports many PostgreSQL extensions. `pgcrypto` and `uuid-ossp` are always loaded. Add others via the `extensions` option:
+
+```typescript
+import { vector } from '@electric-sql/pglite/vector'
+import { nanoSupabase } from 'nano-supabase'
+
+const nano = await nanoSupabase({ extensions: { vector } })
+
+await nano.db.exec('CREATE EXTENSION IF NOT EXISTS vector')
+await nano.db.exec(`
+  CREATE TABLE items (id SERIAL PRIMARY KEY, embedding vector(3))
+`)
+```
+
+### CLI extensions
+
+Pass a comma-separated `--extensions` flag when starting the server:
+
+```bash
+nano-supabase start --extensions=vector
+nano-supabase start --extensions=vector,pg_trgm,bloom
+```
+
+After starting, enable each extension via SQL:
+
+```bash
+nano-supabase db exec --sql "CREATE EXTENSION IF NOT EXISTS vector"
+```
+
+Some extensions have dependencies that must also be listed. For example, `earthdistance` requires `cube`:
+
+```bash
+nano-supabase start --extensions=cube,earthdistance
+nano-supabase db exec --sql "CREATE EXTENSION IF NOT EXISTS cube CASCADE"
+nano-supabase db exec --sql "CREATE EXTENSION IF NOT EXISTS earthdistance CASCADE"
+```
+
+All extensions available in PGlite are supported. See the full list at [https://pglite.dev/extensions/](https://pglite.dev/extensions/).
+
 ## CLI
 
 The CLI starts a full Supabase-compatible server locally and provides tooling to manage it.
@@ -214,6 +255,7 @@ Starts an MCP (Model Context Protocol) server on `/mcp` using Streamable HTTP tr
 | `--service-role-key=<key>` | `local-service-role-key` | Admin key |
 | `--detach` | — | Run in background |
 | `--mcp` | — | Enable MCP server on `/mcp` |
+| `--extensions=<names>` | — | Comma-separated PGlite extensions to load (e.g. `vector,pg_trgm`) |
 | `--json` | — | Output JSON instead of human-readable text |
 
 ## Architecture
@@ -315,7 +357,7 @@ Vite's dev server pre-bundles dependencies with esbuild, which breaks PGlite's W
 
 **Library**: Node.js, Deno, Bun, browsers, Cloudflare Workers, Vercel Edge. Uses Web Crypto API only.
 
-**CLI**: Node.js 18+ required (Bun also supported). Works anywhere `npm install -g` runs, including Claude Code cloud containers.
+**CLI**: Node.js 18+ required. Works anywhere `npm install -g` runs, including Claude Code cloud containers.
 
 ## Demo
 
@@ -327,18 +369,16 @@ npm install
 npm run dev
 ```
 
-> Note: The demo uses Vite and standard npm scripts. In Claude Code cloud environments, use `npm install` rather than `bun install` — Bun's package manager does not work correctly behind the cloud security proxy.
-
 ## Development
 
 ```bash
-bun install
+pnpm install
 node scripts/build.js
-bun test tests/
-bun run example:basic
-bun run example:server
-bun run prisma:generate
-bun run example:prisma
+pnpm test
+pnpm run example:basic
+pnpm run example:server
+pnpm run prisma:generate
+pnpm run example:prisma
 ```
 
 ## License
