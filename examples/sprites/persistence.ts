@@ -9,19 +9,19 @@ let supabase: Awaited<ReturnType<typeof createSupabaseClient>> | null = null;
 let initialized = false;
 
 export async function initDb() {
-  if (db && initialized) return { db, supabase: supabase! };
+	if (db && initialized) return { db, supabase: supabase! };
 
-  db = new PGlite(DB_PATH);
+	db = new PGlite(DB_PATH);
 
-  const { rows } = await db.query<{ exists: boolean }>(
-    `SELECT EXISTS (SELECT FROM pg_tables WHERE tablename = 'feature_flags')`
-  );
+	const { rows } = await db.query<{ exists: boolean }>(
+		`SELECT EXISTS (SELECT FROM pg_tables WHERE tablename = 'feature_flags')`,
+	);
 
-  if (!rows[0]?.exists) {
-    await createSchema(db);
-  }
+	if (!rows[0]?.exists) {
+		await createSchema(db);
+	}
 
-  supabase = await createSupabaseClient(db);
-  initialized = true;
-  return { db, supabase: supabase! };
+	supabase = await createSupabaseClient(db);
+	initialized = true;
+	return { db, supabase: supabase! };
 }

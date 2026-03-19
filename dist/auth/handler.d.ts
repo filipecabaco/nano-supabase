@@ -2,19 +2,16 @@
  * Auth handler - processes auth requests and manages auth state
  */
 import type { PGlite } from "@electric-sql/pglite";
-import type { User, Session, AuthResponse, AuthError, AuthStateChangeCallback, AuthSubscription } from "./types.ts";
+import type { AuthError, AuthResponse, AuthStateChangeCallback, AuthSubscription, Session, User } from "./types.ts";
 /**
  * Auth handler class
  */
 export declare class AuthHandler {
     private db;
-    private initialized;
+    private initPromise;
     private subscriptions;
     private currentSession;
     constructor(db: PGlite);
-    /**
-     * Initialize auth schema in the database
-     */
     initialize(): Promise<void>;
     /**
      * Emit auth state change to all subscribers

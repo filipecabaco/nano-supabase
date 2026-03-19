@@ -9,12 +9,15 @@ await db.exec(`
 
 await PostgrestParser.init();
 await PostgrestParser.initSchema(async (sql: string) => {
-  const r = await db.query(sql);
-  return { rows: r.rows };
+	const r = await db.query(sql);
+	return { rows: r.rows };
 });
 
 const parser = new PostgrestParser();
-const result = parser.parseSelect("posts", "select=*,profiles(username,avatar_url)&order=created_at.desc");
+const result = parser.parseSelect(
+	"posts",
+	"select=*,profiles(username,avatar_url)&order=created_at.desc",
+);
 console.log("SQL:", result.sql);
 console.log("Params:", result.params);
 await db.close();

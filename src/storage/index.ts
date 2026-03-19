@@ -2,16 +2,16 @@
  * Storage module — local Supabase Storage emulation
  */
 
-export { STORAGE_SCHEMA_SQL } from "./schema.ts";
 export {
-  StorageHandler,
-  type StorageBucket,
-  type StorageObject,
-  type CreateBucketOptions,
-  type SignedUrlToken,
-} from "./handler.ts";
-export {
-  MemoryStorageBackend,
-  type StorageBackend,
-  type BlobMetadata,
+	type BlobMetadata,
+	MemoryStorageBackend,
+	type StorageBackend,
 } from "./backend.ts";
+export {
+	type CreateBucketOptions,
+	type SignedUrlToken,
+	type StorageBucket,
+	StorageHandler,
+	type StorageObject,
+} from "./handler.ts";
+export { STORAGE_SCHEMA_SQL } from "./schema.ts";

@@ -1,38 +1,44 @@
 {
-  "compilerOptions": {
-    // Type Checking
-    "strict": true,
-    "noUnusedLocals": true,
-    "noUnusedParameters": true,
-    "noImplicitReturns": true,
-    "noFallthroughCasesInSwitch": true,
-    "noUncheckedIndexedAccess": true,
-    "exactOptionalPropertyTypes": false,
+	"compilerOptions": {
+		// Type Checking
+		"strict": true,
+		"noUnusedLocals": true,
+		"noUnusedParameters": true,
+		"noImplicitReturns": true,
+		"noFallthroughCasesInSwitch": true,
+		"noUncheckedIndexedAccess": true,
+		"exactOptionalPropertyTypes": false,
 
-    // Module Resolution
-    "module": "ESNext",
-    "moduleResolution": "bundler",
-    "target": "ES2022",
-    "lib": ["ES2022", "DOM", "DOM.Iterable", "ESNext.Disposable"],
-    "allowImportingTsExtensions": true,
+		// Module Resolution
+		"module": "ESNext",
+		"moduleResolution": "bundler",
+		"target": "ES2022",
+		"lib": ["ES2022", "DOM", "DOM.Iterable", "ESNext.Disposable"],
+		"allowImportingTsExtensions": true,
 
-    // Emit
-    "declaration": true,
-    "declarationMap": true,
-    "sourceMap": true,
-    "outDir": "./dist",
-    "rootDir": "./src",
-    "noEmit": false,
+		// Emit
+		"declaration": true,
+		"declarationMap": true,
+		"sourceMap": true,
+		"outDir": "./dist",
+		"rootDir": "./src",
+		"noEmit": false,
 
-    // Interop
-    "esModuleInterop": true,
-    "allowSyntheticDefaultImports": true,
-    "forceConsistentCasingInFileNames": true,
-    "resolveJsonModule": true,
+		// Interop
+		"esModuleInterop": true,
+		"allowSyntheticDefaultImports": true,
+		"forceConsistentCasingInFileNames": true,
+		"resolveJsonModule": true,
 
-    // Skip lib check for faster builds
-    "skipLibCheck": true
-  },
-  "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist", "**/*.test.ts", "src/cli.ts", "src/cli-commands.ts"]
+		// Skip lib check for faster builds
+		"skipLibCheck": true
+	},
+	"include": ["src/**/*"],
+	"exclude": [
+		"node_modules",
+		"dist",
+		"**/*.test.ts",
+		"src/cli.ts",
+		"src/cli-commands.ts"
+	]
 }

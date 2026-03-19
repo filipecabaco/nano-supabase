@@ -47,35 +47,35 @@
 }
 
 :root {
-  --radius: 0.625rem;
+	--radius: 0.625rem;
 }
 
 .dark {
-  --background: #171717;
-  --foreground: #ededed;
-  --card: #1C1C1C;
-  --card-foreground: #ededed;
-  --popover: #1C1C1C;
-  --popover-foreground: #ededed;
-  --primary: #3ECF8E;
-  --primary-foreground: #0a0a0a;
-  --secondary: #232323;
-  --secondary-foreground: #ededed;
-  --muted: #232323;
-  --muted-foreground: #888;
-  --accent: #232323;
-  --accent-foreground: #ededed;
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: #2e2e2e;
-  --input: #2e2e2e;
-  --ring: #3ECF8E;
+	--background: #171717;
+	--foreground: #ededed;
+	--card: #1c1c1c;
+	--card-foreground: #ededed;
+	--popover: #1c1c1c;
+	--popover-foreground: #ededed;
+	--primary: #3ecf8e;
+	--primary-foreground: #0a0a0a;
+	--secondary: #232323;
+	--secondary-foreground: #ededed;
+	--muted: #232323;
+	--muted-foreground: #888;
+	--accent: #232323;
+	--accent-foreground: #ededed;
+	--destructive: oklch(0.704 0.191 22.216);
+	--border: #2e2e2e;
+	--input: #2e2e2e;
+	--ring: #3ecf8e;
 }
 
 @layer base {
-  * {
-    @apply border-border outline-ring/50;
-  }
-  body {
-    @apply bg-background text-foreground;
-  }
+	* {
+		@apply border-border outline-ring/50;
+	}
+	body {
+		@apply bg-background text-foreground;
+	}
 }

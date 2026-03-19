@@ -12,8 +12,8 @@
  * (Realtime, Edge Functions, etc.)
  */
 import type { PGlite } from "@electric-sql/pglite";
-import type { PostgrestParser } from "../postgrest-parser.ts";
 import type { AuthHandler } from "../auth/handler.ts";
+import type { PostgrestParser } from "../postgrest-parser.ts";
 import type { StorageHandler } from "../storage/handler.ts";
 export interface FetchAdapterConfig {
     /** The PGlite database instance */
@@ -35,6 +35,10 @@ export interface FetchAdapterConfig {
      * Enable debug logging
      */
     debug?: boolean;
+    /**
+     * Service role key — when provided, admin auth routes (/auth/v1/admin/*) require it as bearer token
+     */
+    serviceRoleKey?: string;
 }
 /**
  * Create a scoped fetch adapter that intercepts Supabase requests

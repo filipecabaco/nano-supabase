@@ -1,6 +1,6 @@
 import type { PGlite } from "@electric-sql/pglite";
+import type { PoolerConfig, QueryFn, QueryResult, QueueMetrics } from "./types.ts";
 import { QueryPriority } from "./types.ts";
-import type { PoolerConfig, QueryFn, QueueMetrics, QueryResult } from "./types.ts";
 export declare class PGlitePooler {
     private readonly db;
     private readonly queue;

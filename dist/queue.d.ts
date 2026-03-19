@@ -1,5 +1,5 @@
-import { QueryPriority } from "./types.ts";
 import type { QueuedQuery } from "./types.ts";
+import { QueryPriority } from "./types.ts";
 export declare class PriorityQueue {
     private readonly queues;
     private readonly maxSize;

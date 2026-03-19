@@ -49,8 +49,8 @@
  */
 import type { PGliteOptions } from "@electric-sql/pglite";
 import type { SupabaseClient, SupabaseClientOptions } from "@supabase/supabase-js";
-import type { StorageBackend } from "./storage/backend.ts";
 import { createPGlite } from "./pglite-factory.ts";
+import type { StorageBackend } from "./storage/backend.ts";
 export interface NanoSupabaseOptions {
     /** Persistence path. Omit for in-memory. `"idb://name"` for browser IndexedDB. */
     dataDir?: string;
@@ -84,6 +84,10 @@ export interface NanoSupabaseOptions {
      * Used by the CLI binary to embed assets at compile time.
      */
     postgrestWasmBytes?: Uint8Array;
+    /**
+     * Service role key. When provided, admin auth routes (/auth/v1/admin/*) require it as bearer token.
+     */
+    serviceRoleKey?: string;
 }
 export interface NanoSupabaseInstance {
     /** The underlying PGlite instance — use for raw SQL or schema setup. */

@@ -1,0 +1,81 @@
+name: PGlite Update
+
+on:
+  schedule:
+    - cron: "0 8 * * *"
+  workflow_dispatch:
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: latest
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Check for PGlite update
+        id: check
+        run: |
+          CURRENT=$(node -e "const p=require('./package.json'); console.log(p.devDependencies['@electric-sql/pglite'].replace(/^[^0-9]*/, ''))")
+          LATEST=$(npm view @electric-sql/pglite version)
+          echo "current=$CURRENT" >> $GITHUB_OUTPUT
+          echo "latest=$LATEST" >> $GITHUB_OUTPUT
+          if [ "$CURRENT" != "$LATEST" ]; then
+            echo "outdated=true" >> $GITHUB_OUTPUT
+          else
+            echo "outdated=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Update PGlite
+        if: steps.check.outputs.outdated == 'true'
+        env:
+          LATEST: ${{ steps.check.outputs.latest }}
+        run: |
+          pnpm add -D "@electric-sql/pglite@${LATEST}"
+          node -e "
+            const fs = require('fs');
+            const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+            pkg.peerDependencies['@electric-sql/pglite'] = '>=' + process.env.LATEST;
+            fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
+          "
+
+      - name: Typecheck
+        if: steps.check.outputs.outdated == 'true'
+        run: npx tsc --noEmit
+
+      - name: Build
+        if: steps.check.outputs.outdated == 'true'
+        run: pnpm run build
+
+      - name: Run tests
+        if: steps.check.outputs.outdated == 'true'
+        run: pnpm test
+
+      - name: Run CLI tests
+        if: steps.check.outputs.outdated == 'true'
+        run: pnpm vitest run --config vitest.cli.config.ts
+
+      - name: Open PR
+        if: steps.check.outputs.outdated == 'true'
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ secrets.PAT }}
+          commit-message: "chore: update @electric-sql/pglite to ${{ steps.check.outputs.latest }}"
+          title: "chore: update @electric-sql/pglite to ${{ steps.check.outputs.latest }}"
+          body: |
+            Automated PGlite update from ${{ steps.check.outputs.current }} to ${{ steps.check.outputs.latest }}.
+
+            All tests passed against the new version.
+          branch: "pglite-update-${{ steps.check.outputs.latest }}"
+          base: main

@@ -5,10 +5,10 @@
  * All auth, data, and storage operations are handled in-browser/in-process using PGlite
  */
 import type { PGlite } from "@electric-sql/pglite";
-import { PostgrestParser } from "./postgrest-parser.ts";
 import { AuthHandler } from "./auth/handler.ts";
-import { StorageHandler } from "./storage/handler.ts";
+import { PostgrestParser } from "./postgrest-parser.ts";
 import type { StorageBackend } from "./storage/backend.ts";
+import { StorageHandler } from "./storage/handler.ts";
 /**
  * Generic type for the Supabase client
  * This allows users to pass their own SupabaseClient type

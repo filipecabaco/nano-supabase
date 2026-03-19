@@ -27,10 +27,10 @@ import { pgcrypto } from "@electric-sql/pglite/contrib/pgcrypto";
 import { uuid_ossp } from "@electric-sql/pglite/contrib/uuid_ossp";
 
 export function createPGlite(
-  dataDir?: string,
-  options?: PGliteOptions & { extensions?: PGliteOptions["extensions"] },
+	dataDir?: string,
+	options?: PGliteOptions & { extensions?: PGliteOptions["extensions"] },
 ): PGlite {
-  const ext = { pgcrypto, uuid_ossp, ...options?.extensions };
-  const opts = { ...options, extensions: ext };
-  return dataDir ? new PGlite(dataDir, opts) : new PGlite(opts);
+	const ext = { pgcrypto, uuid_ossp, ...options?.extensions };
+	const opts = { ...options, extensions: ext };
+	return dataDir ? new PGlite(dataDir, opts) : new PGlite(opts);
 }

@@ -16,110 +16,98 @@
  * ```
  */
 
-// Primary entry point
+// Auth module
 export {
-  createClient,
-  nanoSupabase,
-  type NanoSupabaseOptions,
-  type NanoSupabaseInstance,
-} from "./nano.ts";
-
-// PGlite factory — creates a PGlite instance with all required extensions pre-registered
-export { createPGlite } from "./pglite-factory.ts";
+	AUTH_SCHEMA_SQL,
+	type AuthChangeEvent,
+	type AuthError,
+	AuthHandler,
+	type AuthResponse,
+	type AuthStateChangeCallback,
+	type AuthSubscription,
+	CLEAR_AUTH_CONTEXT_SQL,
+	createAccessToken,
+	extractSessionIdFromToken,
+	extractUserIdFromToken,
+	generateTokenPair,
+	getSetAuthContextSQL,
+	type Session,
+	type SignInCredentials,
+	type SignUpCredentials,
+	type TokenPair,
+	type User,
+	verifyAccessToken,
+} from "./auth/index.ts";
+// JWT utilities (Web Crypto API - browser/edge compatible)
+export { decodeJWT, type JWTPayload, signJWT, verifyJWT } from "./auth/jwt.ts";
 
 // Main client factories
 export {
-  createLocalSupabaseClient,
-  createFetchAdapter,
-  initializeAuth,
-  type LocalSupabaseClientConfig,
-  type LocalSupabaseClientResult,
+	createFetchAdapter,
+	createLocalSupabaseClient,
+	initializeAuth,
+	type LocalSupabaseClientConfig,
+	type LocalSupabaseClientResult,
 } from "./client.ts";
-
-// Original Supabase-compatible client (for direct usage without supabase-js)
-export { createSupabaseClient, SupabaseClient } from "./supabase-client.ts";
-export type { QueryBuilder } from "./supabase-client.ts";
+// Fetch adapter utilities
+export {
+	type AuthContext,
+	clearAuthContext,
+	setAuthContext,
+} from "./fetch-adapter/auth-context.ts";
+export {
+	type ApiError,
+	errorResponse,
+	extractPostgresError,
+	type PostgresError,
+} from "./fetch-adapter/error-handler.ts";
 
 // Fetch adapter
 export {
-  createLocalFetch,
-  handleAuthRoute,
-  handleDataRoute,
-  handleStorageRoute,
-  type FetchAdapterConfig,
+	createLocalFetch,
+	type FetchAdapterConfig,
+	handleAuthRoute,
+	handleDataRoute,
+	handleStorageRoute,
 } from "./fetch-adapter/index.ts";
-
-// Fetch adapter utilities
+// Primary entry point
 export {
-  setAuthContext,
-  clearAuthContext,
-  type AuthContext,
-} from "./fetch-adapter/auth-context.ts";
-
-export {
-  extractPostgresError,
-  errorResponse,
-  type PostgresError,
-  type ApiError,
-} from "./fetch-adapter/error-handler.ts";
-
-// Auth module
-export {
-  AuthHandler,
-  AUTH_SCHEMA_SQL,
-  getSetAuthContextSQL,
-  CLEAR_AUTH_CONTEXT_SQL,
-  createAccessToken,
-  verifyAccessToken,
-  generateTokenPair,
-  extractUserIdFromToken,
-  extractSessionIdFromToken,
-  type User,
-  type Session,
-  type AuthResponse,
-  type AuthError,
-  type AuthChangeEvent,
-  type AuthStateChangeCallback,
-  type AuthSubscription,
-  type SignUpCredentials,
-  type SignInCredentials,
-  type TokenPair,
-} from "./auth/index.ts";
-
-// JWT utilities (Web Crypto API - browser/edge compatible)
-export { signJWT, verifyJWT, decodeJWT, type JWTPayload } from "./auth/jwt.ts";
-
-// Storage module
-export {
-  StorageHandler,
-  STORAGE_SCHEMA_SQL,
-  MemoryStorageBackend,
-  type StorageBackend,
-  type BlobMetadata,
-  type StorageBucket,
-  type StorageObject,
-  type CreateBucketOptions,
-  type SignedUrlToken,
-} from "./storage/index.ts";
-
-// PostgREST parser
-export { PostgrestParser } from "./postgrest-parser.ts";
-export type { ParsedQuery, QueryExecutor } from "./postgrest-parser.ts";
-
+	createClient,
+	type NanoSupabaseInstance,
+	type NanoSupabaseOptions,
+	nanoSupabase,
+} from "./nano.ts";
+// PGlite factory — creates a PGlite instance with all required extensions pre-registered
+export { createPGlite } from "./pglite-factory.ts";
 // Connection pooler
 export { PGlitePooler } from "./pooler.ts";
-
-// TCP server (Postgres wire protocol — exposes PGlite as a real Postgres endpoint)
-export { PGliteTCPServer, type TCPServerOptions } from "./tcp-server.ts";
-
+export type { ParsedQuery, QueryExecutor } from "./postgrest-parser.ts";
+// PostgREST parser
+export { PostgrestParser } from "./postgrest-parser.ts";
 // Priority queue (internal but exported for advanced use)
 export { PriorityQueue } from "./queue.ts";
-
+// Storage module
+export {
+	type BlobMetadata,
+	type CreateBucketOptions,
+	MemoryStorageBackend,
+	type SignedUrlToken,
+	STORAGE_SCHEMA_SQL,
+	type StorageBackend,
+	type StorageBucket,
+	StorageHandler,
+	type StorageObject,
+} from "./storage/index.ts";
+export type { QueryBuilder } from "./supabase-client.ts";
+// Original Supabase-compatible client (for direct usage without supabase-js)
+export { createSupabaseClient, SupabaseClient } from "./supabase-client.ts";
+// TCP server (Postgres wire protocol — exposes PGlite as a real Postgres endpoint)
+export { PGliteTCPServer, type TCPServerOptions } from "./tcp-server.ts";
+export type {
+	PoolerConfig,
+	QueryResult,
+	QueuedQuery,
+	QueueMetrics,
+} from "./types.ts";
 // Types
 export { QueryPriority } from "./types.ts";
-export type {
-  PoolerConfig,
-  QueuedQuery,
-  QueueMetrics,
-  QueryResult,
-} from "./types.ts";

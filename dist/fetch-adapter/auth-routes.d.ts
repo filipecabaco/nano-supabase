@@ -5,5 +5,5 @@ import type { AuthHandler } from "../auth/handler.ts";
 /**
  * Handle auth routes
  */
-export declare function handleAuthRoute(request: Request, pathname: string, authHandler: AuthHandler): Promise<Response>;
+export declare function handleAuthRoute(request: Request, pathname: string, authHandler: AuthHandler, serviceRoleKey?: string): Promise<Response>;
 //# sourceMappingURL=auth-routes.d.ts.map

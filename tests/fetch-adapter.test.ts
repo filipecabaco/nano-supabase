@@ -6,11 +6,11 @@
 import { createFetchAdapter, initializeAuth } from "../src/client.ts";
 import { createPGlite } from "../src/pglite-factory.ts";
 import {
-  test,
-  describe,
-  assertEquals,
-  assertExists,
-  assertNotEquals,
+	assertEquals,
+	assertExists,
+	assertNotEquals,
+	describe,
+	test,
 } from "./compat.ts";
 
 const SUPABASE_URL = "http://localhost:54321";
@@ -20,141 +20,141 @@ const SUPABASE_URL = "http://localhost:54321";
 // ============================================================================
 
 describe("Fetch Auth - Sign Up", () => {
-  test("POST /auth/v1/signup succeeds", async () => {
-    const db = createPGlite();
-    const { localFetch } = await createFetchAdapter({
-      db,
-      supabaseUrl: SUPABASE_URL,
-    });
+	test("POST /auth/v1/signup succeeds", async () => {
+		const db = createPGlite();
+		const { localFetch } = await createFetchAdapter({
+			db,
+			supabaseUrl: SUPABASE_URL,
+		});
 
-    const response = await localFetch(`${SUPABASE_URL}/auth/v1/signup`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        email: "test@example.com",
-        password: "password123",
-      }),
-    });
+		const response = await localFetch(`${SUPABASE_URL}/auth/v1/signup`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				email: "test@example.com",
+				password: "password123",
+			}),
+		});
 
-    assertEquals(response.status, 200);
+		assertEquals(response.status, 200);
 
-    const data = await response.json();
-    assertExists(data.user);
-    assertExists(data.access_token);
-    assertExists(data.refresh_token);
-    assertEquals(data.user.email, "test@example.com");
-    assertEquals(data.user.role, "authenticated");
-    assertEquals(data.token_type, "bearer");
-    assertExists(data.expires_in);
-    assertExists(data.expires_at);
+		const data = await response.json();
+		assertExists(data.user);
+		assertExists(data.access_token);
+		assertExists(data.refresh_token);
+		assertEquals(data.user.email, "test@example.com");
+		assertEquals(data.user.role, "authenticated");
+		assertEquals(data.token_type, "bearer");
+		assertExists(data.expires_in);
+		assertExists(data.expires_at);
 
-    await db.close();
-  });
+		await db.close();
+	});
 
-  test("POST /auth/v1/signup with metadata", async () => {
-    const db = createPGlite();
-    const { localFetch } = await createFetchAdapter({
-      db,
-      supabaseUrl: SUPABASE_URL,
-    });
+	test("POST /auth/v1/signup with metadata", async () => {
+		const db = createPGlite();
+		const { localFetch } = await createFetchAdapter({
+			db,
+			supabaseUrl: SUPABASE_URL,
+		});
 
-    const response = await localFetch(`${SUPABASE_URL}/auth/v1/signup`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        email: "test@example.com",
-        password: "password123",
-        options: {
-          data: { display_name: "Test User" },
-        },
-      }),
-    });
+		const response = await localFetch(`${SUPABASE_URL}/auth/v1/signup`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				email: "test@example.com",
+				password: "password123",
+				options: {
+					data: { display_name: "Test User" },
+				},
+			}),
+		});
 
-    assertEquals(response.status, 200);
+		assertEquals(response.status, 200);
 
-    const data = await response.json();
-    assertEquals(data.user.user_metadata.display_name, "Test User");
+		const data = await response.json();
+		assertEquals(data.user.user_metadata.display_name, "Test User");
 
-    await db.close();
-  });
+		await db.close();
+	});
 
-  test("POST /auth/v1/signup rejects missing email", async () => {
-    const db = createPGlite();
-    const { localFetch } = await createFetchAdapter({
-      db,
-      supabaseUrl: SUPABASE_URL,
-    });
+	test("POST /auth/v1/signup rejects missing email", async () => {
+		const db = createPGlite();
+		const { localFetch } = await createFetchAdapter({
+			db,
+			supabaseUrl: SUPABASE_URL,
+		});
 
-    const response = await localFetch(`${SUPABASE_URL}/auth/v1/signup`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        password: "password123",
-      }),
-    });
+		const response = await localFetch(`${SUPABASE_URL}/auth/v1/signup`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				password: "password123",
+			}),
+		});
 
-    assertEquals(response.status, 400);
+		assertEquals(response.status, 400);
 
-    const data = await response.json();
-    assertExists(data.error);
+		const data = await response.json();
+		assertExists(data.error);
 
-    await db.close();
-  });
+		await db.close();
+	});
 
-  test("POST /auth/v1/signup rejects missing password", async () => {
-    const db = createPGlite();
-    const { localFetch } = await createFetchAdapter({
-      db,
-      supabaseUrl: SUPABASE_URL,
-    });
+	test("POST /auth/v1/signup rejects missing password", async () => {
+		const db = createPGlite();
+		const { localFetch } = await createFetchAdapter({
+			db,
+			supabaseUrl: SUPABASE_URL,
+		});
 
-    const response = await localFetch(`${SUPABASE_URL}/auth/v1/signup`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        email: "test@example.com",
-      }),
-    });
+		const response = await localFetch(`${SUPABASE_URL}/auth/v1/signup`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				email: "test@example.com",
+			}),
+		});
 
-    assertEquals(response.status, 400);
+		assertEquals(response.status, 400);
 
-    await db.close();
-  });
+		await db.close();
+	});
 
-  test("POST /auth/v1/signup rejects duplicate email", async () => {
-    const db = createPGlite();
-    const { localFetch } = await createFetchAdapter({
-      db,
-      supabaseUrl: SUPABASE_URL,
-    });
+	test("POST /auth/v1/signup rejects duplicate email", async () => {
+		const db = createPGlite();
+		const { localFetch } = await createFetchAdapter({
+			db,
+			supabaseUrl: SUPABASE_URL,
+		});
 
-    // First signup
-    await localFetch(`${SUPABASE_URL}/auth/v1/signup`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        email: "test@example.com",
-        password: "password123",
-      }),
-    });
+		// First signup
+		await localFetch(`${SUPABASE_URL}/auth/v1/signup`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				email: "test@example.com",
+				password: "password123",
+			}),
+		});
 
-    // Second signup with same email
-    const response = await localFetch(`${SUPABASE_URL}/auth/v1/signup`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        email: "test@example.com",
-        password: "different_password",
-      }),
-    });
+		// Second signup with same email
+		const response = await localFetch(`${SUPABASE_URL}/auth/v1/signup`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				email: "test@example.com",
+				password: "different_password",
+			}),
+		});
 
-    assertEquals(response.status, 400);
+		assertEquals(response.status, 400);
 
-    const data = await response.json();
-    assertEquals(data.error, "user_already_exists");
+		const data = await response.json();
+		assertEquals(data.error, "user_already_exists");
 
-    await db.close();
-  });
+		await db.close();
+	});
 });
 
 // ============================================================================
@@ -162,149 +162,149 @@ describe("Fetch Auth - Sign Up", () => {
 // ============================================================================
 
 describe("Fetch Auth - Sign In", () => {
-  test("POST /auth/v1/token?grant_type=password succeeds", async () => {
-    const db = createPGlite();
-    const { localFetch, authHandler } = await createFetchAdapter({
-      db,
-      supabaseUrl: SUPABASE_URL,
-    });
+	test("POST /auth/v1/token?grant_type=password succeeds", async () => {
+		const db = createPGlite();
+		const { localFetch, authHandler } = await createFetchAdapter({
+			db,
+			supabaseUrl: SUPABASE_URL,
+		});
 
-    await authHandler.signUp("test@example.com", "password123");
+		await authHandler.signUp("test@example.com", "password123");
 
-    const response = await localFetch(
-      `${SUPABASE_URL}/auth/v1/token?grant_type=password`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          email: "test@example.com",
-          password: "password123",
-        }),
-      },
-    );
+		const response = await localFetch(
+			`${SUPABASE_URL}/auth/v1/token?grant_type=password`,
+			{
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					email: "test@example.com",
+					password: "password123",
+				}),
+			},
+		);
 
-    assertEquals(response.status, 200);
+		assertEquals(response.status, 200);
 
-    const data = await response.json();
-    assertExists(data.access_token);
-    assertExists(data.refresh_token);
-    assertExists(data.user);
-    assertEquals(data.token_type, "bearer");
-    assertExists(data.expires_in);
-    assertExists(data.expires_at);
+		const data = await response.json();
+		assertExists(data.access_token);
+		assertExists(data.refresh_token);
+		assertExists(data.user);
+		assertEquals(data.token_type, "bearer");
+		assertExists(data.expires_in);
+		assertExists(data.expires_at);
 
-    await db.close();
-  });
+		await db.close();
+	});
 
-  test("POST /auth/v1/token rejects wrong password", async () => {
-    const db = createPGlite();
-    const { localFetch, authHandler } = await createFetchAdapter({
-      db,
-      supabaseUrl: SUPABASE_URL,
-    });
+	test("POST /auth/v1/token rejects wrong password", async () => {
+		const db = createPGlite();
+		const { localFetch, authHandler } = await createFetchAdapter({
+			db,
+			supabaseUrl: SUPABASE_URL,
+		});
 
-    await authHandler.signUp("test@example.com", "password123");
+		await authHandler.signUp("test@example.com", "password123");
 
-    const response = await localFetch(
-      `${SUPABASE_URL}/auth/v1/token?grant_type=password`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          email: "test@example.com",
-          password: "wrongpassword",
-        }),
-      },
-    );
+		const response = await localFetch(
+			`${SUPABASE_URL}/auth/v1/token?grant_type=password`,
+			{
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					email: "test@example.com",
+					password: "wrongpassword",
+				}),
+			},
+		);
 
-    assertEquals(response.status, 400);
+		assertEquals(response.status, 400);
 
-    const data = await response.json();
-    assertEquals(data.error, "invalid_grant");
+		const data = await response.json();
+		assertEquals(data.error, "invalid_grant");
 
-    await db.close();
-  });
+		await db.close();
+	});
 
-  test("POST /auth/v1/token?grant_type=refresh_token succeeds", async () => {
-    const db = createPGlite();
-    const { localFetch, authHandler } = await createFetchAdapter({
-      db,
-      supabaseUrl: SUPABASE_URL,
-    });
+	test("POST /auth/v1/token?grant_type=refresh_token succeeds", async () => {
+		const db = createPGlite();
+		const { localFetch, authHandler } = await createFetchAdapter({
+			db,
+			supabaseUrl: SUPABASE_URL,
+		});
 
-    const signUpResult = await authHandler.signUp(
-      "test@example.com",
-      "password123",
-    );
-    const refreshToken = signUpResult.data.session?.refresh_token;
+		const signUpResult = await authHandler.signUp(
+			"test@example.com",
+			"password123",
+		);
+		const refreshToken = signUpResult.data.session?.refresh_token;
 
-    const response = await localFetch(
-      `${SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          refresh_token: refreshToken,
-        }),
-      },
-    );
+		const response = await localFetch(
+			`${SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`,
+			{
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					refresh_token: refreshToken,
+				}),
+			},
+		);
 
-    assertEquals(response.status, 200);
+		assertEquals(response.status, 200);
 
-    const data = await response.json();
-    assertExists(data.access_token);
-    assertExists(data.refresh_token);
-    assertNotEquals(data.refresh_token, refreshToken); // New token
+		const data = await response.json();
+		assertExists(data.access_token);
+		assertExists(data.refresh_token);
+		assertNotEquals(data.refresh_token, refreshToken); // New token
 
-    await db.close();
-  });
+		await db.close();
+	});
 
-  test("POST /auth/v1/token rejects invalid refresh token", async () => {
-    const db = createPGlite();
-    const { localFetch } = await createFetchAdapter({
-      db,
-      supabaseUrl: SUPABASE_URL,
-    });
+	test("POST /auth/v1/token rejects invalid refresh token", async () => {
+		const db = createPGlite();
+		const { localFetch } = await createFetchAdapter({
+			db,
+			supabaseUrl: SUPABASE_URL,
+		});
 
-    const response = await localFetch(
-      `${SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          refresh_token: "invalid-token",
-        }),
-      },
-    );
+		const response = await localFetch(
+			`${SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`,
+			{
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					refresh_token: "invalid-token",
+				}),
+			},
+		);
 
-    assertEquals(response.status, 401);
+		assertEquals(response.status, 401);
 
-    await db.close();
-  });
+		await db.close();
+	});
 
-  test("POST /auth/v1/token rejects unsupported grant type", async () => {
-    const db = createPGlite();
-    const { localFetch } = await createFetchAdapter({
-      db,
-      supabaseUrl: SUPABASE_URL,
-    });
+	test("POST /auth/v1/token rejects unsupported grant type", async () => {
+		const db = createPGlite();
+		const { localFetch } = await createFetchAdapter({
+			db,
+			supabaseUrl: SUPABASE_URL,
+		});
 
-    const response = await localFetch(
-      `${SUPABASE_URL}/auth/v1/token?grant_type=unsupported`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
-      },
-    );
+		const response = await localFetch(
+			`${SUPABASE_URL}/auth/v1/token?grant_type=unsupported`,
+			{
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({}),
+			},
+		);
 
-    assertEquals(response.status, 400);
+		assertEquals(response.status, 400);
 
-    const data = await response.json();
-    assertEquals(data.error, "unsupported_grant_type");
+		const data = await response.json();
+		assertEquals(data.error, "unsupported_grant_type");
 
-    await db.close();
-  });
+		await db.close();
+	});
 });
 
 // ============================================================================
@@ -312,121 +312,121 @@ describe("Fetch Auth - Sign In", () => {
 // ============================================================================
 
 describe("Fetch Auth - User", () => {
-  test("GET /auth/v1/user returns user", async () => {
-    const db = createPGlite();
-    const { localFetch, authHandler } = await createFetchAdapter({
-      db,
-      supabaseUrl: SUPABASE_URL,
-    });
+	test("GET /auth/v1/user returns user", async () => {
+		const db = createPGlite();
+		const { localFetch, authHandler } = await createFetchAdapter({
+			db,
+			supabaseUrl: SUPABASE_URL,
+		});
 
-    const signUpResult = await authHandler.signUp(
-      "test@example.com",
-      "password123",
-    );
-    const accessToken = signUpResult.data.session?.access_token;
+		const signUpResult = await authHandler.signUp(
+			"test@example.com",
+			"password123",
+		);
+		const accessToken = signUpResult.data.session?.access_token;
 
-    const response = await localFetch(`${SUPABASE_URL}/auth/v1/user`, {
-      method: "GET",
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-      },
-    });
+		const response = await localFetch(`${SUPABASE_URL}/auth/v1/user`, {
+			method: "GET",
+			headers: {
+				Authorization: `Bearer ${accessToken}`,
+			},
+		});
 
-    assertEquals(response.status, 200);
+		assertEquals(response.status, 200);
 
-    const data = await response.json();
-    assertEquals(data.email, "test@example.com");
-    assertExists(data.id);
+		const data = await response.json();
+		assertEquals(data.email, "test@example.com");
+		assertExists(data.id);
 
-    await db.close();
-  });
+		await db.close();
+	});
 
-  test("GET /auth/v1/user rejects missing auth", async () => {
-    const db = createPGlite();
-    const { localFetch } = await createFetchAdapter({
-      db,
-      supabaseUrl: SUPABASE_URL,
-    });
+	test("GET /auth/v1/user rejects missing auth", async () => {
+		const db = createPGlite();
+		const { localFetch } = await createFetchAdapter({
+			db,
+			supabaseUrl: SUPABASE_URL,
+		});
 
-    const response = await localFetch(`${SUPABASE_URL}/auth/v1/user`, {
-      method: "GET",
-    });
+		const response = await localFetch(`${SUPABASE_URL}/auth/v1/user`, {
+			method: "GET",
+		});
 
-    assertEquals(response.status, 401);
+		assertEquals(response.status, 401);
 
-    await db.close();
-  });
+		await db.close();
+	});
 
-  test("GET /auth/v1/user rejects invalid token", async () => {
-    const db = createPGlite();
-    const { localFetch } = await createFetchAdapter({
-      db,
-      supabaseUrl: SUPABASE_URL,
-    });
+	test("GET /auth/v1/user rejects invalid token", async () => {
+		const db = createPGlite();
+		const { localFetch } = await createFetchAdapter({
+			db,
+			supabaseUrl: SUPABASE_URL,
+		});
 
-    const response = await localFetch(`${SUPABASE_URL}/auth/v1/user`, {
-      method: "GET",
-      headers: {
-        Authorization: "Bearer invalid-token",
-      },
-    });
+		const response = await localFetch(`${SUPABASE_URL}/auth/v1/user`, {
+			method: "GET",
+			headers: {
+				Authorization: "Bearer invalid-token",
+			},
+		});
 
-    assertEquals(response.status, 401);
+		assertEquals(response.status, 401);
 
-    await db.close();
-  });
+		await db.close();
+	});
 
-  test("PUT /auth/v1/user updates user", async () => {
-    const db = createPGlite();
-    const { localFetch, authHandler } = await createFetchAdapter({
-      db,
-      supabaseUrl: SUPABASE_URL,
-    });
+	test("PUT /auth/v1/user updates user", async () => {
+		const db = createPGlite();
+		const { localFetch, authHandler } = await createFetchAdapter({
+			db,
+			supabaseUrl: SUPABASE_URL,
+		});
 
-    const signUpResult = await authHandler.signUp(
-      "test@example.com",
-      "password123",
-    );
-    const accessToken = signUpResult.data.session?.access_token;
+		const signUpResult = await authHandler.signUp(
+			"test@example.com",
+			"password123",
+		);
+		const accessToken = signUpResult.data.session?.access_token;
 
-    const response = await localFetch(`${SUPABASE_URL}/auth/v1/user`, {
-      method: "PUT",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${accessToken}`,
-      },
-      body: JSON.stringify({
-        data: { display_name: "Updated Name" },
-      }),
-    });
+		const response = await localFetch(`${SUPABASE_URL}/auth/v1/user`, {
+			method: "PUT",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer ${accessToken}`,
+			},
+			body: JSON.stringify({
+				data: { display_name: "Updated Name" },
+			}),
+		});
 
-    assertEquals(response.status, 200);
+		assertEquals(response.status, 200);
 
-    const data = await response.json();
-    assertEquals(data.user_metadata.display_name, "Updated Name");
+		const data = await response.json();
+		assertEquals(data.user_metadata.display_name, "Updated Name");
 
-    await db.close();
-  });
+		await db.close();
+	});
 
-  test("PUT /auth/v1/user rejects missing auth", async () => {
-    const db = createPGlite();
-    const { localFetch } = await createFetchAdapter({
-      db,
-      supabaseUrl: SUPABASE_URL,
-    });
+	test("PUT /auth/v1/user rejects missing auth", async () => {
+		const db = createPGlite();
+		const { localFetch } = await createFetchAdapter({
+			db,
+			supabaseUrl: SUPABASE_URL,
+		});
 
-    const response = await localFetch(`${SUPABASE_URL}/auth/v1/user`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        data: { test: true },
-      }),
-    });
+		const response = await localFetch(`${SUPABASE_URL}/auth/v1/user`, {
+			method: "PUT",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				data: { test: true },
+			}),
+		});
 
-    assertEquals(response.status, 401);
+		assertEquals(response.status, 401);
 
-    await db.close();
-  });
+		await db.close();
+	});
 });
 
 // ============================================================================
@@ -434,46 +434,46 @@ describe("Fetch Auth - User", () => {
 // ============================================================================
 
 describe("Fetch Auth - Logout", () => {
-  test("POST /auth/v1/logout succeeds", async () => {
-    const db = createPGlite();
-    const { localFetch, authHandler } = await createFetchAdapter({
-      db,
-      supabaseUrl: SUPABASE_URL,
-    });
+	test("POST /auth/v1/logout succeeds", async () => {
+		const db = createPGlite();
+		const { localFetch, authHandler } = await createFetchAdapter({
+			db,
+			supabaseUrl: SUPABASE_URL,
+		});
 
-    const signUpResult = await authHandler.signUp(
-      "test@example.com",
-      "password123",
-    );
-    const accessToken = signUpResult.data.session?.access_token;
+		const signUpResult = await authHandler.signUp(
+			"test@example.com",
+			"password123",
+		);
+		const accessToken = signUpResult.data.session?.access_token;
 
-    const response = await localFetch(`${SUPABASE_URL}/auth/v1/logout`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-      },
-    });
+		const response = await localFetch(`${SUPABASE_URL}/auth/v1/logout`, {
+			method: "POST",
+			headers: {
+				Authorization: `Bearer ${accessToken}`,
+			},
+		});
 
-    assertEquals(response.status, 200);
+		assertEquals(response.status, 200);
 
-    await db.close();
-  });
+		await db.close();
+	});
 
-  test("POST /auth/v1/logout works without token", async () => {
-    const db = createPGlite();
-    const { localFetch } = await createFetchAdapter({
-      db,
-      supabaseUrl: SUPABASE_URL,
-    });
+	test("POST /auth/v1/logout works without token", async () => {
+		const db = createPGlite();
+		const { localFetch } = await createFetchAdapter({
+			db,
+			supabaseUrl: SUPABASE_URL,
+		});
 
-    const response = await localFetch(`${SUPABASE_URL}/auth/v1/logout`, {
-      method: "POST",
-    });
+		const response = await localFetch(`${SUPABASE_URL}/auth/v1/logout`, {
+			method: "POST",
+		});
 
-    assertEquals(response.status, 200);
+		assertEquals(response.status, 200);
 
-    await db.close();
-  });
+		await db.close();
+	});
 });
 
 // ============================================================================
@@ -481,49 +481,49 @@ describe("Fetch Auth - Logout", () => {
 // ============================================================================
 
 describe("Fetch Auth - Session", () => {
-  test("GET /auth/v1/session returns session", async () => {
-    const db = createPGlite();
-    const { localFetch, authHandler } = await createFetchAdapter({
-      db,
-      supabaseUrl: SUPABASE_URL,
-    });
+	test("GET /auth/v1/session returns session", async () => {
+		const db = createPGlite();
+		const { localFetch, authHandler } = await createFetchAdapter({
+			db,
+			supabaseUrl: SUPABASE_URL,
+		});
 
-    const signUpResult = await authHandler.signUp(
-      "test@example.com",
-      "password123",
-    );
-    const accessToken = signUpResult.data.session?.access_token;
+		const signUpResult = await authHandler.signUp(
+			"test@example.com",
+			"password123",
+		);
+		const accessToken = signUpResult.data.session?.access_token;
 
-    const response = await localFetch(`${SUPABASE_URL}/auth/v1/session`, {
-      method: "GET",
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-      },
-    });
+		const response = await localFetch(`${SUPABASE_URL}/auth/v1/session`, {
+			method: "GET",
+			headers: {
+				Authorization: `Bearer ${accessToken}`,
+			},
+		});
 
-    assertEquals(response.status, 200);
+		assertEquals(response.status, 200);
 
-    await db.close();
-  });
+		await db.close();
+	});
 
-  test("GET /auth/v1/session returns null without auth", async () => {
-    const db = createPGlite();
-    const { localFetch } = await createFetchAdapter({
-      db,
-      supabaseUrl: SUPABASE_URL,
-    });
+	test("GET /auth/v1/session returns null without auth", async () => {
+		const db = createPGlite();
+		const { localFetch } = await createFetchAdapter({
+			db,
+			supabaseUrl: SUPABASE_URL,
+		});
 
-    const response = await localFetch(`${SUPABASE_URL}/auth/v1/session`, {
-      method: "GET",
-    });
+		const response = await localFetch(`${SUPABASE_URL}/auth/v1/session`, {
+			method: "GET",
+		});
 
-    assertEquals(response.status, 200);
+		assertEquals(response.status, 200);
 
-    const data = await response.json();
-    assertEquals(data.session, null);
+		const data = await response.json();
+		assertEquals(data.session, null);
 
-    await db.close();
-  });
+		await db.close();
+	});
 });
 
 // ============================================================================
@@ -531,21 +531,21 @@ describe("Fetch Auth - Session", () => {
 // ============================================================================
 
 describe("Fetch Auth - Not Found", () => {
-  test("Unknown auth endpoint returns 404", async () => {
-    const db = createPGlite();
-    const { localFetch } = await createFetchAdapter({
-      db,
-      supabaseUrl: SUPABASE_URL,
-    });
+	test("Unknown auth endpoint returns 404", async () => {
+		const db = createPGlite();
+		const { localFetch } = await createFetchAdapter({
+			db,
+			supabaseUrl: SUPABASE_URL,
+		});
 
-    const response = await localFetch(`${SUPABASE_URL}/auth/v1/unknown`, {
-      method: "GET",
-    });
+		const response = await localFetch(`${SUPABASE_URL}/auth/v1/unknown`, {
+			method: "GET",
+		});
 
-    assertEquals(response.status, 404);
+		assertEquals(response.status, 404);
 
-    await db.close();
-  });
+		await db.close();
+	});
 });
 
 // ============================================================================
@@ -553,10 +553,10 @@ describe("Fetch Auth - Not Found", () => {
 // ============================================================================
 
 describe("Fetch Data - SELECT", () => {
-  test("GET /rest/v1/table returns all rows", async () => {
-    const db = createPGlite();
+	test("GET /rest/v1/table returns all rows", async () => {
+		const db = createPGlite();
 
-    await db.exec(`
+		await db.exec(`
     CREATE TABLE users (
       id SERIAL PRIMARY KEY,
       name TEXT NOT NULL,
@@ -564,39 +564,39 @@ describe("Fetch Data - SELECT", () => {
     )
   `);
 
-    await db.exec(`
+		await db.exec(`
     INSERT INTO users (name, email) VALUES
       ('Alice', 'alice@example.com'),
       ('Bob', 'bob@example.com')
   `);
 
-    const { localFetch } = await createFetchAdapter({
-      db,
-      supabaseUrl: SUPABASE_URL,
-    });
+		const { localFetch } = await createFetchAdapter({
+			db,
+			supabaseUrl: SUPABASE_URL,
+		});
 
-    const response = await localFetch(
-      `${SUPABASE_URL}/rest/v1/users?select=*`,
-      {
-        method: "GET",
-        headers: { "Content-Type": "application/json" },
-      },
-    );
+		const response = await localFetch(
+			`${SUPABASE_URL}/rest/v1/users?select=*`,
+			{
+				method: "GET",
+				headers: { "Content-Type": "application/json" },
+			},
+		);
 
-    assertEquals(response.status, 200);
+		assertEquals(response.status, 200);
 
-    const data = await response.json();
-    assertEquals(data.length, 2);
-    assertEquals(data[0].name, "Alice");
-    assertEquals(data[1].name, "Bob");
+		const data = await response.json();
+		assertEquals(data.length, 2);
+		assertEquals(data[0].name, "Alice");
+		assertEquals(data[1].name, "Bob");
 
-    await db.close();
-  });
+		await db.close();
+	});
 
-  test("GET /rest/v1/table with column selection", async () => {
-    const db = createPGlite();
+	test("GET /rest/v1/table with column selection", async () => {
+		const db = createPGlite();
 
-    await db.exec(`
+		await db.exec(`
     CREATE TABLE users (
       id SERIAL PRIMARY KEY,
       name TEXT NOT NULL,
@@ -605,36 +605,36 @@ describe("Fetch Data - SELECT", () => {
     )
   `);
 
-    await db.exec(`
+		await db.exec(`
     INSERT INTO users (name, email, age) VALUES ('Alice', 'alice@example.com', 25)
   `);
 
-    const { localFetch } = await createFetchAdapter({
-      db,
-      supabaseUrl: SUPABASE_URL,
-    });
+		const { localFetch } = await createFetchAdapter({
+			db,
+			supabaseUrl: SUPABASE_URL,
+		});
 
-    const response = await localFetch(
-      `${SUPABASE_URL}/rest/v1/users?select=name,email`,
-      {
-        method: "GET",
-      },
-    );
+		const response = await localFetch(
+			`${SUPABASE_URL}/rest/v1/users?select=name,email`,
+			{
+				method: "GET",
+			},
+		);
 
-    assertEquals(response.status, 200);
+		assertEquals(response.status, 200);
 
-    const data = await response.json();
-    assertEquals(data.length, 1);
-    assertExists(data[0].name);
-    assertExists(data[0].email);
+		const data = await response.json();
+		assertEquals(data.length, 1);
+		assertExists(data[0].name);
+		assertExists(data[0].email);
 
-    await db.close();
-  });
+		await db.close();
+	});
 
-  test("GET /rest/v1/table with filter", async () => {
-    const db = createPGlite();
+	test("GET /rest/v1/table with filter", async () => {
+		const db = createPGlite();
 
-    await db.exec(`
+		await db.exec(`
     CREATE TABLE users (
       id SERIAL PRIMARY KEY,
       name TEXT NOT NULL,
@@ -642,62 +642,62 @@ describe("Fetch Data - SELECT", () => {
     )
   `);
 
-    await db.exec(`
+		await db.exec(`
     INSERT INTO users (name, age) VALUES
       ('Alice', 25),
       ('Bob', 30),
       ('Charlie', 35)
   `);
 
-    const { localFetch } = await createFetchAdapter({
-      db,
-      supabaseUrl: SUPABASE_URL,
-    });
+		const { localFetch } = await createFetchAdapter({
+			db,
+			supabaseUrl: SUPABASE_URL,
+		});
 
-    const response = await localFetch(
-      `${SUPABASE_URL}/rest/v1/users?select=*&age=gte.30`,
-      {
-        method: "GET",
-      },
-    );
+		const response = await localFetch(
+			`${SUPABASE_URL}/rest/v1/users?select=*&age=gte.30`,
+			{
+				method: "GET",
+			},
+		);
 
-    assertEquals(response.status, 200);
+		assertEquals(response.status, 200);
 
-    const data = await response.json();
-    assertEquals(data.length, 2);
+		const data = await response.json();
+		assertEquals(data.length, 2);
 
-    await db.close();
-  });
+		await db.close();
+	});
 
-  test("GET /rest/v1/table returns empty array for no results", async () => {
-    const db = createPGlite();
+	test("GET /rest/v1/table returns empty array for no results", async () => {
+		const db = createPGlite();
 
-    await db.exec(`
+		await db.exec(`
     CREATE TABLE users (
       id SERIAL PRIMARY KEY,
       name TEXT NOT NULL
     )
   `);
 
-    const { localFetch } = await createFetchAdapter({
-      db,
-      supabaseUrl: SUPABASE_URL,
-    });
+		const { localFetch } = await createFetchAdapter({
+			db,
+			supabaseUrl: SUPABASE_URL,
+		});
 
-    const response = await localFetch(
-      `${SUPABASE_URL}/rest/v1/users?select=*`,
-      {
-        method: "GET",
-      },
-    );
+		const response = await localFetch(
+			`${SUPABASE_URL}/rest/v1/users?select=*`,
+			{
+				method: "GET",
+			},
+		);
 
-    assertEquals(response.status, 200);
+		assertEquals(response.status, 200);
 
-    const data = await response.json();
-    assertEquals(data.length, 0);
+		const data = await response.json();
+		assertEquals(data.length, 0);
 
-    await db.close();
-  });
+		await db.close();
+	});
 });
 
 // ============================================================================
@@ -705,10 +705,10 @@ describe("Fetch Data - SELECT", () => {
 // ============================================================================
 
 describe("Fetch Data - INSERT", () => {
-  test("POST /rest/v1/table inserts row", async () => {
-    const db = createPGlite();
+	test("POST /rest/v1/table inserts row", async () => {
+		const db = createPGlite();
 
-    await db.exec(`
+		await db.exec(`
     CREATE TABLE users (
       id SERIAL PRIMARY KEY,
       name TEXT NOT NULL,
@@ -716,86 +716,86 @@ describe("Fetch Data - INSERT", () => {
     )
   `);
 
-    const { localFetch } = await createFetchAdapter({
-      db,
-      supabaseUrl: SUPABASE_URL,
-    });
+		const { localFetch } = await createFetchAdapter({
+			db,
+			supabaseUrl: SUPABASE_URL,
+		});
 
-    const response = await localFetch(`${SUPABASE_URL}/rest/v1/users`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: "Charlie", email: "charlie@example.com" }),
-    });
+		const response = await localFetch(`${SUPABASE_URL}/rest/v1/users`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ name: "Charlie", email: "charlie@example.com" }),
+		});
 
-    assertEquals(response.status, 201);
+		assertEquals(response.status, 201);
 
-    // Verify insert
-    const result = await db.query("SELECT * FROM users");
-    assertEquals(result.rows.length, 1);
+		// Verify insert
+		const result = await db.query("SELECT * FROM users");
+		assertEquals(result.rows.length, 1);
 
-    await db.close();
-  });
+		await db.close();
+	});
 
-  test("POST /rest/v1/table with Prefer: return=representation", async () => {
-    const db = createPGlite();
+	test("POST /rest/v1/table with Prefer: return=representation", async () => {
+		const db = createPGlite();
 
-    await db.exec(`
+		await db.exec(`
     CREATE TABLE users (
       id SERIAL PRIMARY KEY,
       name TEXT NOT NULL
     )
   `);
 
-    const { localFetch } = await createFetchAdapter({
-      db,
-      supabaseUrl: SUPABASE_URL,
-    });
+		const { localFetch } = await createFetchAdapter({
+			db,
+			supabaseUrl: SUPABASE_URL,
+		});
 
-    const response = await localFetch(`${SUPABASE_URL}/rest/v1/users`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Prefer: "return=representation",
-      },
-      body: JSON.stringify({ name: "Test" }),
-    });
+		const response = await localFetch(`${SUPABASE_URL}/rest/v1/users`, {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Prefer: "return=representation",
+			},
+			body: JSON.stringify({ name: "Test" }),
+		});
 
-    assertEquals(response.status, 201);
+		assertEquals(response.status, 201);
 
-    const data = await response.json();
-    assertExists(data);
+		const data = await response.json();
+		assertExists(data);
 
-    await db.close();
-  });
+		await db.close();
+	});
 
-  test("POST /rest/v1/table with Prefer: return=minimal", async () => {
-    const db = createPGlite();
+	test("POST /rest/v1/table with Prefer: return=minimal", async () => {
+		const db = createPGlite();
 
-    await db.exec(`
+		await db.exec(`
     CREATE TABLE users (
       id SERIAL PRIMARY KEY,
       name TEXT NOT NULL
     )
   `);
 
-    const { localFetch } = await createFetchAdapter({
-      db,
-      supabaseUrl: SUPABASE_URL,
-    });
+		const { localFetch } = await createFetchAdapter({
+			db,
+			supabaseUrl: SUPABASE_URL,
+		});
 
-    const response = await localFetch(`${SUPABASE_URL}/rest/v1/users`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Prefer: "return=minimal",
-      },
-      body: JSON.stringify({ name: "Test" }),
-    });
+		const response = await localFetch(`${SUPABASE_URL}/rest/v1/users`, {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Prefer: "return=minimal",
+			},
+			body: JSON.stringify({ name: "Test" }),
+		});
 
-    assertEquals(response.status, 201);
+		assertEquals(response.status, 201);
 
-    await db.close();
-  });
+		await db.close();
+	});
 });
 
 // ============================================================================
@@ -803,10 +803,10 @@ describe("Fetch Data - INSERT", () => {
 // ============================================================================
 
 describe("Fetch Data - UPDATE", () => {
-  test("PATCH /rest/v1/table updates rows", async () => {
-    const db = createPGlite();
+	test("PATCH /rest/v1/table updates rows", async () => {
+		const db = createPGlite();
 
-    await db.exec(`
+		await db.exec(`
     CREATE TABLE users (
       id SERIAL PRIMARY KEY,
       name TEXT NOT NULL,
@@ -814,40 +814,40 @@ describe("Fetch Data - UPDATE", () => {
     )
   `);
 
-    await db.exec(`
+		await db.exec(`
     INSERT INTO users (name, email) VALUES ('Alice', 'alice@example.com')
   `);
 
-    const { localFetch } = await createFetchAdapter({
-      db,
-      supabaseUrl: SUPABASE_URL,
-    });
+		const { localFetch } = await createFetchAdapter({
+			db,
+			supabaseUrl: SUPABASE_URL,
+		});
 
-    const response = await localFetch(
-      `${SUPABASE_URL}/rest/v1/users?name=eq.Alice`,
-      {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: "newalice@example.com" }),
-      },
-    );
+		const response = await localFetch(
+			`${SUPABASE_URL}/rest/v1/users?name=eq.Alice`,
+			{
+				method: "PATCH",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ email: "newalice@example.com" }),
+			},
+		);
 
-    assertEquals(response.status, 204);
+		assertEquals(response.status, 204);
 
-    // Verify update
-    const result = await db.query<{ email: string }>(
-      "SELECT email FROM users WHERE name = $1",
-      ["Alice"],
-    );
-    assertEquals(result.rows[0]?.email, "newalice@example.com");
+		// Verify update
+		const result = await db.query<{ email: string }>(
+			"SELECT email FROM users WHERE name = $1",
+			["Alice"],
+		);
+		assertEquals(result.rows[0]?.email, "newalice@example.com");
 
-    await db.close();
-  });
+		await db.close();
+	});
 
-  test("PATCH /rest/v1/table with return=representation", async () => {
-    const db = createPGlite();
+	test("PATCH /rest/v1/table with return=representation", async () => {
+		const db = createPGlite();
 
-    await db.exec(`
+		await db.exec(`
     CREATE TABLE users (
       id SERIAL PRIMARY KEY,
       name TEXT NOT NULL,
@@ -855,34 +855,34 @@ describe("Fetch Data - UPDATE", () => {
     )
   `);
 
-    await db.exec(`
+		await db.exec(`
     INSERT INTO users (name, email) VALUES ('Alice', 'alice@example.com')
   `);
 
-    const { localFetch } = await createFetchAdapter({
-      db,
-      supabaseUrl: SUPABASE_URL,
-    });
+		const { localFetch } = await createFetchAdapter({
+			db,
+			supabaseUrl: SUPABASE_URL,
+		});
 
-    const response = await localFetch(
-      `${SUPABASE_URL}/rest/v1/users?name=eq.Alice`,
-      {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          Prefer: "return=representation",
-        },
-        body: JSON.stringify({ email: "newalice@example.com" }),
-      },
-    );
+		const response = await localFetch(
+			`${SUPABASE_URL}/rest/v1/users?name=eq.Alice`,
+			{
+				method: "PATCH",
+				headers: {
+					"Content-Type": "application/json",
+					Prefer: "return=representation",
+				},
+				body: JSON.stringify({ email: "newalice@example.com" }),
+			},
+		);
 
-    assertEquals(response.status, 200);
+		assertEquals(response.status, 200);
 
-    const data = await response.json();
-    assertEquals(data[0].email, "newalice@example.com");
+		const data = await response.json();
+		assertEquals(data[0].email, "newalice@example.com");
 
-    await db.close();
-  });
+		await db.close();
+	});
 });
 
 // ============================================================================
@@ -890,77 +890,77 @@ describe("Fetch Data - UPDATE", () => {
 // ============================================================================
 
 describe("Fetch Data - DELETE", () => {
-  test("DELETE /rest/v1/table deletes rows", async () => {
-    const db = createPGlite();
+	test("DELETE /rest/v1/table deletes rows", async () => {
+		const db = createPGlite();
 
-    await db.exec(`
+		await db.exec(`
     CREATE TABLE users (
       id SERIAL PRIMARY KEY,
       name TEXT NOT NULL
     )
   `);
 
-    await db.exec(`
+		await db.exec(`
     INSERT INTO users (name) VALUES ('Alice'), ('Bob')
   `);
 
-    const { localFetch } = await createFetchAdapter({
-      db,
-      supabaseUrl: SUPABASE_URL,
-    });
+		const { localFetch } = await createFetchAdapter({
+			db,
+			supabaseUrl: SUPABASE_URL,
+		});
 
-    const response = await localFetch(
-      `${SUPABASE_URL}/rest/v1/users?name=eq.Alice`,
-      {
-        method: "DELETE",
-      },
-    );
+		const response = await localFetch(
+			`${SUPABASE_URL}/rest/v1/users?name=eq.Alice`,
+			{
+				method: "DELETE",
+			},
+		);
 
-    assertEquals(response.status, 204);
+		assertEquals(response.status, 204);
 
-    // Verify delete
-    const result = await db.query("SELECT * FROM users");
-    assertEquals(result.rows.length, 1);
+		// Verify delete
+		const result = await db.query("SELECT * FROM users");
+		assertEquals(result.rows.length, 1);
 
-    await db.close();
-  });
+		await db.close();
+	});
 
-  test("DELETE /rest/v1/table with return=representation", async () => {
-    const db = createPGlite();
+	test("DELETE /rest/v1/table with return=representation", async () => {
+		const db = createPGlite();
 
-    await db.exec(`
+		await db.exec(`
     CREATE TABLE users (
       id SERIAL PRIMARY KEY,
       name TEXT NOT NULL
     )
   `);
 
-    await db.exec(`
+		await db.exec(`
     INSERT INTO users (name) VALUES ('Alice')
   `);
 
-    const { localFetch } = await createFetchAdapter({
-      db,
-      supabaseUrl: SUPABASE_URL,
-    });
+		const { localFetch } = await createFetchAdapter({
+			db,
+			supabaseUrl: SUPABASE_URL,
+		});
 
-    const response = await localFetch(
-      `${SUPABASE_URL}/rest/v1/users?name=eq.Alice`,
-      {
-        method: "DELETE",
-        headers: {
-          Prefer: "return=representation",
-        },
-      },
-    );
+		const response = await localFetch(
+			`${SUPABASE_URL}/rest/v1/users?name=eq.Alice`,
+			{
+				method: "DELETE",
+				headers: {
+					Prefer: "return=representation",
+				},
+			},
+		);
 
-    assertEquals(response.status, 200);
+		assertEquals(response.status, 200);
 
-    const data = await response.json();
-    assertEquals(data[0].name, "Alice");
+		const data = await response.json();
+		assertEquals(data[0].name, "Alice");
 
-    await db.close();
-  });
+		await db.close();
+	});
 });
 
 // ============================================================================
@@ -968,42 +968,42 @@ describe("Fetch Data - DELETE", () => {
 // ============================================================================
 
 describe("Fetch Data - Errors", () => {
-  test("Handles invalid table", async () => {
-    const db = createPGlite();
+	test("Handles invalid table", async () => {
+		const db = createPGlite();
 
-    const { localFetch } = await createFetchAdapter({
-      db,
-      supabaseUrl: SUPABASE_URL,
-    });
+		const { localFetch } = await createFetchAdapter({
+			db,
+			supabaseUrl: SUPABASE_URL,
+		});
 
-    const response = await localFetch(
-      `${SUPABASE_URL}/rest/v1/nonexistent?select=*`,
-      {
-        method: "GET",
-      },
-    );
+		const response = await localFetch(
+			`${SUPABASE_URL}/rest/v1/nonexistent?select=*`,
+			{
+				method: "GET",
+			},
+		);
 
-    assertEquals(response.status, 400);
+		assertEquals(response.status, 400);
 
-    await db.close();
-  });
+		await db.close();
+	});
 
-  test("Handles invalid path", async () => {
-    const db = createPGlite();
+	test("Handles invalid path", async () => {
+		const db = createPGlite();
 
-    const { localFetch } = await createFetchAdapter({
-      db,
-      supabaseUrl: SUPABASE_URL,
-    });
+		const { localFetch } = await createFetchAdapter({
+			db,
+			supabaseUrl: SUPABASE_URL,
+		});
 
-    const response = await localFetch(`${SUPABASE_URL}/rest/v1/`, {
-      method: "GET",
-    });
+		const response = await localFetch(`${SUPABASE_URL}/rest/v1/`, {
+			method: "GET",
+		});
 
-    assertEquals(response.status, 400);
+		assertEquals(response.status, 400);
 
-    await db.close();
-  });
+		await db.close();
+	});
 });
 
 // ============================================================================
@@ -1011,154 +1011,148 @@ describe("Fetch Data - Errors", () => {
 // ============================================================================
 
 describe("Fetch Passthrough", () => {
-  test("Non-Supabase requests pass through", async () => {
-    const db = createPGlite();
+	test("Non-Supabase requests pass through", async () => {
+		const db = createPGlite();
 
-    let passthroughCalled = false;
-    const mockOriginalFetch = async (
-      input: RequestInfo | URL,
-      _init?: RequestInit,
-    ) => {
-      passthroughCalled = true;
-      const url =
-        typeof input === "string"
-          ? input
-          : input instanceof URL
-            ? input.href
-            : input.url;
-      return new Response(JSON.stringify({ url }), { status: 200 });
-    };
+		let passthroughCalled = false;
+		const mockOriginalFetch = async (
+			input: RequestInfo | URL,
+			_init?: RequestInit,
+		) => {
+			passthroughCalled = true;
+			const url =
+				typeof input === "string"
+					? input
+					: input instanceof URL
+						? input.href
+						: input.url;
+			return new Response(JSON.stringify({ url }), { status: 200 });
+		};
 
-    const { localFetch } = await createFetchAdapter({
-      db,
-      supabaseUrl: SUPABASE_URL,
-      originalFetch: mockOriginalFetch,
-    });
+		const { localFetch } = await createFetchAdapter({
+			db,
+			supabaseUrl: SUPABASE_URL,
+			originalFetch: mockOriginalFetch,
+		});
 
-    const response = await localFetch("https://api.example.com/data", {
-      method: "GET",
-    });
+		const response = await localFetch("https://api.example.com/data", {
+			method: "GET",
+		});
 
-    assertEquals(passthroughCalled, true);
-    assertEquals(response.status, 200);
+		assertEquals(passthroughCalled, true);
+		assertEquals(response.status, 200);
 
-    await db.close();
-  });
+		await db.close();
+	});
 
-  test("Storage requests intercepted when handler enabled", async () => {
-    const db = createPGlite();
+	test("Storage requests intercepted when handler enabled", async () => {
+		const db = createPGlite();
 
-    const { localFetch } = await createFetchAdapter({
-      db,
-      supabaseUrl: SUPABASE_URL,
-    });
+		const { localFetch } = await createFetchAdapter({
+			db,
+			supabaseUrl: SUPABASE_URL,
+		});
 
-    // Storage is now intercepted by default (storageHandler is auto-created)
-    const response = await localFetch(
-      `${SUPABASE_URL}/storage/v1/bucket`,
-      {
-        method: "GET",
-      },
-    );
+		// Storage is now intercepted by default (storageHandler is auto-created)
+		const response = await localFetch(`${SUPABASE_URL}/storage/v1/bucket`, {
+			method: "GET",
+		});
 
-    // Should be intercepted and return a storage response (empty bucket list)
-    assertEquals(response.status, 200);
-    const data = await response.json();
-    assertEquals(Array.isArray(data), true);
+		// Should be intercepted and return a storage response (empty bucket list)
+		assertEquals(response.status, 200);
+		const data = await response.json();
+		assertEquals(Array.isArray(data), true);
 
-    await db.close();
-  });
+		await db.close();
+	});
 
-  test("Storage requests pass through when disabled", async () => {
-    const db = createPGlite();
+	test("Storage requests pass through when disabled", async () => {
+		const db = createPGlite();
 
-    let passthroughCalled = false;
-    const mockOriginalFetch = async (
-      _input: RequestInfo | URL,
-      _init?: RequestInit,
-    ) => {
-      passthroughCalled = true;
-      return new Response(JSON.stringify({ status: "ok" }), { status: 200 });
-    };
+		let passthroughCalled = false;
+		const mockOriginalFetch = async (
+			_input: RequestInfo | URL,
+			_init?: RequestInit,
+		) => {
+			passthroughCalled = true;
+			return new Response(JSON.stringify({ status: "ok" }), { status: 200 });
+		};
 
-    const { localFetch } = await createFetchAdapter({
-      db,
-      supabaseUrl: SUPABASE_URL,
-      originalFetch: mockOriginalFetch,
-      storageBackend: false,
-    });
+		const { localFetch } = await createFetchAdapter({
+			db,
+			supabaseUrl: SUPABASE_URL,
+			originalFetch: mockOriginalFetch,
+			storageBackend: false,
+		});
 
-    const response = await localFetch(
-      `${SUPABASE_URL}/storage/v1/bucket/file.png`,
-      {
-        method: "GET",
-      },
-    );
+		const response = await localFetch(
+			`${SUPABASE_URL}/storage/v1/bucket/file.png`,
+			{
+				method: "GET",
+			},
+		);
 
-    assertEquals(passthroughCalled, true);
-    assertEquals(response.status, 200);
+		assertEquals(passthroughCalled, true);
+		assertEquals(response.status, 200);
 
-    await db.close();
-  });
+		await db.close();
+	});
 
-  test("Realtime requests pass through", async () => {
-    const db = createPGlite();
+	test("Realtime requests pass through", async () => {
+		const db = createPGlite();
 
-    let passthroughCalled = false;
-    const mockOriginalFetch = async (
-      _input: RequestInfo | URL,
-      _init?: RequestInit,
-    ) => {
-      passthroughCalled = true;
-      return new Response(JSON.stringify({ status: "ok" }), { status: 200 });
-    };
+		let passthroughCalled = false;
+		const mockOriginalFetch = async (
+			_input: RequestInfo | URL,
+			_init?: RequestInit,
+		) => {
+			passthroughCalled = true;
+			return new Response(JSON.stringify({ status: "ok" }), { status: 200 });
+		};
 
-    const { localFetch } = await createFetchAdapter({
-      db,
-      supabaseUrl: SUPABASE_URL,
-      originalFetch: mockOriginalFetch,
-    });
+		const { localFetch } = await createFetchAdapter({
+			db,
+			supabaseUrl: SUPABASE_URL,
+			originalFetch: mockOriginalFetch,
+		});
 
-    const response = await localFetch(
-      `${SUPABASE_URL}/realtime/v1/websocket`,
-      {
-        method: "GET",
-      },
-    );
+		const response = await localFetch(`${SUPABASE_URL}/realtime/v1/websocket`, {
+			method: "GET",
+		});
 
-    assertEquals(passthroughCalled, true);
-    assertEquals(response.status, 200);
+		assertEquals(passthroughCalled, true);
+		assertEquals(response.status, 200);
 
-    await db.close();
-  });
+		await db.close();
+	});
 
-  test("Edge functions pass through", async () => {
-    const db = createPGlite();
+	test("Edge functions pass through", async () => {
+		const db = createPGlite();
 
-    let passthroughCalled = false;
-    const mockOriginalFetch = async (
-      _input: RequestInfo | URL,
-      _init?: RequestInit,
-    ) => {
-      passthroughCalled = true;
-      return new Response(JSON.stringify({ result: "hello" }), { status: 200 });
-    };
+		let passthroughCalled = false;
+		const mockOriginalFetch = async (
+			_input: RequestInfo | URL,
+			_init?: RequestInit,
+		) => {
+			passthroughCalled = true;
+			return new Response(JSON.stringify({ result: "hello" }), { status: 200 });
+		};
 
-    const { localFetch } = await createFetchAdapter({
-      db,
-      supabaseUrl: SUPABASE_URL,
-      originalFetch: mockOriginalFetch,
-    });
+		const { localFetch } = await createFetchAdapter({
+			db,
+			supabaseUrl: SUPABASE_URL,
+			originalFetch: mockOriginalFetch,
+		});
 
-    const response = await localFetch(`${SUPABASE_URL}/functions/v1/hello`, {
-      method: "POST",
-    });
+		const response = await localFetch(`${SUPABASE_URL}/functions/v1/hello`, {
+			method: "POST",
+		});
 
-    assertEquals(passthroughCalled, true);
-    assertEquals(response.status, 200);
+		assertEquals(passthroughCalled, true);
+		assertEquals(response.status, 200);
 
-    await db.close();
-  });
+		await db.close();
+	});
 });
 
 // ============================================================================
@@ -1166,35 +1160,37 @@ describe("Fetch Passthrough", () => {
 // ============================================================================
 
 describe("initializeAuth", () => {
-  test("returned authHandler can sign up a user", async () => {
-    const db = createPGlite();
+	test("returned authHandler can sign up a user", async () => {
+		const db = createPGlite();
 
-    const authHandler = await initializeAuth(db);
-    const result = await authHandler.signUp("initauth@example.com", "pass1234");
+		const authHandler = await initializeAuth(db);
+		const result = await authHandler.signUp("initauth@example.com", "pass1234");
 
-    assertEquals(result.error, null);
-    assertExists(result.data.user);
-    assertEquals(result.data.user!.email, "initauth@example.com");
+		assertEquals(result.error, null);
+		assertExists(result.data.user);
+		assertEquals(result.data.user!.email, "initauth@example.com");
 
-    await db.close();
-  });
+		await db.close();
+	});
 
-  test("calling initializeAuth twice on the same db is idempotent", async () => {
-    const db = createPGlite();
+	test("calling initializeAuth twice on the same db is idempotent", async () => {
+		const db = createPGlite();
 
-    const handler1 = await initializeAuth(db);
-    const handler2 = await initializeAuth(db);
+		const handler1 = await initializeAuth(db);
+		const handler2 = await initializeAuth(db);
 
-    const result = await handler2.signUp("idempotent@example.com", "pass1234");
-    assertEquals(result.error, null);
-    assertExists(result.data.user);
+		const result = await handler2.signUp("idempotent@example.com", "pass1234");
+		assertEquals(result.error, null);
+		assertExists(result.data.user);
 
-    const userResult = await handler1.getUser(result.data.session!.access_token);
-    assertEquals(userResult.error, null);
-    assertEquals(userResult.data.user?.email, "idempotent@example.com");
+		const userResult = await handler1.getUser(
+			result.data.session!.access_token,
+		);
+		assertEquals(userResult.error, null);
+		assertEquals(userResult.data.user?.email, "idempotent@example.com");
 
-    await db.close();
-  });
+		await db.close();
+	});
 });
 
 // ============================================================================
@@ -1202,72 +1198,83 @@ describe("initializeAuth", () => {
 // ============================================================================
 
 describe("createFetchAdapter storageBackend false", () => {
-  test("storage routes pass through when storage is disabled", async () => {
-    const db = createPGlite();
+	test("storage routes pass through when storage is disabled", async () => {
+		const db = createPGlite();
 
-    let passthroughCalled = false;
-    const mockOriginalFetch = async (_input: RequestInfo | URL, _init?: RequestInit) => {
-      passthroughCalled = true;
-      return new Response(JSON.stringify({ status: "ok" }), { status: 200 });
-    };
+		let passthroughCalled = false;
+		const mockOriginalFetch = async (
+			_input: RequestInfo | URL,
+			_init?: RequestInit,
+		) => {
+			passthroughCalled = true;
+			return new Response(JSON.stringify({ status: "ok" }), { status: 200 });
+		};
 
-    const { localFetch } = await createFetchAdapter({
-      db,
-      supabaseUrl: SUPABASE_URL,
-      storageBackend: false,
-      originalFetch: mockOriginalFetch,
-    });
+		const { localFetch } = await createFetchAdapter({
+			db,
+			supabaseUrl: SUPABASE_URL,
+			storageBackend: false,
+			originalFetch: mockOriginalFetch,
+		});
 
-    await localFetch(`${SUPABASE_URL}/storage/v1/bucket`, { method: "GET" });
+		await localFetch(`${SUPABASE_URL}/storage/v1/bucket`, { method: "GET" });
 
-    assertEquals(passthroughCalled, true);
+		assertEquals(passthroughCalled, true);
 
-    await db.close();
-  });
+		await db.close();
+	});
 
-  test("auth routes still work when storage is disabled", async () => {
-    const db = createPGlite();
+	test("auth routes still work when storage is disabled", async () => {
+		const db = createPGlite();
 
-    const { localFetch } = await createFetchAdapter({
-      db,
-      supabaseUrl: SUPABASE_URL,
-      storageBackend: false,
-    });
+		const { localFetch } = await createFetchAdapter({
+			db,
+			supabaseUrl: SUPABASE_URL,
+			storageBackend: false,
+		});
 
-    const response = await localFetch(`${SUPABASE_URL}/auth/v1/signup`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email: "nostorage@example.com", password: "pass1234" }),
-    });
+		const response = await localFetch(`${SUPABASE_URL}/auth/v1/signup`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				email: "nostorage@example.com",
+				password: "pass1234",
+			}),
+		});
 
-    assertEquals(response.status, 200);
-    const data = await response.json();
-    assertExists(data.user);
+		assertEquals(response.status, 200);
+		const data = await response.json();
+		assertExists(data.user);
 
-    await db.close();
-  });
+		await db.close();
+	});
 
-  test("data routes still work when storage is disabled", async () => {
-    const db = createPGlite();
-    await db.exec("CREATE TABLE items (id SERIAL PRIMARY KEY, name TEXT NOT NULL)");
-    await db.exec("INSERT INTO items (name) VALUES ('widget')");
+	test("data routes still work when storage is disabled", async () => {
+		const db = createPGlite();
+		await db.exec(
+			"CREATE TABLE items (id SERIAL PRIMARY KEY, name TEXT NOT NULL)",
+		);
+		await db.exec("INSERT INTO items (name) VALUES ('widget')");
 
-    const { localFetch } = await createFetchAdapter({
-      db,
-      supabaseUrl: SUPABASE_URL,
-      storageBackend: false,
-    });
+		const { localFetch } = await createFetchAdapter({
+			db,
+			supabaseUrl: SUPABASE_URL,
+			storageBackend: false,
+		});
 
-    const response = await localFetch(`${SUPABASE_URL}/rest/v1/items?select=*`, {
-      method: "GET",
-    });
+		const response = await localFetch(
+			`${SUPABASE_URL}/rest/v1/items?select=*`,
+			{
+				method: "GET",
+			},
+		);
 
-    assertEquals(response.status, 200);
-    const data = await response.json();
-    assertEquals(data[0].name, "widget");
+		assertEquals(response.status, 200);
+		const data = await response.json();
+		assertEquals(data[0].name, "widget");
 
-    await db.close();
-  });
+		await db.close();
+	});
 });
 
 // ============================================================================
@@ -1275,10 +1282,10 @@ describe("createFetchAdapter storageBackend false", () => {
 // ============================================================================
 
 describe("Fetch RLS", () => {
-  test("Sets auth context for authenticated requests", async () => {
-    const db = createPGlite();
+	test("Sets auth context for authenticated requests", async () => {
+		const db = createPGlite();
 
-    await db.exec(`
+		await db.exec(`
     CREATE TABLE profiles (
       id SERIAL PRIMARY KEY,
       user_id UUID NOT NULL,
@@ -1286,119 +1293,119 @@ describe("Fetch RLS", () => {
     )
   `);
 
-    const { localFetch, authHandler } = await createFetchAdapter({
-      db,
-      supabaseUrl: SUPABASE_URL,
-    });
+		const { localFetch, authHandler } = await createFetchAdapter({
+			db,
+			supabaseUrl: SUPABASE_URL,
+		});
 
-    const signUpResult = await authHandler.signUp(
-      "test@example.com",
-      "password123",
-    );
-    const accessToken = signUpResult.data.session?.access_token;
-    const userId = signUpResult.data.user?.id;
+		const signUpResult = await authHandler.signUp(
+			"test@example.com",
+			"password123",
+		);
+		const accessToken = signUpResult.data.session?.access_token;
+		const userId = signUpResult.data.user?.id;
 
-    // Insert profile
-    await db.query(
-      "INSERT INTO profiles (user_id, display_name) VALUES ($1, $2)",
-      [userId, "Test User"],
-    );
+		// Insert profile
+		await db.query(
+			"INSERT INTO profiles (user_id, display_name) VALUES ($1, $2)",
+			[userId, "Test User"],
+		);
 
-    // Fetch with auth token
-    const response = await localFetch(
-      `${SUPABASE_URL}/rest/v1/profiles?select=*`,
-      {
-        method: "GET",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${accessToken}`,
-        },
-      },
-    );
+		// Fetch with auth token
+		const response = await localFetch(
+			`${SUPABASE_URL}/rest/v1/profiles?select=*`,
+			{
+				method: "GET",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer ${accessToken}`,
+				},
+			},
+		);
 
-    assertEquals(response.status, 200);
+		assertEquals(response.status, 200);
 
-    const data = await response.json();
-    assertEquals(data.length, 1);
+		const data = await response.json();
+		assertEquals(data.length, 1);
 
-    await db.close();
-  });
+		await db.close();
+	});
 
-  test("auth.uid() returns user ID in authenticated context", async () => {
-    const db = createPGlite();
+	test("auth.uid() returns user ID in authenticated context", async () => {
+		const db = createPGlite();
 
-    const { localFetch, authHandler } = await createFetchAdapter({
-      db,
-      supabaseUrl: SUPABASE_URL,
-    });
+		const { localFetch, authHandler } = await createFetchAdapter({
+			db,
+			supabaseUrl: SUPABASE_URL,
+		});
 
-    const signUpResult = await authHandler.signUp(
-      "test@example.com",
-      "password123",
-    );
-    const accessToken = signUpResult.data.session?.access_token;
-    const userId = signUpResult.data.user?.id;
+		const signUpResult = await authHandler.signUp(
+			"test@example.com",
+			"password123",
+		);
+		const accessToken = signUpResult.data.session?.access_token;
+		const userId = signUpResult.data.user?.id;
 
-    // Create a table that uses auth.uid()
-    await db.exec(`
+		// Create a table that uses auth.uid()
+		await db.exec(`
     CREATE TABLE test_auth (
       id SERIAL PRIMARY KEY,
       auth_uid UUID
     )
   `);
 
-    // Insert using auth.uid()
-    const insertResponse = await localFetch(
-      `${SUPABASE_URL}/rest/v1/rpc/test_insert_auth_uid`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${accessToken}`,
-        },
-      },
-    );
+		// Insert using auth.uid()
+		const insertResponse = await localFetch(
+			`${SUPABASE_URL}/rest/v1/rpc/test_insert_auth_uid`,
+			{
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer ${accessToken}`,
+				},
+			},
+		);
 
-    // Note: This test verifies the context is set, actual RLS policy testing
-    // would require enabling RLS and creating policies
+		// Note: This test verifies the context is set, actual RLS policy testing
+		// would require enabling RLS and creating policies
 
-    await db.close();
-  });
+		await db.close();
+	});
 
-  test("Clears context for anonymous requests", async () => {
-    const db = createPGlite();
+	test("Clears context for anonymous requests", async () => {
+		const db = createPGlite();
 
-    await db.exec(`
+		await db.exec(`
     CREATE TABLE public_data (
       id SERIAL PRIMARY KEY,
       content TEXT NOT NULL
     )
   `);
 
-    await db.exec(`
+		await db.exec(`
     INSERT INTO public_data (content) VALUES ('public content')
   `);
 
-    const { localFetch } = await createFetchAdapter({
-      db,
-      supabaseUrl: SUPABASE_URL,
-    });
+		const { localFetch } = await createFetchAdapter({
+			db,
+			supabaseUrl: SUPABASE_URL,
+		});
 
-    // Fetch without auth token
-    const response = await localFetch(
-      `${SUPABASE_URL}/rest/v1/public_data?select=*`,
-      {
-        method: "GET",
-      },
-    );
+		// Fetch without auth token
+		const response = await localFetch(
+			`${SUPABASE_URL}/rest/v1/public_data?select=*`,
+			{
+				method: "GET",
+			},
+		);
 
-    assertEquals(response.status, 200);
+		assertEquals(response.status, 200);
 
-    const data = await response.json();
-    assertEquals(data.length, 1);
+		const data = await response.json();
+		assertEquals(data.length, 1);
 
-    await db.close();
-  });
+		await db.close();
+	});
 });
 
 // ============================================================================
@@ -1406,11 +1413,11 @@ describe("Fetch RLS", () => {
 // ============================================================================
 
 describe("Fetch Integration", () => {
-  test("Full auth + data flow", async () => {
-    const db = createPGlite();
+	test("Full auth + data flow", async () => {
+		const db = createPGlite();
 
-    // Create a profiles table
-    await db.exec(`
+		// Create a profiles table
+		await db.exec(`
     CREATE TABLE profiles (
       id UUID PRIMARY KEY,
       email TEXT NOT NULL,
@@ -1418,138 +1425,135 @@ describe("Fetch Integration", () => {
     )
   `);
 
-    const { localFetch } = await createFetchAdapter({
-      db,
-      supabaseUrl: SUPABASE_URL,
-    });
+		const { localFetch } = await createFetchAdapter({
+			db,
+			supabaseUrl: SUPABASE_URL,
+		});
 
-    // 1. Sign up
-    const signupResponse = await localFetch(`${SUPABASE_URL}/auth/v1/signup`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        email: "test@example.com",
-        password: "password123",
-      }),
-    });
+		// 1. Sign up
+		const signupResponse = await localFetch(`${SUPABASE_URL}/auth/v1/signup`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				email: "test@example.com",
+				password: "password123",
+			}),
+		});
 
-    assertEquals(signupResponse.status, 200);
-    const signupData = await signupResponse.json();
-    const accessToken = signupData.access_token;
-    const userId = signupData.user.id;
+		assertEquals(signupResponse.status, 200);
+		const signupData = await signupResponse.json();
+		const accessToken = signupData.access_token;
+		const userId = signupData.user.id;
 
-    // 2. Create profile
-    await db.query(
-      "INSERT INTO profiles (id, email, display_name) VALUES ($1, $2, $3)",
-      [userId, "test@example.com", "Test User"],
-    );
+		// 2. Create profile
+		await db.query(
+			"INSERT INTO profiles (id, email, display_name) VALUES ($1, $2, $3)",
+			[userId, "test@example.com", "Test User"],
+		);
 
-    // 3. Fetch profile with auth
-    const profileResponse = await localFetch(
-      `${SUPABASE_URL}/rest/v1/profiles?select=*`,
-      {
-        method: "GET",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${accessToken}`,
-        },
-      },
-    );
+		// 3. Fetch profile with auth
+		const profileResponse = await localFetch(
+			`${SUPABASE_URL}/rest/v1/profiles?select=*`,
+			{
+				method: "GET",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer ${accessToken}`,
+				},
+			},
+		);
 
-    assertEquals(profileResponse.status, 200);
-    const profileData = await profileResponse.json();
-    assertEquals(profileData[0].email, "test@example.com");
+		assertEquals(profileResponse.status, 200);
+		const profileData = await profileResponse.json();
+		assertEquals(profileData[0].email, "test@example.com");
 
-    // 4. Update profile
-    const updateResponse = await localFetch(
-      `${SUPABASE_URL}/rest/v1/profiles?id=eq.${userId}`,
-      {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          Prefer: "return=representation",
-          Authorization: `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify({ display_name: "Updated Name" }),
-      },
-    );
+		// 4. Update profile
+		const updateResponse = await localFetch(
+			`${SUPABASE_URL}/rest/v1/profiles?id=eq.${userId}`,
+			{
+				method: "PATCH",
+				headers: {
+					"Content-Type": "application/json",
+					Prefer: "return=representation",
+					Authorization: `Bearer ${accessToken}`,
+				},
+				body: JSON.stringify({ display_name: "Updated Name" }),
+			},
+		);
 
-    assertEquals(updateResponse.status, 200);
-    const updateData = await updateResponse.json();
-    assertEquals(updateData[0].display_name, "Updated Name");
+		assertEquals(updateResponse.status, 200);
+		const updateData = await updateResponse.json();
+		assertEquals(updateData[0].display_name, "Updated Name");
 
-    // 5. Sign out
-    const logoutResponse = await localFetch(
-      `${SUPABASE_URL}/auth/v1/logout`,
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
-      },
-    );
+		// 5. Sign out
+		const logoutResponse = await localFetch(`${SUPABASE_URL}/auth/v1/logout`, {
+			method: "POST",
+			headers: {
+				Authorization: `Bearer ${accessToken}`,
+			},
+		});
 
-    assertEquals(logoutResponse.status, 200);
+		assertEquals(logoutResponse.status, 200);
 
-    await db.close();
-  });
+		await db.close();
+	});
 
-  test("Token refresh flow", async () => {
-    const db = createPGlite();
+	test("Token refresh flow", async () => {
+		const db = createPGlite();
 
-    const { localFetch } = await createFetchAdapter({
-      db,
-      supabaseUrl: SUPABASE_URL,
-    });
+		const { localFetch } = await createFetchAdapter({
+			db,
+			supabaseUrl: SUPABASE_URL,
+		});
 
-    // 1. Sign up
-    const signupResponse = await localFetch(`${SUPABASE_URL}/auth/v1/signup`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        email: "test@example.com",
-        password: "password123",
-      }),
-    });
+		// 1. Sign up
+		const signupResponse = await localFetch(`${SUPABASE_URL}/auth/v1/signup`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				email: "test@example.com",
+				password: "password123",
+			}),
+		});
 
-    const signupData = await signupResponse.json();
-    const refreshToken = signupData.refresh_token;
+		const signupData = await signupResponse.json();
+		const refreshToken = signupData.refresh_token;
 
-    // 2. Refresh token
-    const refreshResponse = await localFetch(
-      `${SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          refresh_token: refreshToken,
-        }),
-      },
-    );
+		// 2. Refresh token
+		const refreshResponse = await localFetch(
+			`${SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`,
+			{
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					refresh_token: refreshToken,
+				}),
+			},
+		);
 
-    assertEquals(refreshResponse.status, 200);
-    const refreshData = await refreshResponse.json();
-    const newAccessToken = refreshData.access_token;
+		assertEquals(refreshResponse.status, 200);
+		const refreshData = await refreshResponse.json();
+		const newAccessToken = refreshData.access_token;
 
-    // 3. Use new token to get user
-    const userResponse = await localFetch(`${SUPABASE_URL}/auth/v1/user`, {
-      method: "GET",
-      headers: {
-        Authorization: `Bearer ${newAccessToken}`,
-      },
-    });
+		// 3. Use new token to get user
+		const userResponse = await localFetch(`${SUPABASE_URL}/auth/v1/user`, {
+			method: "GET",
+			headers: {
+				Authorization: `Bearer ${newAccessToken}`,
+			},
+		});
 
-    assertEquals(userResponse.status, 200);
-    const userData = await userResponse.json();
-    assertEquals(userData.email, "test@example.com");
+		assertEquals(userResponse.status, 200);
+		const userData = await userResponse.json();
+		assertEquals(userData.email, "test@example.com");
 
-    await db.close();
-  });
+		await db.close();
+	});
 
-  test("Multiple users isolation", async () => {
-    const db = createPGlite();
+	test("Multiple users isolation", async () => {
+		const db = createPGlite();
 
-    await db.exec(`
+		await db.exec(`
     CREATE TABLE user_data (
       id SERIAL PRIMARY KEY,
       user_id UUID NOT NULL,
@@ -1557,70 +1561,69 @@ describe("Fetch Integration", () => {
     )
   `);
 
-    const { localFetch } = await createFetchAdapter({
-      db,
-      supabaseUrl: SUPABASE_URL,
-    });
+		const { localFetch } = await createFetchAdapter({
+			db,
+			supabaseUrl: SUPABASE_URL,
+		});
 
-    // Sign up user 1
-    const signup1 = await localFetch(`${SUPABASE_URL}/auth/v1/signup`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        email: "user1@example.com",
-        password: "password1",
-      }),
-    });
-    const user1Data = await signup1.json();
-    const token1 = user1Data.access_token;
-    const userId1 = user1Data.user.id;
+		// Sign up user 1
+		const signup1 = await localFetch(`${SUPABASE_URL}/auth/v1/signup`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				email: "user1@example.com",
+				password: "password1",
+			}),
+		});
+		const user1Data = await signup1.json();
+		const token1 = user1Data.access_token;
+		const userId1 = user1Data.user.id;
 
-    // Sign up user 2
-    const signup2 = await localFetch(`${SUPABASE_URL}/auth/v1/signup`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        email: "user2@example.com",
-        password: "password2",
-      }),
-    });
-    const user2Data = await signup2.json();
-    const token2 = user2Data.access_token;
-    const userId2 = user2Data.user.id;
+		// Sign up user 2
+		const signup2 = await localFetch(`${SUPABASE_URL}/auth/v1/signup`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				email: "user2@example.com",
+				password: "password2",
+			}),
+		});
+		const user2Data = await signup2.json();
+		const token2 = user2Data.access_token;
+		const userId2 = user2Data.user.id;
 
-    // Insert data for each user
-    await db.query("INSERT INTO user_data (user_id, data) VALUES ($1, $2)", [
-      userId1,
-      "User 1 data",
-    ]);
-    await db.query("INSERT INTO user_data (user_id, data) VALUES ($1, $2)", [
-      userId2,
-      "User 2 data",
-    ]);
+		// Insert data for each user
+		await db.query("INSERT INTO user_data (user_id, data) VALUES ($1, $2)", [
+			userId1,
+			"User 1 data",
+		]);
+		await db.query("INSERT INTO user_data (user_id, data) VALUES ($1, $2)", [
+			userId2,
+			"User 2 data",
+		]);
 
-    // User 1 fetches data
-    const response1 = await localFetch(
-      `${SUPABASE_URL}/rest/v1/user_data?select=*`,
-      {
-        method: "GET",
-        headers: { Authorization: `Bearer ${token1}` },
-      },
-    );
-    const data1 = await response1.json();
-    assertEquals(data1.length, 2); // Without RLS, both are visible
+		// User 1 fetches data
+		const response1 = await localFetch(
+			`${SUPABASE_URL}/rest/v1/user_data?select=*`,
+			{
+				method: "GET",
+				headers: { Authorization: `Bearer ${token1}` },
+			},
+		);
+		const data1 = await response1.json();
+		assertEquals(data1.length, 2); // Without RLS, both are visible
 
-    // User 2 fetches data
-    const response2 = await localFetch(
-      `${SUPABASE_URL}/rest/v1/user_data?select=*`,
-      {
-        method: "GET",
-        headers: { Authorization: `Bearer ${token2}` },
-      },
-    );
-    const data2 = await response2.json();
-    assertEquals(data2.length, 2); // Without RLS, both are visible
+		// User 2 fetches data
+		const response2 = await localFetch(
+			`${SUPABASE_URL}/rest/v1/user_data?select=*`,
+			{
+				method: "GET",
+				headers: { Authorization: `Bearer ${token2}` },
+			},
+		);
+		const data2 = await response2.json();
+		assertEquals(data2.length, 2); // Without RLS, both are visible
 
-    await db.close();
-  });
+		await db.close();
+	});
 });
-

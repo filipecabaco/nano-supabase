@@ -1,40 +1,51 @@
-import { PGlite } from '@electric-sql/pglite'
-import { pgcrypto } from '@electric-sql/pglite/contrib/pgcrypto'
-import { createClient } from '@supabase/supabase-js'
-import { createFetchAdapter, type AuthHandler } from 'nano-supabase'
+import { PGlite } from "@electric-sql/pglite";
+import { pgcrypto } from "@electric-sql/pglite/contrib/pgcrypto";
+import { createClient } from "@supabase/supabase-js";
+import { type AuthHandler, createFetchAdapter } from "nano-supabase";
 
-const SUPABASE_URL = 'http://localhost:54321'
-const SUPABASE_ANON_KEY = 'local-anon-key'
+const SUPABASE_URL = "http://localhost:54321";
+const SUPABASE_ANON_KEY = "local-anon-key";
 
-let supabaseInstance: ReturnType<typeof createClient> | null = null
-let authHandlerInstance: AuthHandler | null = null
-let initPromise: Promise<{ supabase: ReturnType<typeof createClient>; authHandler: AuthHandler }> | null = null
+let supabaseInstance: ReturnType<typeof createClient> | null = null;
+let authHandlerInstance: AuthHandler | null = null;
+let initPromise: Promise<{
+	supabase: ReturnType<typeof createClient>;
+	authHandler: AuthHandler;
+}> | null = null;
 
-export async function initDatabase(): Promise<{ supabase: ReturnType<typeof createClient>; authHandler: AuthHandler }> {
-  if (supabaseInstance && authHandlerInstance) {
-    return { supabase: supabaseInstance, authHandler: authHandlerInstance }
-  }
+export async function initDatabase(): Promise<{
+	supabase: ReturnType<typeof createClient>;
+	authHandler: AuthHandler;
+}> {
+	if (supabaseInstance && authHandlerInstance) {
+		return { supabase: supabaseInstance, authHandler: authHandlerInstance };
+	}
 
-  if (initPromise) {
-    return initPromise
-  }
+	if (initPromise) {
+		return initPromise;
+	}
 
-  initPromise = doInit()
-  initPromise.catch(() => { initPromise = null })
-  return initPromise
+	initPromise = doInit();
+	initPromise.catch(() => {
+		initPromise = null;
+	});
+	return initPromise;
 }
 
-async function doInit(): Promise<{ supabase: ReturnType<typeof createClient>; authHandler: AuthHandler }> {
-  const db = new PGlite({ extensions: { pgcrypto } })
+async function doInit(): Promise<{
+	supabase: ReturnType<typeof createClient>;
+	authHandler: AuthHandler;
+}> {
+	const db = new PGlite({ extensions: { pgcrypto } });
 
-  const { localFetch, authHandler, storageHandler } = await createFetchAdapter({
-    db,
-    supabaseUrl: SUPABASE_URL,
-  })
+	const { localFetch, authHandler, storageHandler } = await createFetchAdapter({
+		db,
+		supabaseUrl: SUPABASE_URL,
+	});
 
-  authHandlerInstance = authHandler
+	authHandlerInstance = authHandler;
 
-  await db.exec(`
+	await db.exec(`
     CREATE TABLE IF NOT EXISTS public.profiles (
       id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
       email TEXT,
@@ -88,11 +99,11 @@ async function doInit(): Promise<{ supabase: ReturnType<typeof createClient>; au
     CREATE POLICY "Users can delete their own files"
       ON public.files FOR DELETE
       USING (user_id = auth.uid());
-  `)
+  `);
 
-  // Storage RLS policies - separate exec in case storage schema isn't available
-  try {
-    await db.exec(`
+	// Storage RLS policies - separate exec in case storage schema isn't available
+	try {
+		await db.exec(`
       CREATE POLICY "Users can upload to their folder"
         ON storage.objects FOR INSERT
         WITH CHECK (
@@ -113,35 +124,35 @@ async function doInit(): Promise<{ supabase: ReturnType<typeof createClient>; au
           bucket_id = 'user-files'
           AND (storage.foldername(name))[1] = auth.uid()::text
         );
-    `)
-  } catch (e) {
-    console.warn('Storage RLS policies could not be created:', e)
-  }
+    `);
+	} catch (e) {
+		console.warn("Storage RLS policies could not be created:", e);
+	}
 
-  supabaseInstance = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-    auth: { autoRefreshToken: false },
-    global: { fetch: localFetch },
-  })
+	supabaseInstance = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+		auth: { autoRefreshToken: false },
+		global: { fetch: localFetch },
+	});
 
-  if (storageHandler) {
-    try {
-      await storageHandler.createBucket({
-        id: 'user-files',
-        name: 'user-files',
-        public: false,
-        file_size_limit: 10 * 1024 * 1024,
-      })
-    } catch (e) {
-      console.warn('Bucket creation failed (may already exist):', e)
-    }
-  }
+	if (storageHandler) {
+		try {
+			await storageHandler.createBucket({
+				id: "user-files",
+				name: "user-files",
+				public: false,
+				file_size_limit: 10 * 1024 * 1024,
+			});
+		} catch (e) {
+			console.warn("Bucket creation failed (may already exist):", e);
+		}
+	}
 
-  return { supabase: supabaseInstance, authHandler: authHandlerInstance }
+	return { supabase: supabaseInstance, authHandler: authHandlerInstance };
 }
 
 export function getSupabase(): ReturnType<typeof createClient> {
-  if (!supabaseInstance) {
-    throw new Error('Database not initialized. Call initDatabase() first.')
-  }
-  return supabaseInstance
+	if (!supabaseInstance) {
+		throw new Error("Database not initialized. Call initDatabase() first.");
+	}
+	return supabaseInstance;
 }

@@ -3,7 +3,7 @@
  * Uses Web Crypto API for JWT operations (browser/edge runtime compatible)
  */
 import type { PGlite } from "@electric-sql/pglite";
-import type { User, TokenPair } from "./types.ts";
+import type { TokenPair, User } from "./types.ts";
 /**
  * Create an access token using Web Crypto API
  */
