@@ -32,7 +32,7 @@
     "test:fetch": "vitest run tests/fetch-adapter.test.ts",
     "test:apps": "vitest run tests/applications.test.ts tests/full-user-flow.test.ts",
     "test:perf": "vitest run tests/performance.test.ts",
-    "test:cli": "vitest run tests/cli.test.ts",
+    "test:cli": "vitest run --config vitest.cli.config.ts",
     "example:basic": "tsx examples/basic.ts",
     "example:server": "tsx examples/tcp-server.ts",
     "example:prisma": "tsx examples/prisma-tcp.ts",

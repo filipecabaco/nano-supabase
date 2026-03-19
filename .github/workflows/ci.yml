@@ -120,4 +120,4 @@ jobs:
         run: pnpm run build
 
       - name: Run CLI tests
-        run: pnpm vitest run tests/cli.test.ts
+        run: pnpm vitest run --config vitest.cli.config.ts
