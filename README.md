@@ -190,9 +190,11 @@ nano-supabase sync pull --remote-db-url=postgresql://postgres:password@db.projec
 nano-supabase sync push --dry-run --remote-db-url=<url>
 ```
 
-Sync detects whether the remote uses Supabase CLI's `supabase_migrations.schema_migrations` table or nano-supabase's `_nano_migrations` table and adapts accordingly.
+**Push** applies local migration files to the remote via a direct Postgres connection. It detects or creates `supabase_migrations.schema_migrations` on the remote and records each applied migration. Also syncs local storage buckets to `storage.buckets`.
 
-Environment variable substitute flag: `SUPABASE_DB_URL`.
+**Pull** reads remote migrations from `supabase_migrations.schema_migrations` (writing each as a separate file) or falls back to a full schema dump via `pg_dump` if that table is absent or empty. Also pulls remote storage buckets into the local instance.
+
+Environment variable: `SUPABASE_DB_URL` (substitutes `--remote-db-url`).
 
 ### MCP Server
 

@@ -41,7 +41,9 @@ import { nanoSupabase } from 'nano-supabase'
 
 const nano = await nanoSupabase()
 
-await nano.db.exec(`CREATE TABLE todos (id SERIAL PRIMARY KEY, title TEXT NOT NULL);`)
+// Prefer migrations (npx nano-supabase migration new / migration up) for schema changes.
+// Direct db access is for tests and ad-hoc queries only.
+await nano.db.query('SELECT 1')
 
 const supabase = createClient('http://localhost:54321', 'local-anon-key', {
   global: { fetch: nano.localFetch }
@@ -69,19 +71,31 @@ All exports from `nano-supabase`:
 
 ## Schema Setup
 
-You are responsible for creating tables before querying them. Auth and storage schemas are initialized automatically.
+**Always use migrations to modify the schema.** Migrations are versioned SQL files applied in order and tracked — ensuring your schema is reproducible and stays in sync with any remote Supabase project.
 
-```typescript
-const nano = await nanoSupabase()
-await nano.db.exec(`
-  CREATE TABLE todos (
-    id SERIAL PRIMARY KEY,
-    title TEXT NOT NULL,
-    done BOOLEAN DEFAULT false,
-    user_id UUID REFERENCES auth.users(id)
-  );
-`)
+```bash
+# Create a new migration file
+npx nano-supabase migration new create_todos
+
+# Edit the generated file at supabase/migrations/<timestamp>_create_todos.sql, then apply:
+npx nano-supabase migration up
+
+# Check status
+npx nano-supabase migration list
 ```
+
+Example migration (`supabase/migrations/<timestamp>_create_todos.sql`):
+
+```sql
+CREATE TABLE IF NOT EXISTS todos (
+  id SERIAL PRIMARY KEY,
+  title TEXT NOT NULL,
+  done BOOLEAN DEFAULT false,
+  user_id UUID REFERENCES auth.users(id)
+);
+```
+
+Using `nano.db` directly is an escape hatch for ad-hoc queries and tests — **do not use it to define schema that should persist or be synced**.
 
 ## Key Constraints
 
@@ -124,19 +138,39 @@ npx nano-supabase migration new add_todos
 npx nano-supabase migration up
 npx nano-supabase gen types --output types.ts
 
-# Sync migrations with hosted Supabase project
-npx nano-supabase sync push --remote-db-url=<url>
-npx nano-supabase sync pull --remote-db-url=<url>
+# Sync migrations with hosted Supabase project (only --remote-db-url required)
+npx nano-supabase sync push --remote-db-url=<postgres-url>
+npx nano-supabase sync pull --remote-db-url=<postgres-url>
+
+# Optional flags
+npx nano-supabase sync push --remote-db-url=<url> --dry-run       # preview without writing
+npx nano-supabase sync push --remote-db-url=<url> --no-migrations # skip migrations
+npx nano-supabase sync push --remote-db-url=<url> --no-storage    # skip storage buckets
 ```
 
-Environment variables: `SUPABASE_DB_URL` (substitutes `--remote-db-url` for sync commands).
+Environment variables: `SUPABASE_DB_URL` (substitutes `--remote-db-url`).
+
+## Sync Push behavior
+
+`sync push` applies local migration files to the remote database via a direct Postgres connection:
+
+- Reads files from `supabase/migrations/` matching `<timestamp>_<name>.sql`.
+- If `supabase_migrations.schema_migrations` exists on the remote, skips already-applied versions (matched by timestamp prefix).
+- If that table is absent, creates it (`supabase_migrations.schema_migrations`) then applies all local migrations.
+- Records each applied migration with its `version`, `name`, and `statements`.
+- Also upserts local storage buckets into `storage.buckets` on the remote (unless `--no-storage`).
+- Only `--remote-db-url` is required — `--remote-url` and `--remote-service-role-key` are not used.
 
 ## Sync Pull behavior
 
-`sync pull` snapshots the remote schema into a timestamped migration file:
+`sync pull` brings the remote schema into local migration files via a direct Postgres connection:
 
-- If `supabase_migrations.schema_migrations` exists on the remote, it reconstructs DDL from `information_schema.columns` (excludes internal Supabase schemas).
-- If that table is absent (e.g. a plain Postgres DB or non-Supabase host), it falls back to `pg_dump --schema-only --no-owner --no-acl --schema=public`. Requires `pg_dump` to be installed on the host machine.
+- If `supabase_migrations.schema_migrations` exists and has rows, writes each missing migration as a separate `<version>_<name>.sql` file (skips versions already present locally).
+- If that table is absent or empty, falls back to a full schema dump:
+  - Prefers the local nano-supabase admin API (`/admin/v1/schema`) if `--url` points to a running instance.
+  - Otherwise runs `pg_dump --schema-only --no-owner --no-acl --schema=public` (requires `pg_dump` installed).
+  - Writes a single timestamped `<timestamp>_pulled_schema.sql` file.
+- Also upserts remote storage buckets into the local instance (unless `--no-storage`).
 - No file is written if the resulting DDL is empty.
 
 ## MCP Server

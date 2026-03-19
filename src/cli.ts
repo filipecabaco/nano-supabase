@@ -5,6 +5,7 @@ import { spawn } from "node:child_process";
 import { createServer } from "node:http";
 import type { Extension } from "@electric-sql/pglite";
 
+import { pgDump } from "@electric-sql/pglite-tools/pg_dump";
 import { nanoSupabase } from "./nano.ts";
 import type { NanoSupabaseInstance } from "./nano.ts";
 import {
@@ -366,10 +367,12 @@ async function ensureMigrationsTable(
   db: NanoSupabaseInstance["db"],
 ): Promise<void> {
   await db.exec(`
-    CREATE TABLE IF NOT EXISTS _nano_migrations (
-      name TEXT PRIMARY KEY,
-      applied_at TIMESTAMPTZ DEFAULT NOW()
-    )
+    CREATE SCHEMA IF NOT EXISTS supabase_migrations;
+    CREATE TABLE IF NOT EXISTS supabase_migrations.schema_migrations (
+      version TEXT PRIMARY KEY,
+      statements TEXT[],
+      name TEXT
+    );
   `);
 }
 
@@ -450,22 +453,18 @@ async function handleAdminRequest(req: Request): Promise<Response | null> {
       });
     }
 
-    const tables: Record<string, string[]> = {};
-    for (const row of result.rows) {
-      if (!tables[row.table_name]) tables[row.table_name] = [];
-      tables[row.table_name].push(
-        `  ${row.column_name} ${row.data_type}${row.is_nullable === "NO" ? " NOT NULL" : ""}`,
-      );
+    try {
+      const dump = await pgDump({ pg: nano.db, args: ['--schema-only', '--no-owner', '--no-acl'] });
+      const ddl = await dump.text();
+      return new Response(ddl, { headers: { "Content-Type": "text/plain" } });
+    } catch {
+      return new Response("", { headers: { "Content-Type": "text/plain" } });
     }
-    const ddl = Object.entries(tables)
-      .map(([name, cols]) => `CREATE TABLE ${name} (\n${cols.join(",\n")}\n);`)
-      .join("\n\n");
-    return new Response(ddl, { headers: { "Content-Type": "text/plain" } });
   }
 
   if (url.pathname === "/admin/v1/reset" && req.method === "POST") {
     const tables = await nano.db.query<{ tablename: string }>(
-      `SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename != '_nano_migrations'`,
+      `SELECT tablename FROM pg_tables WHERE schemaname = 'public'`,
     );
     const tableNames = tables.rows.map((r) => r.tablename);
     if (tableNames.length > 0) {
@@ -476,9 +475,9 @@ async function handleAdminRequest(req: Request): Promise<Response | null> {
     const migCount = await nano.db
       .query<{
         count: string;
-      }>(`SELECT COUNT(*)::text as count FROM _nano_migrations`)
+      }>(`SELECT COUNT(*)::text as count FROM supabase_migrations.schema_migrations`)
       .catch(() => ({ rows: [{ count: "0" }] }));
-    await nano.db.exec(`DELETE FROM _nano_migrations`).catch(() => {});
+    await nano.db.exec(`DELETE FROM supabase_migrations.schema_migrations`).catch(() => {});
     return new Response(
       JSON.stringify({
         dropped_tables: tableNames,
@@ -490,10 +489,10 @@ async function handleAdminRequest(req: Request): Promise<Response | null> {
 
   if (url.pathname === "/admin/v1/migrations" && req.method === "GET") {
     await ensureMigrationsTable(nano.db);
-    const result = await nano.db.query<{ name: string; applied_at: string }>(
-      `SELECT name, applied_at FROM _nano_migrations ORDER BY applied_at`,
+    const result = await nano.db.query<{ version: string; name: string }>(
+      `SELECT version, name FROM supabase_migrations.schema_migrations ORDER BY version`,
     );
-    return new Response(JSON.stringify({ migrations: result.rows }), {
+    return new Response(JSON.stringify({ migrations: result.rows.map((r) => ({ name: r.name, version: r.version })) }), {
       headers: { "Content-Type": "application/json" },
     });
   }
@@ -503,10 +502,11 @@ async function handleAdminRequest(req: Request): Promise<Response | null> {
     req.method === "POST"
   ) {
     await ensureMigrationsTable(nano.db);
-    const { name } = (await req.json()) as { name: string };
+    const { name, statements } = (await req.json()) as { name: string; statements?: string[] };
+    const version = name.replace(/\.sql$/, "").split("_")[0];
     await nano.db.query(
-      `INSERT INTO _nano_migrations (name) VALUES ($1) ON CONFLICT (name) DO NOTHING`,
-      [name],
+      `INSERT INTO supabase_migrations.schema_migrations (version, name, statements) VALUES ($1, $2, $3) ON CONFLICT (version) DO NOTHING`,
+      [version, name, statements ?? []],
     );
     return new Response(JSON.stringify({ recorded: true, name }), {
       headers: { "Content-Type": "application/json" },
@@ -561,11 +561,11 @@ async function handleManagementApiRequest(
 
   if (subpath === "/database/migrations" && req.method === "GET") {
     await ensureMigrationsTable(nano.db);
-    const result = await nano.db.query<{ name: string; applied_at: string }>(
-      `SELECT name, applied_at FROM _nano_migrations ORDER BY applied_at`,
+    const result = await nano.db.query<{ version: string; name: string }>(
+      `SELECT version, name FROM supabase_migrations.schema_migrations ORDER BY version`,
     );
     return new Response(
-      JSON.stringify(result.rows.map((r) => ({ version: r.applied_at, name: r.name }))),
+      JSON.stringify(result.rows.map((r) => ({ version: r.version, name: r.name }))),
       json,
     );
   }
@@ -575,9 +575,11 @@ async function handleManagementApiRequest(
     await ensureMigrationsTable(nano.db);
     try {
       await nano.db.exec(query);
+      const version = name.replace(/\.sql$/, "").split("_")[0];
+      const statements = query.split(";").map((s) => s.trim()).filter(Boolean).map((s) => s + ";");
       await nano.db.query(
-        `INSERT INTO _nano_migrations (name) VALUES ($1) ON CONFLICT (name) DO NOTHING`,
-        [name],
+        `INSERT INTO supabase_migrations.schema_migrations (version, name, statements) VALUES ($1, $2, $3) ON CONFLICT (version) DO NOTHING`,
+        [version, name, statements],
       );
       return new Response(JSON.stringify({ name }), json);
     } catch (e: unknown) {

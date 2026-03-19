@@ -80,6 +80,7 @@
     }
   },
   "dependencies": {
+    "@electric-sql/pglite-tools": "^0.3.0",
     "@modelcontextprotocol/sdk": "^1.27.1",
     "@supabase/mcp-server-supabase": "^0.7.0",
     "@supabase/supabase-js": "^2.99.2",

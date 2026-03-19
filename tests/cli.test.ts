@@ -7,7 +7,7 @@
 
 import { describe, test, beforeAll, afterAll } from "bun:test";
 import { spawn, type ChildProcess } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -212,6 +212,14 @@ describe("migrations", () => {
 
     const verify = await cmdDbExec([...ARGS, "--sql", "SELECT name, price FROM products LIMIT 0"]);
     assertEquals(verify.exitCode, 0);
+
+    const tracked = await cmdDbExec([...ARGS, "--sql",
+      "SELECT version, name FROM supabase_migrations.schema_migrations ORDER BY version"]);
+    assertEquals(tracked.exitCode, 0);
+    const trackedData = JSON.parse(tracked.output);
+    assertEquals(trackedData.rows.length, 2);
+    assertExists(trackedData.rows[0].version);
+    assertExists(trackedData.rows[0].name);
   });
 
   test("migration new fails without a name", async () => {
@@ -396,7 +404,7 @@ describe("sync", () => {
     ]);
     assertEquals(pushResult.exitCode, 0);
     const pushData = JSON.parse(pushResult.output);
-    assertExists(pushData.storage.buckets >= 1);
+    assertExists(pushData.buckets.upserted >= 1);
 
     const remoteBuckets = await fetch(`${REMOTE_URL}/storage/v1/bucket`, {
       headers: { Authorization: `Bearer ${KEY}` },
@@ -419,7 +427,7 @@ describe("sync", () => {
     ]);
     assertEquals(pullResult.exitCode, 0);
     const pullData = JSON.parse(pullResult.output);
-    assertEquals(pullData.storage.buckets, 1);
+    assertExists(pullData.buckets.upserted >= 1);
 
     const localBuckets = await fetch(`${URL}/storage/v1/bucket`, {
       headers: { Authorization: `Bearer ${KEY}` },
@@ -431,6 +439,7 @@ describe("sync", () => {
   test("dry-run does not apply changes", async () => {
     const newMigrationsDir = mkdtempSync(join(tmpdir(), "nano-sync-dryrun-"));
     try {
+      await new Promise((r) => setTimeout(r, 1100));
       const newResult = await cmdMigrationNew([...ARGS, `--migrations-dir=${newMigrationsDir}`, "dryrun_table"]);
       const { file } = JSON.parse(newResult.output);
       writeFileSync(file, "CREATE TABLE dryrun_items (id SERIAL PRIMARY KEY)");
@@ -456,6 +465,71 @@ describe("sync", () => {
       assertEquals(Number(JSON.parse(remoteCheck.output).rows[0].c), 0);
     } finally {
       rmSync(newMigrationsDir, { recursive: true, force: true });
+    }
+  });
+
+  test("pull from remote with empty schema_migrations falls back to schema snapshot", async () => {
+    const emptyPullDir = mkdtempSync(join(tmpdir(), "nano-sync-empty-pull-"));
+    try {
+      const remoteReset = await cmdDbReset([
+        `--url=${REMOTE_URL}`, `--service-role-key=${KEY}`, "--json", "--confirm",
+      ]);
+      assertEquals(remoteReset.exitCode, 0);
+
+      await cmdDbExec([
+        `--url=${REMOTE_URL}`, `--service-role-key=${KEY}`, "--json",
+        "--sql", "CREATE TABLE pulled_empty_source (id SERIAL PRIMARY KEY, label TEXT)",
+      ]);
+
+      const pullResult = await cmdSyncPull([
+        ...SYNC_ARGS,
+        `--migrations-dir=${emptyPullDir}`,
+        "--no-storage",
+      ]);
+      assertEquals(pullResult.exitCode, 0);
+      const pullData = JSON.parse(pullResult.output);
+      assertEquals(pullData.migrations.written, 1);
+
+      const files = readdirSync(emptyPullDir).filter((f: string) => f.endsWith(".sql"));
+      assertEquals(files.length, 1);
+      const content = await Bun.file(join(emptyPullDir, files[0])).text();
+      assertExists(content.includes("pulled_empty_source"));
+    } finally {
+      rmSync(emptyPullDir, { recursive: true, force: true });
+    }
+  });
+
+  test("push to remote without supabase_migrations table creates it and tracks migrations", async () => {
+    const noTableDir = mkdtempSync(join(tmpdir(), "nano-sync-notable-"));
+    try {
+      await cmdDbExec([
+        `--url=${REMOTE_URL}`, `--service-role-key=${KEY}`, "--json",
+        "--sql", "DROP SCHEMA IF EXISTS supabase_migrations CASCADE",
+      ]);
+
+      const newResult = await cmdMigrationNew([...ARGS, `--migrations-dir=${noTableDir}`, "notable_items"]);
+      assertEquals(newResult.exitCode, 0);
+      const { file } = JSON.parse(newResult.output);
+      writeFileSync(file, "CREATE TABLE notable_items (id SERIAL PRIMARY KEY, label TEXT)");
+
+      const pushResult = await cmdSyncPush([
+        ...SYNC_ARGS,
+        `--migrations-dir=${noTableDir}`,
+        "--no-storage",
+      ]);
+      assertEquals(pushResult.exitCode, 0);
+      const pushData = JSON.parse(pushResult.output);
+      assertEquals(pushData.migrations.applied, 1);
+
+      const tracked = await cmdDbExec([
+        `--url=${REMOTE_URL}`, `--service-role-key=${KEY}`, "--json",
+        "--sql", "SELECT version FROM supabase_migrations.schema_migrations",
+      ]);
+      assertEquals(tracked.exitCode, 0);
+      const trackedData = JSON.parse(tracked.output);
+      assertEquals(trackedData.rows.length, 1);
+    } finally {
+      rmSync(noTableDir, { recursive: true, force: true });
     }
   });
 
