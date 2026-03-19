@@ -192,7 +192,7 @@ nano-supabase sync push --dry-run --remote-db-url=<url>
 
 **Push** applies local migration files to the remote via a direct Postgres connection. It detects or creates `supabase_migrations.schema_migrations` on the remote and records each applied migration. Also syncs local storage buckets to `storage.buckets`.
 
-**Pull** reads remote migrations from `supabase_migrations.schema_migrations` (writing each as a separate file) or falls back to a full schema dump via `pg_dump` if that table is absent or empty. Also pulls remote storage buckets into the local instance.
+**Pull** reads remote migrations from `supabase_migrations.schema_migrations` (writing each as a separate file) or falls back to a full schema dump via `pg_dump` if that table is absent or empty. Also pulls remote storage buckets into the local instance. Pull only writes files to `supabase/migrations/` — run `nano-supabase migration up` afterwards to apply them locally.
 
 Environment variable: `SUPABASE_DB_URL` (substitutes `--remote-db-url`).
 

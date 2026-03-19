@@ -172,6 +172,7 @@ Environment variables: `SUPABASE_DB_URL` (substitutes `--remote-db-url`).
   - Writes a single timestamped `<timestamp>_pulled_schema.sql` file.
 - Also upserts remote storage buckets into the local instance (unless `--no-storage`).
 - No file is written if the resulting DDL is empty.
+- Pull only writes files — it does not apply them. Run `npx nano-supabase migration up` after pulling to apply migrations to the local database.
 
 ## MCP Server
 
