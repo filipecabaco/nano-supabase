@@ -35,6 +35,8 @@ export function printStartupInfo(opts: {
 	serviceRoleKey: string;
 	anonKey: string;
 	mcp: boolean;
+	tls?: boolean;
+	scheme?: string;
 }): void {
 	const c = {
 		light: "\x1b[38;2;62;207;142m",
@@ -61,12 +63,15 @@ export function printStartupInfo(opts: {
 	].join("\n");
 
 	process.stdout.write(`${logo}\n\n`);
+	const scheme = opts.scheme ?? "http";
+	const base = `${scheme}://localhost:${opts.httpPort}`;
+	const apiTitle = opts.tls ? "\ud83c\udf10 API (TLS)" : "\ud83c\udf10 API";
 	process.stdout.write(
-		`${box("\ud83c\udf10 API", [
-			["URL", `http://localhost:${opts.httpPort}`],
-			["REST", `http://localhost:${opts.httpPort}/rest/v1`],
-			["Auth", `http://localhost:${opts.httpPort}/auth/v1`],
-			["Storage", `http://localhost:${opts.httpPort}/storage/v1`],
+		`${box(apiTitle, [
+			["URL", base],
+			["REST", `${base}/rest/v1`],
+			["Auth", `${base}/auth/v1`],
+			["Storage", `${base}/storage/v1`],
 		])}\n\n`,
 	);
 	process.stdout.write(
@@ -80,7 +85,7 @@ export function printStartupInfo(opts: {
 	);
 
 	if (opts.mcp) {
-		const mcpUrl = `http://localhost:${opts.httpPort}/mcp`;
+		const mcpUrl = `${scheme}://localhost:${opts.httpPort}/mcp`;
 		process.stdout.write(
 			`${box("\ud83e\udd16 MCP Server", [
 				["Transport", "Streamable HTTP"],

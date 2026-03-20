@@ -10,68 +10,24 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-
-      - uses: pnpm/action-setup@v4
-        with:
-          version: latest
-
-      - name: Setup Node
-        uses: actions/setup-node@v6
-        with:
-          node-version: "22"
-          cache: "pnpm"
-
-      - name: Install dependencies
-        run: pnpm install
-
-      - name: Lint
-        run: pnpm lint
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - run: pnpm lint
 
   typecheck:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-
-      - uses: pnpm/action-setup@v4
-        with:
-          version: latest
-
-      - name: Setup Node
-        uses: actions/setup-node@v6
-        with:
-          node-version: "22"
-          cache: "pnpm"
-
-      - name: Install dependencies
-        run: pnpm install
-
-      - name: Typecheck
-        run: npx tsc --noEmit
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - run: npx tsc --noEmit
 
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-
-      - uses: pnpm/action-setup@v4
-        with:
-          version: latest
-
-      - name: Setup Node
-        uses: actions/setup-node@v6
-        with:
-          node-version: "22"
-          cache: "pnpm"
-
-      - name: Install dependencies
-        run: pnpm install
-
-      - name: Build
-        run: pnpm run build
-
-      - name: Verify package contents
-        run: pnpm pack --dry-run
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - run: pnpm run build
+      - run: pnpm pack --dry-run
 
   test:
     runs-on: ubuntu-latest
@@ -95,24 +51,19 @@ jobs:
             files: tests/performance.test.ts
           - name: extensions
             files: tests/extensions.test.ts
+          - name: tcp
+            files: tests/tcp-server.test.ts
+          - name: tls
+            files: tests/tls.test.ts
+          - name: service
+            files: tests/service.test.ts
+          - name: memory
+            files: tests/memory-options.test.ts
 
     name: test / ${{ matrix.concern.name }}
     steps:
-      - uses: actions/checkout@v6
-
-      - uses: pnpm/action-setup@v4
-        with:
-          version: latest
-
-      - name: Setup Node
-        uses: actions/setup-node@v6
-        with:
-          node-version: "22"
-          cache: "pnpm"
-
-      - name: Install dependencies
-        run: pnpm install
-
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
       - name: Run tests
         env:
           TEST_FILES: ${{ matrix.concern.files }}
@@ -121,24 +72,9 @@ jobs:
   test-cli:
     runs-on: ubuntu-latest
     name: test / cli
+    needs: build
     steps:
-      - uses: actions/checkout@v6
-
-      - uses: pnpm/action-setup@v4
-        with:
-          version: latest
-
-      - name: Setup Node
-        uses: actions/setup-node@v6
-        with:
-          node-version: "22"
-          cache: "pnpm"
-
-      - name: Install dependencies
-        run: pnpm install
-
-      - name: Build
-        run: pnpm run build
-
-      - name: Run CLI tests
-        run: pnpm vitest run --config vitest.cli.config.ts
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - run: pnpm run build
+      - run: pnpm vitest run --config vitest.cli.config.ts

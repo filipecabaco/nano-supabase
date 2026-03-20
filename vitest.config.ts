@@ -6,5 +6,11 @@ export default defineConfig({
 		testTimeout: 60000,
 		include: ["tests/**/*.test.ts"],
 		exclude: ["tests/cli.test.ts"],
+		pool: "forks",
+		poolOptions: {
+			forks: {
+				maxForks: 1,
+			},
+		},
 	},
 });

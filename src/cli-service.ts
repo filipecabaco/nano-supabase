@@ -1,5 +1,7 @@
-import { readFile, writeFile } from "node:fs/promises";
-import { createServer } from "node:http";
+import { timingSafeEqual } from "node:crypto";
+import { readFile, stat, writeFile } from "node:fs/promises";
+import { createServer as createHttpServer } from "node:http";
+import { createServer as createHttpsServer } from "node:https";
 import { join } from "node:path";
 import type { Extension } from "@electric-sql/pglite";
 import type { NanoSupabaseInstance } from "./nano.ts";
@@ -120,6 +122,40 @@ export async function runServiceMode(opts: {
 		}
 		return n;
 	})();
+
+	const tlsCertPath =
+		getArgValue(subArgs, "--tls-cert") ?? process.env.NANO_TLS_CERT;
+	const tlsKeyPath =
+		getArgValue(subArgs, "--tls-key") ?? process.env.NANO_TLS_KEY;
+	if ((tlsCertPath && !tlsKeyPath) || (!tlsCertPath && tlsKeyPath)) {
+		process.stderr.write(
+			`${JSON.stringify({
+				error: "invalid_tls_config",
+				message: "--tls-cert and --tls-key must both be provided together",
+			})}\n`,
+		);
+		process.exit(1);
+	}
+	const allowInsecure = subArgs.includes("--allow-insecure");
+	if (!tlsCertPath && !allowInsecure) {
+		process.stderr.write(
+			"WARNING: TLS not configured. All credentials transmitted in cleartext. Use --allow-insecure to suppress this warning.\n",
+		);
+	}
+	let tlsBufs: { cert: Buffer; key: Buffer } | null = null;
+	if (tlsCertPath && tlsKeyPath) {
+		const [cert, key] = await Promise.all([
+			readFile(tlsCertPath),
+			readFile(tlsKeyPath),
+		]);
+		const keyStat = await stat(tlsKeyPath);
+		if (keyStat.mode & 0o077) {
+			process.stderr.write(
+				"WARNING: TLS key file is readable by group/others. Set permissions to 600.\n",
+			);
+		}
+		tlsBufs = { cert, key };
+	}
 
 	const secret = getArgValue(subArgs, "--secret") ?? process.env.NANO_SECRET;
 	if (!secret) {
@@ -668,7 +704,10 @@ export async function runServiceMode(opts: {
 			);
 		}
 		const hash = await hashToken(token);
-		if (hash !== adminTokenHash) {
+		if (
+			hash.length !== adminTokenHash.length ||
+			!timingSafeEqual(Buffer.from(hash), Buffer.from(adminTokenHash))
+		) {
 			return new Response(
 				JSON.stringify({
 					error: "unauthorized",
@@ -1102,8 +1141,36 @@ export async function runServiceMode(opts: {
 		return new Response(resBody, { status: res.status, headers: res.headers });
 	}
 
-	const serviceServer = createServer(async (nodeReq, nodeRes) => {
-		const url = `http://localhost:${servicePort}${nodeReq.url}`;
+	const tlsServerOptions = tlsBufs
+		? {
+				cert: tlsBufs.cert,
+				key: tlsBufs.key,
+				minVersion: "TLSv1.2" as const,
+				maxVersion: "TLSv1.3" as const,
+				ciphers: [
+					"TLS_AES_128_GCM_SHA256",
+					"TLS_AES_256_GCM_SHA384",
+					"TLS_CHACHA20_POLY1305_SHA256",
+					"ECDHE-ECDSA-AES128-GCM-SHA256",
+					"ECDHE-RSA-AES128-GCM-SHA256",
+					"ECDHE-ECDSA-AES256-GCM-SHA384",
+					"ECDHE-RSA-AES256-GCM-SHA384",
+					"ECDHE-ECDSA-CHACHA20-POLY1305",
+					"ECDHE-RSA-CHACHA20-POLY1305",
+					"DHE-RSA-AES128-GCM-SHA256",
+					"DHE-RSA-AES256-GCM-SHA384",
+					"DHE-RSA-CHACHA20-POLY1305",
+				].join(":"),
+				honorCipherOrder: false,
+			}
+		: null;
+	const scheme = tlsBufs ? "https" : "http";
+
+	const serviceServerHandler = async (
+		nodeReq: import("node:http").IncomingMessage,
+		nodeRes: import("node:http").ServerResponse,
+	) => {
+		const url = `${scheme}://localhost:${servicePort}${nodeReq.url}`;
 		const hasBody = nodeReq.method !== "GET" && nodeReq.method !== "HEAD";
 		const chunks: Buffer[] = [];
 		if (hasBody) {
@@ -1137,7 +1204,10 @@ export async function runServiceMode(opts: {
 				nodeRes.end(JSON.stringify({ error: "internal_error", message: msg }));
 			}
 		}
-	});
+	};
+	const serviceServer = tlsServerOptions
+		? createHttpsServer(tlsServerOptions, serviceServerHandler)
+		: createHttpServer(serviceServerHandler);
 
 	setInterval(async () => {
 		await flushLastActive().catch((e: unknown) => {
@@ -1168,26 +1238,29 @@ export async function runServiceMode(opts: {
 		}
 	}, idleCheck);
 
-	const muxServer = new PGliteTCPMuxServer(async (user) => {
-		const tenant = await getTenant(user);
-		if (!tenant) return null;
-		if (tenant.state === "sleeping") {
-			if (!wakingPromises.has(tenant.id)) {
-				const p = wakeTenant(tenant).finally(() =>
-					wakingPromises.delete(tenant.id),
-				);
-				wakingPromises.set(tenant.id, p);
+	const muxServer = new PGliteTCPMuxServer(
+		async (user) => {
+			const tenant = await getTenant(user);
+			if (!tenant) return null;
+			if (tenant.state === "sleeping") {
+				if (!wakingPromises.has(tenant.id)) {
+					const p = wakeTenant(tenant).finally(() =>
+						wakingPromises.delete(tenant.id),
+					);
+					wakingPromises.set(tenant.id, p);
+				}
+				await wakingPromises.get(tenant.id);
 			}
-			await wakingPromises.get(tenant.id);
-		}
-		if (tenant.state !== "running") return null;
-		const pooler = tenantPoolers.get(tenant.id);
-		if (!pooler) return null;
-		const password = tenant.encryptedPassword
-			? await decryptPassword(tenant.encryptedPassword)
-			: "";
-		return { pooler, password };
-	});
+			if (tenant.state !== "running") return null;
+			const pooler = tenantPoolers.get(tenant.id);
+			if (!pooler) return null;
+			const password = tenant.encryptedPassword
+				? await decryptPassword(tenant.encryptedPassword)
+				: "";
+			return { pooler, password };
+		},
+		tlsBufs ? { tls: tlsBufs } : undefined,
+	);
 	await muxServer.start(tcpMuxPort, "0.0.0.0");
 	log("tcp_mux.started", { port: tcpMuxPort });
 

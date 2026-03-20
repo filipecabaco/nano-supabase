@@ -1,5 +1,7 @@
-import { unlink, writeFile } from "node:fs/promises";
-import { createServer } from "node:http";
+import { timingSafeEqual } from "node:crypto";
+import { readFile, stat, unlink, writeFile } from "node:fs/promises";
+import { createServer as createHttpServer } from "node:http";
+import { createServer as createHttpsServer } from "node:https";
 import type { Extension } from "@electric-sql/pglite";
 import { pgDump } from "@electric-sql/pglite-tools/pg_dump";
 import { printStartupInfo } from "./cli-display.ts";
@@ -7,6 +9,7 @@ import type { McpHandler } from "./mcp-server.ts";
 import { createMcpHandler } from "./mcp-server.ts";
 import type { NanoSupabaseInstance } from "./nano.ts";
 import { nanoSupabase } from "./nano.ts";
+import { PGliteTCPServer } from "./tcp-server.ts";
 
 export async function runStartMode(opts: {
 	wasmModule: WebAssembly.Module;
@@ -25,6 +28,8 @@ export async function runStartMode(opts: {
 	mcp: boolean;
 	pidFile: string | undefined;
 	count: number;
+	tlsCert?: string;
+	tlsKey?: string;
 }): Promise<void> {
 	const {
 		wasmModule,
@@ -41,15 +46,34 @@ export async function runStartMode(opts: {
 		debug,
 		mcp,
 		pidFile,
+		tlsCert,
+		tlsKey,
 	} = opts;
+
+	let tlsBufs: { cert: Buffer; key: Buffer } | null = null;
+	if (tlsCert && tlsKey) {
+		const [cert, key] = await Promise.all([readFile(tlsCert), readFile(tlsKey)]);
+		const keyStat = await stat(tlsKey);
+		if (keyStat.mode & 0o077) {
+			process.stderr.write(
+				"WARNING: TLS key file is readable by group/others. Set permissions to 600.\n",
+			);
+		}
+		tlsBufs = { cert, key };
+	} else if (!tlsCert && !tlsKey) {
+		process.stderr.write(
+			"WARNING: TLS not configured. All credentials transmitted in cleartext. Do not expose to untrusted networks.\n",
+		);
+	}
 
 	const origConsoleLog = console.log;
 	console.log = () => {};
 	let nano: Awaited<ReturnType<typeof nanoSupabase>>;
+	let externalTcpServer: PGliteTCPServer | null = null;
 	try {
 		nano = await nanoSupabase({
 			dataDir,
-			tcp: { port: tcpPort },
+			tcp: tlsBufs ? false : { port: tcpPort },
 			debug,
 			wasmModule,
 			fsBundle,
@@ -61,6 +85,15 @@ export async function runStartMode(opts: {
 			},
 			serviceRoleKey,
 		});
+		if (tlsBufs) {
+			externalTcpServer = await PGliteTCPServer.create(
+				nano.db,
+				undefined,
+				undefined,
+				tlsBufs,
+			);
+			await externalTcpServer.start(tcpPort, "127.0.0.1");
+		}
 	} finally {
 		console.log = origConsoleLog;
 	}
@@ -84,9 +117,14 @@ export async function runStartMode(opts: {
   `);
 	}
 
+	function safeTokenEqual(a: string, b: string): boolean {
+		if (a.length !== b.length) return false;
+		return timingSafeEqual(Buffer.from(a), Buffer.from(b));
+	}
+
 	async function requireServiceRole(req: Request): Promise<Response | null> {
-		const auth = req.headers.get("Authorization");
-		if (auth !== `Bearer ${serviceRoleKey}`) {
+		const auth = req.headers.get("Authorization") ?? "";
+		if (!safeTokenEqual(auth, `Bearer ${serviceRoleKey}`)) {
 			return new Response(
 				JSON.stringify({
 					error: "unauthorized",
@@ -706,7 +744,62 @@ export async function runStartMode(opts: {
 	}
 
 	function createNodeServer(handler: (req: Request) => Promise<Response>) {
-		return createServer(async (nodeReq, nodeRes) => {
+		const scheme = tlsBufs ? "https" : "http";
+		const nodeHandler = async (
+			nodeReq: import("node:http").IncomingMessage,
+			nodeRes: import("node:http").ServerResponse,
+		) => {
+			const url = `${scheme}://localhost:${httpPort}${nodeReq.url}`;
+			const hasBody = nodeReq.method !== "GET" && nodeReq.method !== "HEAD";
+			const req = new Request(url, {
+				method: nodeReq.method,
+				headers: nodeReq.headers as HeadersInit,
+				body: hasBody ? (nodeReq as unknown as ReadableStream) : undefined,
+				// @ts-expect-error — Node.js IncomingMessage is a readable stream accepted by Request
+				duplex: "half",
+			});
+			try {
+				const res = await handler(req);
+				const resHeaders: Record<string, string> = {};
+				res.headers.forEach((v, k) => {
+					resHeaders[k] = v;
+				});
+				nodeRes.writeHead(res.status, resHeaders);
+				nodeRes.end(Buffer.from(await res.arrayBuffer()));
+			} catch (_e) {
+				if (!nodeRes.headersSent) {
+					nodeRes.writeHead(500, { "Content-Type": "application/json" });
+					nodeRes.end(JSON.stringify({ error: "internal_error" }));
+				}
+			}
+		};
+		if (tlsBufs) {
+			return createHttpsServer(
+				{
+					cert: tlsBufs.cert,
+					key: tlsBufs.key,
+					minVersion: "TLSv1.2",
+					maxVersion: "TLSv1.3",
+					ciphers: [
+						"TLS_AES_128_GCM_SHA256",
+						"TLS_AES_256_GCM_SHA384",
+						"TLS_CHACHA20_POLY1305_SHA256",
+						"ECDHE-ECDSA-AES128-GCM-SHA256",
+						"ECDHE-RSA-AES128-GCM-SHA256",
+						"ECDHE-ECDSA-AES256-GCM-SHA384",
+						"ECDHE-RSA-AES256-GCM-SHA384",
+						"ECDHE-ECDSA-CHACHA20-POLY1305",
+						"ECDHE-RSA-CHACHA20-POLY1305",
+						"DHE-RSA-AES128-GCM-SHA256",
+						"DHE-RSA-AES256-GCM-SHA384",
+						"DHE-RSA-CHACHA20-POLY1305",
+					].join(":"),
+					honorCipherOrder: false,
+				},
+				nodeHandler,
+			);
+		}
+		return createHttpServer(async (nodeReq, nodeRes) => {
 			const url = `http://localhost:${httpPort}${nodeReq.url}`;
 			const hasBody = nodeReq.method !== "GET" && nodeReq.method !== "HEAD";
 			const req = new Request(url, {
@@ -736,9 +829,11 @@ export async function runStartMode(opts: {
 	const server = createNodeServer(fetchHandler);
 	server.listen(httpPort);
 
-	const pgUrl =
-		nano.connectionString ??
-		`postgresql://postgres@127.0.0.1:${tcpPort}/postgres`;
+	const scheme = tlsBufs ? "https" : "http";
+	const pgUrl = externalTcpServer
+		? `postgresql://postgres@127.0.0.1:${tcpPort}/postgres?sslmode=require`
+		: (nano.connectionString ??
+			`postgresql://postgres@127.0.0.1:${tcpPort}/postgres`);
 
 	printStartupInfo({
 		httpPort,
@@ -746,6 +841,8 @@ export async function runStartMode(opts: {
 		serviceRoleKey,
 		anonKey,
 		mcp,
+		tls: !!tlsBufs,
+		scheme,
 	});
 
 	function cleanup(): void {
@@ -758,6 +855,7 @@ export async function runStartMode(opts: {
 	for (const signal of ["SIGINT", "SIGTERM"] as const) {
 		process.on(signal, async () => {
 			server.close();
+			await externalTcpServer?.stop();
 			await nano.stop();
 			cleanup();
 			process.exit(0);

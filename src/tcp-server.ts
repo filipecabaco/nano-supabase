@@ -1,6 +1,8 @@
 import { Buffer } from "node:buffer";
 import { timingSafeEqual } from "node:crypto";
 import { createServer, type Server, type Socket } from "node:net";
+import { TLSSocket } from "node:tls";
+import type { SecureContextOptions } from "node:tls";
 import type { PGlite } from "@electric-sql/pglite";
 import { AuthHandler } from "./auth/handler.ts";
 import { PGlitePooler } from "./pooler.ts";
@@ -65,9 +67,35 @@ export interface TCPServerOptions {
 	port?: number;
 }
 
+export interface TLSConfig {
+	cert: Buffer;
+	key: Buffer;
+}
+
+const TLS_OPTIONS: SecureContextOptions = {
+	minVersion: "TLSv1.2",
+	maxVersion: "TLSv1.3",
+	ciphers: [
+		"TLS_AES_128_GCM_SHA256",
+		"TLS_AES_256_GCM_SHA384",
+		"TLS_CHACHA20_POLY1305_SHA256",
+		"ECDHE-ECDSA-AES128-GCM-SHA256",
+		"ECDHE-RSA-AES128-GCM-SHA256",
+		"ECDHE-ECDSA-AES256-GCM-SHA384",
+		"ECDHE-RSA-AES256-GCM-SHA384",
+		"ECDHE-ECDSA-CHACHA20-POLY1305",
+		"ECDHE-RSA-CHACHA20-POLY1305",
+		"DHE-RSA-AES128-GCM-SHA256",
+		"DHE-RSA-AES256-GCM-SHA384",
+		"DHE-RSA-CHACHA20-POLY1305",
+	].join(":"),
+	honorCipherOrder: false,
+};
+
 export class PGliteTCPServer {
 	private readonly pooler: PGlitePooler;
 	private readonly password: string | null;
+	private readonly tls: TLSConfig | null;
 	private server: Server | null = null;
 	private readonly connections = new Map<Socket, ConnectionState>();
 	private readonly probeCache = new Map<
@@ -75,27 +103,29 @@ export class PGliteTCPServer {
 		{ name: string; dataTypeID: number }[]
 	>();
 
-	constructor(pooler: PGlitePooler, password?: string) {
+	constructor(pooler: PGlitePooler, password?: string, tls?: TLSConfig) {
 		this.pooler = pooler;
 		this.password = password ?? null;
+		this.tls = tls ?? null;
 	}
 
 	static async create(
 		db: PGlite,
 		config?: Partial<PoolerConfig>,
 		password?: string,
+		tls?: TLSConfig,
 	): Promise<PGliteTCPServer> {
 		const auth = new AuthHandler(db);
 		const storage = new StorageHandler(db);
 		await auth.initialize();
 		await storage.initialize();
 		const pooler = await PGlitePooler.create(db, config);
-		return new PGliteTCPServer(pooler, password);
+		return new PGliteTCPServer(pooler, password, tls);
 	}
 
 	async start(port = 5432, host = "127.0.0.1"): Promise<void> {
-		this.server = createServer((socket: Socket) => {
-			this.connections.set(socket, {
+		this.server = createServer((rawSocket: Socket) => {
+			const state: ConnectionState = {
 				buffer: Buffer.alloc(0),
 				startupDone: false,
 				authenticated: this.password === null,
@@ -104,17 +134,69 @@ export class PGliteTCPServer {
 				processing: false,
 				errorState: false,
 				txStatus: "I",
-			});
+			};
+			this.connections.set(rawSocket, state);
+			rawSocket.on("close", () => this.connections.delete(rawSocket));
+			rawSocket.on("error", () => this.connections.delete(rawSocket));
 
-			socket.on("data", (data: Buffer) => {
-				const state = this.connections.get(socket);
-				if (!state) return;
-				state.buffer = Buffer.concat([state.buffer, data]);
-				this.drain(socket, state).catch(() => {});
-			});
+			if (!this.tls) {
+				rawSocket.on("data", (data: Buffer) => {
+					const s = this.connections.get(rawSocket);
+					if (!s) return;
+					s.buffer = Buffer.concat([s.buffer, data]);
+					this.drain(rawSocket, s).catch(() => {});
+				});
+				return;
+			}
 
-			socket.on("close", () => this.connections.delete(socket));
-			socket.on("error", () => this.connections.delete(socket));
+			rawSocket.once("data", (firstChunk: Buffer) => {
+				rawSocket.pause();
+				if (
+					firstChunk.length >= 8 &&
+					firstChunk.readInt32BE(0) === 8 &&
+					firstChunk.readInt32BE(4) === 80877103
+				) {
+					rawSocket.write(Buffer.from("S"));
+					const tlsSocket = new TLSSocket(rawSocket, {
+						isServer: true,
+						...TLS_OPTIONS,
+						cert: this.tls!.cert,
+						key: this.tls!.key,
+					});
+					tlsSocket.once("secure", () => {
+						this.connections.delete(rawSocket);
+						rawSocket.removeAllListeners("close");
+						rawSocket.removeAllListeners("error");
+						const eff = tlsSocket as unknown as Socket;
+						this.connections.set(eff, state);
+						eff.on("data", (data: Buffer) => {
+							const s = this.connections.get(eff);
+							if (!s) return;
+							s.buffer = Buffer.concat([s.buffer, data]);
+							this.drain(eff, s).catch(() => {});
+						});
+						eff.on("close", () => this.connections.delete(eff));
+						eff.on("error", () => this.connections.delete(eff));
+					});
+					tlsSocket.once("error", (err: Error) => {
+						process.stderr.write(
+							`${JSON.stringify({ event: "tls_handshake_error", error: err.message })}\n`,
+						);
+						tlsSocket.destroy();
+						this.connections.delete(rawSocket);
+					});
+				} else {
+					state.buffer = Buffer.concat([state.buffer, firstChunk]);
+					rawSocket.on("data", (data: Buffer) => {
+						const s = this.connections.get(rawSocket);
+						if (!s) return;
+						s.buffer = Buffer.concat([s.buffer, data]);
+						this.drain(rawSocket, s).catch(() => {});
+					});
+					rawSocket.resume();
+					this.drain(rawSocket, state).catch(() => {});
+				}
+			});
 		});
 
 		return new Promise((resolve, reject) => {
@@ -301,12 +383,15 @@ export class PGliteTCPMuxServer {
 		PGlitePooler,
 		Map<string, { name: string; dataTypeID: number }[]>
 	>();
+	private readonly tls: TLSConfig | null;
 
-	constructor(private readonly route: MuxRoute) {}
+	constructor(private readonly route: MuxRoute, opts?: { tls?: TLSConfig }) {
+		this.tls = opts?.tls ?? null;
+	}
 
 	async start(port = 5432, host = "0.0.0.0"): Promise<void> {
-		this.server = createServer((socket: Socket) => {
-			this.connections.set(socket, {
+		this.server = createServer((rawSocket: Socket) => {
+			const state: MuxConnectionState = {
 				buffer: Buffer.alloc(0),
 				startupDone: false,
 				authenticated: false,
@@ -317,17 +402,69 @@ export class PGliteTCPMuxServer {
 				txStatus: "I",
 				pooler: null,
 				password: null,
-			});
+			};
+			this.connections.set(rawSocket, state);
+			rawSocket.on("close", () => this.connections.delete(rawSocket));
+			rawSocket.on("error", () => this.connections.delete(rawSocket));
 
-			socket.on("data", (data: Buffer) => {
-				const state = this.connections.get(socket);
-				if (!state) return;
-				state.buffer = Buffer.concat([state.buffer, data]);
-				this.drainMux(socket, state).catch(() => {});
-			});
+			if (!this.tls) {
+				rawSocket.on("data", (data: Buffer) => {
+					const s = this.connections.get(rawSocket);
+					if (!s) return;
+					s.buffer = Buffer.concat([s.buffer, data]);
+					this.drainMux(rawSocket, s).catch(() => {});
+				});
+				return;
+			}
 
-			socket.on("close", () => this.connections.delete(socket));
-			socket.on("error", () => this.connections.delete(socket));
+			rawSocket.once("data", (firstChunk: Buffer) => {
+				rawSocket.pause();
+				if (
+					firstChunk.length >= 8 &&
+					firstChunk.readInt32BE(0) === 8 &&
+					firstChunk.readInt32BE(4) === 80877103
+				) {
+					rawSocket.write(Buffer.from("S"));
+					const tlsSocket = new TLSSocket(rawSocket, {
+						isServer: true,
+						...TLS_OPTIONS,
+						cert: this.tls!.cert,
+						key: this.tls!.key,
+					});
+					tlsSocket.once("secure", () => {
+						this.connections.delete(rawSocket);
+						rawSocket.removeAllListeners("close");
+						rawSocket.removeAllListeners("error");
+						const eff = tlsSocket as unknown as Socket;
+						this.connections.set(eff, state);
+						eff.on("data", (data: Buffer) => {
+							const s = this.connections.get(eff);
+							if (!s) return;
+							s.buffer = Buffer.concat([s.buffer, data]);
+							this.drainMux(eff, s).catch(() => {});
+						});
+						eff.on("close", () => this.connections.delete(eff));
+						eff.on("error", () => this.connections.delete(eff));
+					});
+					tlsSocket.once("error", (err: Error) => {
+						process.stderr.write(
+							`${JSON.stringify({ event: "tls_handshake_error", error: err.message })}\n`,
+						);
+						tlsSocket.destroy();
+						this.connections.delete(rawSocket);
+					});
+				} else {
+					state.buffer = Buffer.concat([state.buffer, firstChunk]);
+					rawSocket.on("data", (data: Buffer) => {
+						const s = this.connections.get(rawSocket);
+						if (!s) return;
+						s.buffer = Buffer.concat([s.buffer, data]);
+						this.drainMux(rawSocket, s).catch(() => {});
+					});
+					rawSocket.resume();
+					this.drainMux(rawSocket, state).catch(() => {});
+				}
+			});
 		});
 
 		return new Promise((resolve, reject) => {

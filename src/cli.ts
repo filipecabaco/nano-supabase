@@ -335,6 +335,18 @@ const tcpPort = parsePort(
 	"--tcp-port",
 );
 const dataDir = getArgValue(subArgs, "--data-dir");
+const tlsCert =
+	getArgValue(subArgs, "--tls-cert") ?? process.env.NANO_TLS_CERT;
+const tlsKey = getArgValue(subArgs, "--tls-key") ?? process.env.NANO_TLS_KEY;
+if ((tlsCert && !tlsKey) || (!tlsCert && tlsKey)) {
+	process.stderr.write(
+		`${JSON.stringify({
+			error: "invalid_tls_config",
+			message: "--tls-cert and --tls-key must both be provided together",
+		})}\n`,
+	);
+	process.exit(1);
+}
 const serviceRoleKey =
 	getArgValue(subArgs, "--service-role-key") ??
 	process.env.NANO_SUPABASE_SERVICE_ROLE_KEY ??
@@ -484,5 +496,7 @@ if (subCommand === "service" && !isServiceMgmtOp) {
 		mcp,
 		pidFile,
 		count,
+		tlsCert,
+		tlsKey,
 	});
 }
