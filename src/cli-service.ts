@@ -343,6 +343,8 @@ export async function runServiceMode(opts: {
   const nanoInstances = new Map<string, NanoSupabaseInstance | null>();
   const tenantPoolers = new Map<string, import("./pooler.ts").PGlitePooler>();
   const wakingPromises = new Map<string, Promise<void>>();
+  const tenantCache = new Map<string, TenantEntry>();
+  const dirtyLastActive = new Set<string>();
   const { PGlitePooler } = await import("./pooler.ts");
   const { PGliteTCPMuxServer } = await import("./tcp-server.ts");
 
@@ -369,7 +371,16 @@ export async function runServiceMode(opts: {
         bytesIn: 0,
         bytesOut: 0,
       });
-    return {
+    const existing = tenantCache.get(row.slug);
+    if (existing) {
+      existing.state = row.state as TenantState;
+      existing.tokenHash = row.token_hash;
+      existing.encryptedPassword = row.encrypted_password ?? null;
+      existing.lastActive = new Date(row.last_active);
+      existing.nano = nanoInstances.get(row.id) ?? null;
+      return existing;
+    }
+    const entry: TenantEntry = {
       id: row.id,
       slug: row.slug,
       dataDir: row.data_dir,
@@ -382,22 +393,16 @@ export async function runServiceMode(opts: {
       anonKey: row.anon_key ?? DEFAULT_ANON_KEY,
       serviceRoleKey: row.service_role_key ?? serviceRoleKey,
     };
+    tenantCache.set(row.slug, entry);
+    return entry;
   }
 
-  async function getTenant(slug: string): Promise<TenantEntry | undefined> {
-    const result = await registry.query<DbTenantRow>(
-      "SELECT * FROM tenants WHERE slug = $1",
-      [slug],
-    );
-    if (!result.rows.length) return undefined;
-    return rowToEntry(result.rows[0]);
+  function getTenant(slug: string): TenantEntry | undefined {
+    return tenantCache.get(slug);
   }
 
   async function listTenants(): Promise<TenantEntry[]> {
-    const result = await registry.query<DbTenantRow>(
-      "SELECT * FROM tenants ORDER BY slug",
-    );
-    return result.rows.map(rowToEntry);
+    return Array.from(tenantCache.values()).sort((a, b) => a.slug.localeCompare(b.slug));
   }
 
   async function createTenantRecord(entry: TenantEntry): Promise<void> {
@@ -415,6 +420,7 @@ export async function runServiceMode(opts: {
         entry.serviceRoleKey,
       ],
     );
+    tenantCache.set(entry.slug, entry);
   }
 
   async function updateTenantState(
@@ -427,23 +433,36 @@ export async function runServiceMode(opts: {
     ]);
   }
 
-  async function updateLastActive(id: string): Promise<void> {
+  function markLastActive(id: string): void {
+    dirtyLastActive.add(id);
+  }
+
+  async function flushLastActive(): Promise<void> {
+    if (dirtyLastActive.size === 0) return;
+    const ids = Array.from(dirtyLastActive);
+    dirtyLastActive.clear();
     await registry.query(
-      "UPDATE tenants SET last_active = now() WHERE id = $1",
-      [id],
+      `UPDATE tenants SET last_active = now() WHERE id = ANY($1::uuid[])`,
+      [ids],
     );
   }
 
-  async function deleteTenantRecord(id: string): Promise<void> {
+  async function deleteTenantRecord(id: string, slug: string): Promise<void> {
     await registry.query("DELETE FROM tenants WHERE id = $1", [id]);
+    tenantCache.delete(slug);
+    dirtyLastActive.delete(id);
   }
 
-  async function updateTokenHash(id: string, hash: string): Promise<void> {
+  async function updateTokenHash(id: string, slug: string, hash: string): Promise<void> {
     await registry.query("UPDATE tenants SET token_hash = $1 WHERE id = $2", [
       hash,
       id,
     ]);
+    const cached = tenantCache.get(slug);
+    if (cached) cached.tokenHash = hash;
   }
+
+  const adminTokenHash = await hashToken(adminToken!);
 
   const existingRows = await registry.query<DbTenantRow>(
     "SELECT * FROM tenants",
@@ -455,7 +474,9 @@ export async function runServiceMode(opts: {
         "UPDATE tenants SET state = 'sleeping' WHERE id = $1",
         [row.id],
       );
+      row.state = "sleeping";
     }
+    rowToEntry(row);
   }
 
   async function startTenantNano(tenant: TenantEntry): Promise<void> {
@@ -572,8 +593,7 @@ export async function runServiceMode(opts: {
       );
     }
     const hash = await hashToken(token);
-    const adminHash = await hashToken(adminToken!);
-    if (hash !== adminHash) {
+    if (hash !== adminTokenHash) {
       return new Response(
         JSON.stringify({
           error: "unauthorized",
@@ -743,7 +763,7 @@ export async function runServiceMode(opts: {
               await rm(join(coldDir, `${tenant.id}.tar.gz`), { force: true });
             }
           } catch {}
-          await deleteTenantRecord(tenant.id);
+          await deleteTenantRecord(tenant.id, tenant.slug);
           log("tenant.deleted", { tenant_id: tenant.id, slug: tenant.slug });
           return new Response(JSON.stringify({ deleted: true }), {
             headers: json,
@@ -785,7 +805,7 @@ export async function runServiceMode(opts: {
         if (subpath === "/reset-token" && req.method === "POST") {
           const plainToken = crypto.randomUUID();
           const newHash = await hashToken(plainToken);
-          await updateTokenHash(tenant.id, newHash);
+          await updateTokenHash(tenant.id, tenant.slug, newHash);
           return new Response(JSON.stringify({ token: plainToken }), {
             headers: json,
           });
@@ -796,6 +816,7 @@ export async function runServiceMode(opts: {
           const plainPassword = body.password ?? Array.from(crypto.getRandomValues(new Uint8Array(18))).map(b => b.toString(16).padStart(2, "0")).join("");
           const encryptedPassword = await encryptPassword(plainPassword);
           await registry.query("UPDATE tenants SET encrypted_password = $1 WHERE id = $2", [encryptedPassword, tenant.id]);
+          tenant.encryptedPassword = encryptedPassword;
           return new Response(JSON.stringify({ password: plainPassword }), { headers: json });
         }
 
@@ -916,7 +937,7 @@ export async function runServiceMode(opts: {
       );
     }
 
-    await updateLastActive(tenant.id);
+    markLastActive(tenant.id);
     tenant.lastActive = new Date();
 
     const forwardHeaders = new Headers(req.headers);
@@ -1009,6 +1030,9 @@ export async function runServiceMode(opts: {
   });
 
   setInterval(async () => {
+    await flushLastActive().catch((e: unknown) => {
+      log("error", { event: "flush_last_active_failed", error: e instanceof Error ? e.message : String(e) });
+    });
     const now = Date.now();
     for (const tenant of await listTenants()) {
       if (

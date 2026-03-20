@@ -55,8 +55,7 @@ services:
       - --admin-token=secret
       - --service-port=8080
       - --tcp-port=5432
-      - --routing=subdomain
-      - --base-domain=localhost
+      - --routing=path
       - --data-dir=/data/tenants
       - --cold-dir=/data/cold
       - --s3-bucket=nano-tenants

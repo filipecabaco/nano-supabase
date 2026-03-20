@@ -25,6 +25,7 @@ export class PGlitePooler {
 	private totalErrors = 0;
 	private waitTimeSum = 0;
 	private waitTimeCount = 0;
+	private nextQueryId = 0;
 
 	get pglite(): PGlite {
 		return this.db;
@@ -98,7 +99,7 @@ export class PGlitePooler {
 		return new Promise((resolve, reject) => {
 			const query: QueuedQuery = {
 				kind: "sql",
-				id: crypto.randomUUID(),
+				id: String(this.nextQueryId++),
 				sql,
 				params: params ?? [],
 				priority,
@@ -129,7 +130,7 @@ export class PGlitePooler {
 		return new Promise((resolve, reject) => {
 			const transactionQuery: QueuedQuery = {
 				kind: "transaction",
-				id: crypto.randomUUID(),
+				id: String(this.nextQueryId++),
 				priority,
 				enqueuedAt: Date.now(),
 				resolve: resolve as (result: unknown) => void,
@@ -174,7 +175,7 @@ export class PGlitePooler {
 			if (!query) {
 				await new Promise<void>((resolve) => {
 					this.wakeUp = resolve;
-					setTimeout(() => resolve(), 10);
+					setTimeout(() => resolve(), 1);
 				});
 				this.wakeUp = null;
 				continue;
