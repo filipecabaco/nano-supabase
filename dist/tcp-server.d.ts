@@ -19,28 +19,24 @@ export declare class PGliteTCPServer {
     private drain;
     private handleStartup;
     private handlePasswordMessage;
-    private readMessage;
     private handleMessage;
-    private onSimpleQuery;
-    private onParse;
-    private onBind;
-    private onDescribe;
-    private onExecute;
-    private execute;
-    private executeMulti;
-    private updateTxStatus;
-    private buildStartupResponse;
-    private buildResultMessages;
-    private buildRowDescription;
-    private pgText;
-    private buildDataRow;
-    private encodeBinary;
-    private buildReadyForQuery;
-    private sqlstate;
-    private buildError;
-    private msg;
-    private cstring;
-    private int32;
-    private int16;
+}
+export type MuxRoute = (user: string) => Promise<{
+    pooler: PGlitePooler;
+    password: string;
+} | null>;
+export declare class PGliteTCPMuxServer {
+    private readonly route;
+    private server;
+    private readonly connections;
+    private readonly probeCaches;
+    constructor(route: MuxRoute);
+    start(port?: number, host?: string): Promise<void>;
+    stop(): Promise<void>;
+    [Symbol.asyncDispose](): Promise<void>;
+    private drainMux;
+    private handleMuxStartup;
+    private handleMuxPassword;
+    private handleMuxMessage;
 }
 //# sourceMappingURL=tcp-server.d.ts.map

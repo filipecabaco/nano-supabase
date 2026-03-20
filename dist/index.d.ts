@@ -30,7 +30,7 @@ export { PriorityQueue } from "./queue.ts";
 export { type BlobMetadata, type CreateBucketOptions, MemoryStorageBackend, type SignedUrlToken, STORAGE_SCHEMA_SQL, type StorageBackend, type StorageBucket, StorageHandler, type StorageObject, } from "./storage/index.ts";
 export type { QueryBuilder } from "./supabase-client.ts";
 export { createSupabaseClient, SupabaseClient } from "./supabase-client.ts";
-export { PGliteTCPServer, type TCPServerOptions } from "./tcp-server.ts";
+export { PGliteTCPMuxServer, PGliteTCPServer, type MuxRoute, type TCPServerOptions } from "./tcp-server.ts";
 export type { PoolerConfig, QueryResult, QueuedQuery, QueueMetrics, } from "./types.ts";
 export { QueryPriority } from "./types.ts";
 //# sourceMappingURL=index.d.ts.map

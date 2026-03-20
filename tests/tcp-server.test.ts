@@ -7,7 +7,7 @@
 
 import { PGlite } from "@electric-sql/pglite";
 import pg from "pg";
-import { PGlitePooler, PGliteTCPServer } from "../src/index.ts";
+import { PGlitePooler, PGliteTCPMuxServer, PGliteTCPServer } from "../src/index.ts";
 import { assertEquals, assertExists, describe, test } from "./compat.ts";
 
 const TEST_PORT = 54399;
@@ -327,6 +327,187 @@ describe("PGliteTCPServer", () => {
 		} finally {
 			await client.end();
 			await teardown();
+		}
+	});
+});
+
+const MUX_PORT = 54398;
+
+describe("PGliteTCPMuxServer", () => {
+	test("routes by username to correct tenant database", async () => {
+		const dbA = new PGlite();
+		const dbB = new PGlite();
+		const poolerA = await PGlitePooler.create(dbA);
+		const poolerB = await PGlitePooler.create(dbB);
+		await dbA.exec("CREATE TABLE tenant_a_data (val TEXT)");
+		await dbA.exec("INSERT INTO tenant_a_data VALUES ('from-a')");
+		await dbB.exec("CREATE TABLE tenant_b_data (val TEXT)");
+		await dbB.exec("INSERT INTO tenant_b_data VALUES ('from-b')");
+
+		const mux = new PGliteTCPMuxServer(async (user) => {
+			if (user === "tenant-a") return { pooler: poolerA, password: "" };
+			if (user === "tenant-b") return { pooler: poolerB, password: "" };
+			return null;
+		});
+		await mux.start(MUX_PORT);
+
+		try {
+			const clientA = new pg.Client({ connectionString: `postgresql://tenant-a@127.0.0.1:${MUX_PORT}/postgres` });
+			const clientB = new pg.Client({ connectionString: `postgresql://tenant-b@127.0.0.1:${MUX_PORT}/postgres` });
+			await clientA.connect();
+			await clientB.connect();
+			try {
+				const resA = await clientA.query("SELECT val FROM tenant_a_data");
+				const resB = await clientB.query("SELECT val FROM tenant_b_data");
+				assertEquals(resA.rows[0].val, "from-a");
+				assertEquals(resB.rows[0].val, "from-b");
+			} finally {
+				await clientA.end();
+				await clientB.end();
+			}
+		} finally {
+			await mux.stop();
+			await poolerA.stop();
+			await poolerB.stop();
+		}
+	});
+
+	test("unknown user causes connection error", async () => {
+		const mux = new PGliteTCPMuxServer(async () => null);
+		await mux.start(MUX_PORT);
+		try {
+			const client = new pg.Client({ connectionString: `postgresql://unknown@127.0.0.1:${MUX_PORT}/postgres` });
+			let caught: Error | null = null;
+			try {
+				await client.connect();
+			} catch (e) {
+				caught = e as Error;
+			} finally {
+				client.end().catch(() => {});
+			}
+			assertExists(caught);
+		} finally {
+			await mux.stop();
+		}
+	});
+
+	test("wrong password causes auth failure", async () => {
+		const db = new PGlite();
+		const pooler = await PGlitePooler.create(db);
+		const mux = new PGliteTCPMuxServer(async (user) => {
+			if (user === "myuser") return { pooler, password: "secret" };
+			return null;
+		});
+		await mux.start(MUX_PORT);
+		try {
+			const client = new pg.Client({
+				connectionString: `postgresql://myuser:wrongpass@127.0.0.1:${MUX_PORT}/postgres`,
+			});
+			let caught: Error & { code?: string } | null = null;
+			try {
+				await client.connect();
+			} catch (e) {
+				caught = e as Error & { code?: string };
+			} finally {
+				client.end().catch(() => {});
+			}
+			assertExists(caught);
+			assertEquals(caught!.code, "28P01");
+		} finally {
+			await mux.stop();
+			await pooler.stop();
+		}
+	});
+
+	test("correct password allows query", async () => {
+		const db = new PGlite();
+		const pooler = await PGlitePooler.create(db);
+		const mux = new PGliteTCPMuxServer(async (user) => {
+			if (user === "myuser") return { pooler, password: "secret" };
+			return null;
+		});
+		await mux.start(MUX_PORT);
+		try {
+			const client = new pg.Client({
+				connectionString: `postgresql://myuser:secret@127.0.0.1:${MUX_PORT}/postgres`,
+			});
+			await client.connect();
+			try {
+				const res = await client.query("SELECT 'connected' AS answer");
+				assertEquals(res.rows[0].answer, "connected");
+			} finally {
+				await client.end();
+			}
+		} finally {
+			await mux.stop();
+			await pooler.stop();
+		}
+	});
+
+	test("concurrent connections to different tenants return correct data", async () => {
+		const dbA = new PGlite();
+		const dbB = new PGlite();
+		const poolerA = await PGlitePooler.create(dbA);
+		const poolerB = await PGlitePooler.create(dbB);
+		await dbA.exec("CREATE TABLE items (name TEXT)");
+		await dbA.exec("INSERT INTO items VALUES ('alpha')");
+		await dbB.exec("CREATE TABLE items (name TEXT)");
+		await dbB.exec("INSERT INTO items VALUES ('beta')");
+
+		const mux = new PGliteTCPMuxServer(async (user) => {
+			if (user === "tenant-a") return { pooler: poolerA, password: "" };
+			if (user === "tenant-b") return { pooler: poolerB, password: "" };
+			return null;
+		});
+		await mux.start(MUX_PORT);
+
+		try {
+			const [resA, resB] = await Promise.all([
+				(async () => {
+					const c = new pg.Client({ connectionString: `postgresql://tenant-a@127.0.0.1:${MUX_PORT}/postgres` });
+					await c.connect();
+					const r = await c.query("SELECT name FROM items");
+					await c.end();
+					return r;
+				})(),
+				(async () => {
+					const c = new pg.Client({ connectionString: `postgresql://tenant-b@127.0.0.1:${MUX_PORT}/postgres` });
+					await c.connect();
+					const r = await c.query("SELECT name FROM items");
+					await c.end();
+					return r;
+				})(),
+			]);
+			assertEquals(resA.rows[0].name, "alpha");
+			assertEquals(resB.rows[0].name, "beta");
+		} finally {
+			await mux.stop();
+			await poolerA.stop();
+			await poolerB.stop();
+		}
+	});
+
+	test("async route with delay still connects and queries", async () => {
+		const db = new PGlite();
+		const pooler = await PGlitePooler.create(db);
+		const mux = new PGliteTCPMuxServer(async (user) => {
+			if (user !== "slowuser") return null;
+			await new Promise((r) => setTimeout(r, 50));
+			return { pooler, password: "" };
+		});
+		await mux.start(MUX_PORT);
+		try {
+			const client = new pg.Client({ connectionString: `postgresql://slowuser@127.0.0.1:${MUX_PORT}/postgres` });
+			await client.connect();
+			try {
+				const res = await client.query("SELECT 'async-ok' AS status");
+				assertEquals(res.rows[0].status, "async-ok");
+			} finally {
+				await client.end();
+			}
+		} finally {
+			await mux.stop();
+			await pooler.stop();
 		}
 	});
 });

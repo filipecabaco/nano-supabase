@@ -28,6 +28,8 @@ async function waitForHealth(url: string, timeout = 45_000): Promise<void> {
 	throw new Error(`Service at ${url} did not become healthy within ${timeout}ms`);
 }
 
+const TCP_PORT = 54472;
+
 function startService(port: number, dataDir: string, coldDir: string, extraArgs: string[] = []): ChildProcess {
 	return spawn(
 		"node",
@@ -37,6 +39,8 @@ function startService(port: number, dataDir: string, coldDir: string, extraArgs:
 			`--data-dir=${dataDir}`,
 			`--cold-dir=${coldDir}`,
 			`--registry-db-url=${registryDbUrl}`,
+			`--secret=test-service-secret`,
+			`--tcp-port=${TCP_PORT}`,
 			...extraArgs,
 		],
 		{ stdio: "ignore", detached: false },
@@ -59,6 +63,7 @@ describe("service with postgres registry", () => {
 	const port = 54470;
 	const base = `http://localhost:${port}`;
 	let aliceToken: string;
+	let alicePassword: string;
 	let bobToken: string;
 
 	beforeAll(async () => {
@@ -93,11 +98,15 @@ describe("service with postgres registry", () => {
 			await pgClient.end();
 		});
 
-		test("service_migrations table exists and has initial migration applied", async () => {
+		test("service_migrations table exists and has all migrations applied", async () => {
 			const result = await pgClient.query<{ name: string }>(
 				"SELECT name FROM service_migrations ORDER BY id",
 			);
-			expect(result.rows.map((r) => r.name)).toEqual(["1710000000000_initial"]);
+			expect(result.rows.map((r) => r.name)).toEqual([
+				"1710000000000_initial",
+				"1710000001000_add_connection_info",
+				"1710000002000_add_password",
+			]);
 		});
 
 		test("tenants table created by migration (no IF NOT EXISTS — tracking enforces idempotency)", async () => {
@@ -117,7 +126,11 @@ describe("service with postgres registry", () => {
 				const result = await pgClient.query<{ name: string }>(
 					"SELECT name FROM service_migrations ORDER BY id",
 				);
-				expect(result.rows.map((r) => r.name)).toEqual(["1710000000000_initial"]);
+				expect(result.rows.map((r) => r.name)).toEqual([
+					"1710000000000_initial",
+					"1710000001000_add_connection_info",
+					"1710000002000_add_password",
+				]);
 				svcProcess = restartedProcess;
 			} catch (e) {
 				restartedProcess.kill("SIGTERM");
@@ -165,6 +178,7 @@ describe("service with postgres registry", () => {
 		expect(body.tenant.slug).toBe("alice");
 		expect(body.tenant.state).toBe("running");
 		aliceToken = body.token;
+		alicePassword = body.password;
 	});
 
 	test("duplicate slug returns 409", async () => {
@@ -347,6 +361,57 @@ describe("service with postgres registry", () => {
 				body: JSON.stringify({ email: "alice@test.com", password: "password123" }),
 			});
 			expect(withNew.status).toBe(200);
+		});
+	});
+
+	describe("password rotation", () => {
+		test("reset-password returns a new random password that authenticates via TCP", async () => {
+			const res = await fetch(`${base}/admin/tenants/alice/reset-password`, {
+				method: "POST",
+				headers: { Authorization: `Bearer ${ADMIN_TOKEN}` },
+			});
+			expect(res.status).toBe(200);
+			const { password: newPassword } = await res.json();
+			expect(newPassword).toBeTruthy();
+			expect(newPassword).not.toBe(alicePassword);
+			alicePassword = newPassword;
+
+			const client = new Client({ host: "127.0.0.1", port: TCP_PORT, user: "alice", password: newPassword, database: "postgres", ssl: false });
+			await client.connect();
+			const result = await client.query("SELECT 1 AS ok");
+			expect(result.rows[0].ok).toBe("1");
+			await client.end();
+		});
+
+		test("reset-password with custom password accepts that password via TCP", async () => {
+			const customPassword = "my-custom-p4ssw0rd";
+			const res = await fetch(`${base}/admin/tenants/alice/reset-password`, {
+				method: "POST",
+				headers: { Authorization: `Bearer ${ADMIN_TOKEN}`, "Content-Type": "application/json" },
+				body: JSON.stringify({ password: customPassword }),
+			});
+			expect(res.status).toBe(200);
+			expect((await res.json()).password).toBe(customPassword);
+			alicePassword = customPassword;
+
+			const client = new Client({ host: "127.0.0.1", port: TCP_PORT, user: "alice", password: customPassword, database: "postgres", ssl: false });
+			await client.connect();
+			const result = await client.query("SELECT 2 AS ok");
+			expect(result.rows[0].ok).toBe("2");
+			await client.end();
+		});
+
+		test("old password is rejected after reset", async () => {
+			const stalePassword = alicePassword;
+			const res = await fetch(`${base}/admin/tenants/alice/reset-password`, {
+				method: "POST",
+				headers: { Authorization: `Bearer ${ADMIN_TOKEN}` },
+			});
+			const { password: freshPassword } = await res.json();
+			alicePassword = freshPassword;
+
+			const client = new Client({ host: "127.0.0.1", port: TCP_PORT, user: "alice", password: stalePassword, database: "postgres", ssl: false });
+			await expect(client.connect()).rejects.toThrow();
 		});
 	});
 

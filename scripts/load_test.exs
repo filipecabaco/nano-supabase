@@ -9,6 +9,7 @@ defmodule LoadTest do
   @tenants   String.to_integer(System.get_env("TENANTS",  "5"))
   @rps       String.to_integer(System.get_env("RPS",      "3"))
   @pg_host   System.get_env("PG_HOST",       "127.0.0.1")
+  @pg_port   String.to_integer(System.get_env("PG_PORT",  "5432"))
   @report_every_s 10
 
   def admin(method, path, body \\ nil) do
@@ -38,28 +39,25 @@ defmodule LoadTest do
   end
 
   def setup_tenant(slug) do
-    resp = admin(:post, "/admin/tenants", %{slug: slug})
-    {token, password, info} = case resp.status do
-      201 -> {resp.body["token"], resp.body["password"], resp.body["tenant"]}
-      409 ->
-        reset = admin(:post, "/admin/tenants/#{slug}/reset-token")
-        ensure_running(slug)
-        {reset.body["token"], reset.body["password"] || "", admin(:get, "/admin/tenants/#{slug}").body}
+    case admin(:get, "/admin/tenants/#{slug}").status do
+      200 -> admin(:delete, "/admin/tenants/#{slug}")
+      _ -> :ok
     end
-    tcp_port = info["tcpPort"]
+    resp = admin(:post, "/admin/tenants", %{slug: slug})
+    {token, password, info} = {resp.body["token"], resp.body["password"], resp.body["tenant"]}
     IO.puts("  #{String.pad_trailing(slug, 12)}  pg=#{info["pgUrl"]}")
-    conn = connect_postgrex(tcp_port, password)
+    conn = connect_postgrex(slug, password)
     setup_schema(conn, slug)
-    {slug, token, tcp_port, password, conn}
+    {slug, token, password, conn}
   end
 
-  def connect_postgrex(port, password \\ "", retries \\ 5) do
-    case Postgrex.start_link(hostname: @pg_host, port: port, username: "postgres",
+  def connect_postgrex(username, password \\ "", retries \\ 5) do
+    case Postgrex.start_link(hostname: @pg_host, port: @pg_port, username: username,
            database: "postgres", password: password || "", ssl: false, pool_size: 4,
            queue_target: 15_000, queue_interval: 15_000) do
       {:ok, conn} -> conn
       {:error, _} when retries > 0 ->
-        Process.sleep(1000); connect_postgrex(port, password, retries - 1)
+        Process.sleep(1000); connect_postgrex(username, password, retries - 1)
       {:error, e} -> raise e
     end
   end
@@ -231,8 +229,8 @@ defmodule LoadTest do
   end
 
   # Per-tenant worker: runs indefinitely, sends stats every @report_every_s seconds
-  def run_worker(slug, token, tcp_port, password, stats_pid) do
-    conn = connect_postgrex(tcp_port, password)
+  def run_worker(slug, token, password, stats_pid) do
+    conn = connect_postgrex(slug, password)
     all_ops = ops(conn, slug, token)
     interval_ms = div(1000, @rps)
     ok  = :counters.new(1, [:atomics])
@@ -282,7 +280,7 @@ defmodule LoadTest do
 
   # Stats aggregator — waits for one report per tenant per epoch
   def stats_loop(tenants, epoch \\ 1) do
-    reports = Enum.map(tenants, fn {slug, _, _, _, _} ->
+    reports = Enum.map(tenants, fn {slug, _, _, _} ->
       receive do
         {:report, ^slug, ok, err} -> {slug, ok, err}
       after (@report_every_s + 5) * 1000 -> {slug, 0, 0}
@@ -306,6 +304,7 @@ defmodule LoadTest do
     ║     nano-supabase continuous load test       ║
     ╠══════════════════════════════════════════════╣
     ║  url         : #{pad(@base_url, 27)}║
+    ║  pg          : #{pad("#{@pg_host}:#{@pg_port}", 27)}║
     ║  tenants     : #{pad(@tenants, 27)}║
     ║  rps/tenant  : #{pad(@rps, 27)}║
     ║  report every: #{pad("#{@report_every_s}s", 27)}║
@@ -322,8 +321,8 @@ defmodule LoadTest do
     IO.puts("\nAll tenants ready. Continuous load started...\n")
 
     stats_pid = self()
-    Enum.each(tenants, fn {slug, token, tcp_port, password, _} ->
-      spawn(fn -> run_worker(slug, token, tcp_port, password, stats_pid) end)
+    Enum.each(tenants, fn {slug, token, password, _} ->
+      spawn(fn -> run_worker(slug, token, password, stats_pid) end)
     end)
 
     stats_loop(tenants)

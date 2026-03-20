@@ -242,6 +242,7 @@ DELETE /admin/tenants/:slug               # delete tenant (stops instance, remov
 POST /admin/tenants/:slug/pause           # pause running tenant (offload to disk/S3)
 POST /admin/tenants/:slug/wake            # wake sleeping tenant (restore from disk/S3)
 POST /admin/tenants/:slug/reset-token     # rotate tenant bearer token
+POST /admin/tenants/:slug/reset-password  # rotate tenant postgres password (body: { "password": "..." } optional, generates random if omitted)
 ```
 
 **Examples:**

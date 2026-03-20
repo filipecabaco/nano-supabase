@@ -1,6 +1,5 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
-import { createServer as createTcpServer } from "node:net";
 import { join } from "node:path";
 import type { Extension } from "@electric-sql/pglite";
 import type { NanoSupabaseInstance } from "./nano.ts";
@@ -49,10 +48,10 @@ export async function runServiceMode(opts: {
     8080,
     "--service-port",
   );
-  const tcpBasePort = parsePort(
-    getArgValue(subArgs, "--tcp-base-port"),
-    54400,
-    "--tcp-base-port",
+  const tcpMuxPort = parsePort(
+    getArgValue(subArgs, "--tcp-port"),
+    5432,
+    "--tcp-port",
   );
   const serviceRoleKey =
     getArgValue(subArgs, "--service-role-key") ?? DEFAULT_SERVICE_ROLE_KEY;
@@ -321,7 +320,6 @@ export async function runServiceMode(opts: {
     lastActive: Date;
     nano: NanoSupabaseInstance | null;
     usage: TenantUsage;
-    tcpPort: number;
     anonKey: string;
     serviceRoleKey: string;
   }
@@ -342,18 +340,11 @@ export async function runServiceMode(opts: {
   }
 
   const consecutiveErrors = new Map<string, number>();
-  const wakingSet = new Set<string>();
   const nanoInstances = new Map<string, NanoSupabaseInstance | null>();
-  const tcpServers = new Map<
-    string,
-    import("./tcp-server.ts").PGliteTCPServer
-  >();
-  const { PGliteTCPServer } = await import("./tcp-server.ts");
-
-  const maxPortResult = await registry.query<{ max_port: number | null }>(
-    "SELECT MAX(tcp_port) as max_port FROM tenants",
-  );
-  let nextTcpPort = (maxPortResult.rows[0]?.max_port ?? tcpBasePort - 1) + 1;
+  const tenantPoolers = new Map<string, import("./pooler.ts").PGlitePooler>();
+  const wakingPromises = new Map<string, Promise<void>>();
+  const { PGlitePooler } = await import("./pooler.ts");
+  const { PGliteTCPMuxServer } = await import("./tcp-server.ts");
 
   interface DbTenantRow {
     id: string;
@@ -378,13 +369,6 @@ export async function runServiceMode(opts: {
         bytesIn: 0,
         bytesOut: 0,
       });
-    let tcpPort = row.tcp_port;
-    if (tcpPort == null) {
-      tcpPort = nextTcpPort++;
-      registry
-        .query("UPDATE tenants SET tcp_port=$1 WHERE id=$2", [tcpPort, row.id])
-        .catch(() => {});
-    }
     return {
       id: row.id,
       slug: row.slug,
@@ -395,7 +379,6 @@ export async function runServiceMode(opts: {
       lastActive: new Date(row.last_active),
       nano: nanoInstances.get(row.id) ?? null,
       usage: usageMap.get(row.id)!,
-      tcpPort,
       anonKey: row.anon_key ?? DEFAULT_ANON_KEY,
       serviceRoleKey: row.service_role_key ?? serviceRoleKey,
     };
@@ -419,7 +402,7 @@ export async function runServiceMode(opts: {
 
   async function createTenantRecord(entry: TenantEntry): Promise<void> {
     await registry.query(
-      "INSERT INTO tenants (id, slug, data_dir, token_hash, encrypted_password, state, last_active, tcp_port, anon_key, service_role_key) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
+      "INSERT INTO tenants (id, slug, data_dir, token_hash, encrypted_password, state, last_active, anon_key, service_role_key) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
       [
         entry.id,
         entry.slug,
@@ -428,7 +411,6 @@ export async function runServiceMode(opts: {
         entry.encryptedPassword,
         entry.state,
         entry.lastActive.toISOString(),
-        entry.tcpPort,
         entry.anonKey,
         entry.serviceRoleKey,
       ],
@@ -468,14 +450,6 @@ export async function runServiceMode(opts: {
   );
   for (const row of existingRows.rows) {
     nanoInstances.set(row.id, null);
-    if (row.tcp_port == null) {
-      const port = nextTcpPort++;
-      await registry.query("UPDATE tenants SET tcp_port=$1 WHERE id=$2", [
-        port,
-        row.id,
-      ]);
-      row.tcp_port = port;
-    }
     if (row.state !== "sleeping") {
       await registry.query(
         "UPDATE tenants SET state = 'sleeping' WHERE id = $1",
@@ -497,51 +471,15 @@ export async function runServiceMode(opts: {
     });
     nanoInstances.set(tenant.id, nanoInstance);
     tenant.nano = nanoInstance;
-    const plainPassword = tenant.encryptedPassword ? await decryptPassword(tenant.encryptedPassword) : undefined;
-    const tcpServer = await PGliteTCPServer.create(nanoInstance.db, undefined, plainPassword);
-    try {
-      await tcpServer.start(tenant.tcpPort, "0.0.0.0");
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
-      if (msg.includes("EADDRINUSE")) {
-        tenant.tcpPort = nextTcpPort++;
-        await registry.query("UPDATE tenants SET tcp_port=$1 WHERE id=$2", [tenant.tcpPort, tenant.id]);
-        await tcpServer.start(tenant.tcpPort, "0.0.0.0");
-      } else {
-        throw e;
-      }
-    }
-    tcpServers.set(tenant.id, tcpServer);
+    const pooler = await PGlitePooler.create(nanoInstance.db);
+    tenantPoolers.set(tenant.id, pooler);
     await updateTenantState(tenant.id, "running");
     tenant.state = "running";
     log("tenant.started", {
       tenant_id: tenant.id,
       slug: tenant.slug,
       data_dir: tenant.dataDir,
-      tcp_port: tenant.tcpPort,
     });
-  }
-
-  const wakeStubs = new Map<string, import("node:net").Server>();
-
-  function startWakeStub(tenant: TenantEntry): void {
-    const stub = createTcpServer((socket) => {
-      socket.destroy();
-      stub.close();
-      wakeStubs.delete(tenant.id);
-      log("tenant.wake_on_tcp", {
-        tenant_id: tenant.id,
-        slug: tenant.slug,
-        tcp_port: tenant.tcpPort,
-      });
-      wakeTenant(tenant).catch(() => {});
-    });
-    stub.on("error", (err: NodeJS.ErrnoException) => {
-      log("wake_stub.error", { tenant_id: tenant.id, slug: tenant.slug, error: err.message });
-      wakeStubs.delete(tenant.id);
-    });
-    stub.listen(tenant.tcpPort, "0.0.0.0");
-    wakeStubs.set(tenant.id, stub);
   }
 
   async function pauseTenant(tenant: TenantEntry): Promise<void> {
@@ -554,10 +492,10 @@ export async function runServiceMode(opts: {
     });
     await updateTenantState(tenant.id, "pausing");
     tenant.state = "pausing";
-    const tcpServer = tcpServers.get(tenant.id);
-    if (tcpServer) {
-      await tcpServer.stop();
-      tcpServers.delete(tenant.id);
+    const pooler = tenantPoolers.get(tenant.id);
+    if (pooler) {
+      await pooler.stop();
+      tenantPoolers.delete(tenant.id);
     }
     nanoInstances.set(tenant.id, null);
     tenant.nano = null;
@@ -565,7 +503,6 @@ export async function runServiceMode(opts: {
       await offloadTenant(tenant.dataDir, tenant.id);
       await updateTenantState(tenant.id, "sleeping");
       tenant.state = "sleeping";
-      startWakeStub(tenant);
       log("tenant.sleeping", { tenant_id: tenant.id, slug: tenant.slug });
     } catch (e) {
       await updateTenantState(tenant.id, "running");
@@ -577,11 +514,6 @@ export async function runServiceMode(opts: {
   async function wakeTenant(tenant: TenantEntry): Promise<void> {
     if (tenant.state !== "sleeping") return;
     consecutiveErrors.delete(tenant.id);
-    const stub = wakeStubs.get(tenant.id);
-    if (stub) {
-      stub.close();
-      wakeStubs.delete(tenant.id);
-    }
     const { access: statAccess } = await import("node:fs/promises");
     const hasLocalData = await statAccess(tenant.dataDir)
       .then(() => true)
@@ -600,7 +532,6 @@ export async function runServiceMode(opts: {
     } catch (e) {
       await updateTenantState(tenant.id, "sleeping");
       tenant.state = "sleeping";
-      startWakeStub(tenant);
       throw e;
     }
   }
@@ -612,8 +543,8 @@ export async function runServiceMode(opts: {
       slug: t.slug,
       state: t.state,
       lastActive: t.lastActive.toISOString(),
-      tcpPort: t.tcpPort,
-      pgUrl: `postgresql://postgres:<password>@localhost:${t.tcpPort}/postgres`,
+      tcpPort: tcpMuxPort,
+      pgUrl: `postgresql://${t.slug}:<password>@localhost:${tcpMuxPort}/postgres`,
       anonKey: t.anonKey,
       serviceRoleKey: t.serviceRoleKey,
       usage: {
@@ -747,7 +678,6 @@ export async function runServiceMode(opts: {
           bytesIn: 0,
           bytesOut: 0,
         });
-        const tenantTcpPort = nextTcpPort++;
         const tenant: TenantEntry = {
           id,
           slug,
@@ -758,7 +688,6 @@ export async function runServiceMode(opts: {
           lastActive: new Date(),
           nano: null,
           usage: usageMap.get(id)!,
-          tcpPort: tenantTcpPort,
           anonKey: DEFAULT_ANON_KEY,
           serviceRoleKey,
         };
@@ -794,17 +723,15 @@ export async function runServiceMode(opts: {
 
         if (subpath === "" && req.method === "DELETE") {
           if (tenant.state === "running") {
-            await tcpServers.get(tenant.id)?.stop().catch(() => {});
-            tcpServers.delete(tenant.id);
+            const pooler = tenantPoolers.get(tenant.id);
+            if (pooler) {
+              await pooler.stop().catch(() => {});
+              tenantPoolers.delete(tenant.id);
+            }
             const inst = nanoInstances.get(tenant.id);
             if (inst && typeof inst[Symbol.asyncDispose] === "function") {
               await inst[Symbol.asyncDispose]().catch(() => {});
             }
-          }
-          const stub = wakeStubs.get(tenant.id);
-          if (stub) {
-            stub.close();
-            wakeStubs.delete(tenant.id);
           }
           nanoInstances.delete(tenant.id);
           consecutiveErrors.delete(tenant.id);
@@ -862,6 +789,14 @@ export async function runServiceMode(opts: {
           return new Response(JSON.stringify({ token: plainToken }), {
             headers: json,
           });
+        }
+
+        if (subpath === "/reset-password" && req.method === "POST") {
+          const body = await req.json().catch(() => ({})) as { password?: string };
+          const plainPassword = body.password ?? Array.from(crypto.getRandomValues(new Uint8Array(18))).map(b => b.toString(16).padStart(2, "0")).join("");
+          const encryptedPassword = await encryptPassword(plainPassword);
+          await registry.query("UPDATE tenants SET encrypted_password = $1 WHERE id = $2", [encryptedPassword, tenant.id]);
+          return new Response(JSON.stringify({ password: plainPassword }), { headers: json });
         }
 
         if (subpath === "/sql" && req.method === "POST") {
@@ -966,15 +901,11 @@ export async function runServiceMode(opts: {
     }
 
     if (tenant.state === "sleeping") {
-      if (wakingSet.has(tenant.id)) {
-        return new Response(JSON.stringify({ error: "tenant_busy", message: "Tenant is waking" }), { status: 503, headers: json });
+      if (!wakingPromises.has(tenant.id)) {
+        const p = wakeTenant(tenant).finally(() => wakingPromises.delete(tenant.id));
+        wakingPromises.set(tenant.id, p);
       }
-      wakingSet.add(tenant.id);
-      try {
-        await wakeTenant(tenant);
-      } finally {
-        wakingSet.delete(tenant.id);
-      }
+      await wakingPromises.get(tenant.id)!;
     } else if (tenant.state === "waking" || tenant.state === "pausing") {
       return new Response(
         JSON.stringify({
@@ -1100,9 +1031,24 @@ export async function runServiceMode(opts: {
     }
   }, idleCheck);
 
-  for (const row of existingRows.rows) {
-    startWakeStub(rowToEntry(row));
-  }
+  const muxServer = new PGliteTCPMuxServer(async (user) => {
+    const tenant = await getTenant(user);
+    if (!tenant) return null;
+    if (tenant.state === "sleeping") {
+      if (!wakingPromises.has(tenant.id)) {
+        const p = wakeTenant(tenant).finally(() => wakingPromises.delete(tenant.id));
+        wakingPromises.set(tenant.id, p);
+      }
+      await wakingPromises.get(tenant.id)!;
+    }
+    if (tenant.state !== "running") return null;
+    const pooler = tenantPoolers.get(tenant.id);
+    if (!pooler) return null;
+    const password = tenant.encryptedPassword ? await decryptPassword(tenant.encryptedPassword) : "";
+    return { pooler, password };
+  });
+  await muxServer.start(tcpMuxPort, "0.0.0.0");
+  log("tcp_mux.started", { port: tcpMuxPort });
 
   await new Promise<void>((resolve, reject) => {
     serviceServer.once("error", (err: NodeJS.ErrnoException) => {
@@ -1123,10 +1069,10 @@ export async function runServiceMode(opts: {
   for (const signal of ["SIGINT", "SIGTERM"] as const) {
     process.on(signal, async () => {
       serviceServer.close();
-      for (const [, stub] of wakeStubs) stub.close();
-      for (const [id, tcpServer] of tcpServers) {
-        await tcpServer.stop().catch(() => {});
-        tcpServers.delete(id);
+      await muxServer.stop().catch(() => {});
+      for (const [id, pooler] of tenantPoolers) {
+        await pooler.stop().catch(() => {});
+        tenantPoolers.delete(id);
       }
       await registry.close().catch(() => {});
       process.exit(0);

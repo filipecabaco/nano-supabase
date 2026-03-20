@@ -44,16 +44,17 @@ services:
     build: .
     ports:
       - "8080:8080"
-      - "54400-54499:54400-54499"
+      - "5432:5432"
     environment:
       NANO_REGISTRY_DB_URL: postgres://postgres:postgres@postgres:5432/nano_registry
+      NANO_SECRET: s3cr3tkey
       AWS_ACCESS_KEY_ID: test
       AWS_SECRET_ACCESS_KEY: test
       AWS_REGION: us-east-1
     command:
       - --admin-token=secret
       - --service-port=8080
-      - --tcp-base-port=54400
+      - --tcp-port=5432
       - --routing=subdomain
       - --base-domain=localhost
       - --data-dir=/data/tenants
