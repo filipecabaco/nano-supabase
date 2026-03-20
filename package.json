@@ -74,7 +74,7 @@
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^2.4.8",
-		"@electric-sql/pglite": "0.4.0",
+		"@electric-sql/pglite": "0.4.1",
 		"@electric-sql/pglite-socket": "^0.0.22",
 		"@prisma/client": "^6.19.2",
 		"@supabase/postgres-meta": "^0.96.1",
@@ -93,7 +93,7 @@
 		"vitest": "^4.1.0"
 	},
 	"peerDependencies": {
-		"@electric-sql/pglite": ">=0.4.0"
+		"@electric-sql/pglite": ">=0.4.1"
 	},
 	"peerDependenciesMeta": {
 		"@electric-sql/pglite": {

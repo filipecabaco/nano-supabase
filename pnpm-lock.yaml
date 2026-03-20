@@ -19,11 +19,11 @@ importers:
         specifier: ^2.4.8
         version: 2.4.8
       '@electric-sql/pglite':
-        specifier: 0.4.0
-        version: 0.4.0
+        specifier: 0.4.1
+        version: 0.4.1
       '@electric-sql/pglite-socket':
         specifier: ^0.0.22
-        version: 0.0.22(@electric-sql/pglite@0.4.0)
+        version: 0.0.22(@electric-sql/pglite@0.4.1)
       '@prisma/client':
         specifier: ^6.19.2
         version: 6.19.2(prisma@6.19.2(typescript@5.9.3))(typescript@5.9.3)
@@ -75,7 +75,7 @@ importers:
         version: 3.1014.0
       '@electric-sql/pglite-tools':
         specifier: ^0.3.1
-        version: 0.3.1(@electric-sql/pglite@0.4.0)
+        version: 0.3.1(@electric-sql/pglite@0.4.1)
       '@modelcontextprotocol/sdk':
         specifier: ^1.27.1
         version: 1.27.1(zod@4.3.6)
@@ -323,8 +323,8 @@ packages:
     peerDependencies:
       '@electric-sql/pglite': 0.4.1
 
-  '@electric-sql/pglite@0.4.0':
-    resolution: {integrity: sha512-NBs9e2XwW0+pzUVNqsIRe+VOrP36zfJexI6EBuiPSn/6AcwQ/QE88QtbRfRNFJINqSagH7Rpn5e3Q7NypsVYWg==}
+  '@electric-sql/pglite@0.4.1':
+    resolution: {integrity: sha512-mZ9NzzUSYPOCnxHH1oAHPRzoMFJHY472raDKwXl/+6oPbpdJ7g8LsCN4FSaIIfkiCKHhb3iF/Zqo3NYxaIhU7Q==}
 
   '@emnapi/core@1.9.1':
     resolution: {integrity: sha512-mukuNALVsoix/w1BJwFzwXBN/dHeejQtuVzcDsfOEsdpCumXb/E9j8w11h5S54tT1xhifGfbbSm/ICrObRb3KA==}
@@ -3592,16 +3592,16 @@ snapshots:
 
   '@blazediff/core@1.9.1': {}
 
-  '@electric-sql/pglite-socket@0.0.22(@electric-sql/pglite@0.4.0)':
+  '@electric-sql/pglite-socket@0.0.22(@electric-sql/pglite@0.4.1)':
     dependencies:
-      '@electric-sql/pglite': 0.4.0
+      '@electric-sql/pglite': 0.4.1
 
-  '@electric-sql/pglite-tools@0.3.1(@electric-sql/pglite@0.4.0)':
+  '@electric-sql/pglite-tools@0.3.1(@electric-sql/pglite@0.4.1)':
     dependencies:
-      '@electric-sql/pglite': 0.4.0
+      '@electric-sql/pglite': 0.4.1
     optional: true
 
-  '@electric-sql/pglite@0.4.0': {}
+  '@electric-sql/pglite@0.4.1': {}
 
   '@emnapi/core@1.9.1':
     dependencies:
