@@ -1261,13 +1261,13 @@ export async function cmdServiceAdd(
 	if (password) body.password = password;
 	if (anonKey) body.anonKey = anonKey;
 	if (serviceRoleKey) body.serviceRoleKey = serviceRoleKey;
-	const { ok, data } = await serviceRequest<Record<string, unknown>>(
+	const { ok: success, data } = await serviceRequest<Record<string, unknown>>(
 		"POST",
 		`${serviceUrl}/admin/tenants`,
 		token,
 		body,
 	);
-	if (!ok) return apiError(data, json);
+	if (!success) return apiError(data, json);
 	const result = data as {
 		token: string;
 		password: string;
@@ -1299,12 +1299,12 @@ export async function cmdServiceList(
 			"--admin-token or NANO_ADMIN_TOKEN is required",
 			json,
 		);
-	const { ok, data } = await serviceRequest<unknown[]>(
+	const { ok: success, data } = await serviceRequest<unknown[]>(
 		"GET",
 		`${getServiceUrl(args)}/admin/tenants`,
 		token,
 	);
-	if (!ok) return apiError(data, json);
+	if (!success) return apiError(data, json);
 	return ok(
 		data,
 		json,
@@ -1328,12 +1328,12 @@ export async function cmdServiceRemove(
 		);
 	const slug = args.find((a) => !a.startsWith("--"));
 	if (!slug) return fail("missing_slug", "Usage: service remove <slug>", json);
-	const { ok, data } = await serviceRequest<unknown>(
+	const { ok: success, data } = await serviceRequest<unknown>(
 		"DELETE",
 		`${getServiceUrl(args)}/admin/tenants/${slug}`,
 		token,
 	);
-	if (!ok) return apiError(data, json);
+	if (!success) return apiError(data, json);
 	return ok(data, json, `Tenant "${slug}" deleted.`);
 }
 
@@ -1350,12 +1350,12 @@ export async function cmdServicePause(
 		);
 	const slug = args.find((a) => !a.startsWith("--"));
 	if (!slug) return fail("missing_slug", "Usage: service pause <slug>", json);
-	const { ok, data } = await serviceRequest<unknown>(
+	const { ok: success, data } = await serviceRequest<unknown>(
 		"POST",
 		`${getServiceUrl(args)}/admin/tenants/${slug}/pause`,
 		token,
 	);
-	if (!ok) return apiError(data, json);
+	if (!success) return apiError(data, json);
 	return ok(data, json, `Tenant "${slug}" paused.`);
 }
 
@@ -1372,12 +1372,12 @@ export async function cmdServiceWake(
 		);
 	const slug = args.find((a) => !a.startsWith("--"));
 	if (!slug) return fail("missing_slug", "Usage: service wake <slug>", json);
-	const { ok, data } = await serviceRequest<unknown>(
+	const { ok: success, data } = await serviceRequest<unknown>(
 		"POST",
 		`${getServiceUrl(args)}/admin/tenants/${slug}/wake`,
 		token,
 	);
-	if (!ok) return apiError(data, json);
+	if (!success) return apiError(data, json);
 	return ok(data, json, `Tenant "${slug}" woken.`);
 }
 
@@ -1397,13 +1397,13 @@ export async function cmdServiceSql(
 	const sql = positional[1];
 	if (!slug || !sql)
 		return fail("missing_args", 'Usage: service sql <slug> "<sql>"', json);
-	const { ok, data } = await serviceRequest<Record<string, unknown>>(
+	const { ok: success, data } = await serviceRequest<Record<string, unknown>>(
 		"POST",
 		`${getServiceUrl(args)}/admin/tenants/${slug}/sql`,
 		token,
 		{ sql },
 	);
-	if (!ok) return apiError(data, json);
+	if (!success) return apiError(data, json);
 	const result = data as { rows: Record<string, unknown>[]; rowCount: number };
 	if (json) return ok(result, json, "");
 	if (result.rows.length === 0) return ok(result, json, "(0 rows)");
@@ -1428,12 +1428,12 @@ export async function cmdServiceResetToken(
 	const slug = args.find((a) => !a.startsWith("--"));
 	if (!slug)
 		return fail("missing_slug", "Usage: service reset-token <slug>", json);
-	const { ok, data } = await serviceRequest<{ token: string }>(
+	const { ok: success, data } = await serviceRequest<{ token: string }>(
 		"POST",
 		`${getServiceUrl(args)}/admin/tenants/${slug}/reset-token`,
 		token,
 	);
-	if (!ok) return apiError(data, json);
+	if (!success) return apiError(data, json);
 	return ok(data, json, `New token: ${(data as { token: string }).token}`);
 }
 
@@ -1454,13 +1454,13 @@ export async function cmdServiceResetPassword(
 	const body: Record<string, string> = {};
 	const newPassword = getArgValue(args, "--password");
 	if (newPassword) body.password = newPassword;
-	const { ok, data } = await serviceRequest<{ password: string }>(
+	const { ok: success, data } = await serviceRequest<{ password: string }>(
 		"POST",
 		`${getServiceUrl(args)}/admin/tenants/${slug}/reset-password`,
 		token,
 		body,
 	);
-	if (!ok) return apiError(data, json);
+	if (!success) return apiError(data, json);
 	return ok(
 		data,
 		json,

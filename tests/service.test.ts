@@ -560,6 +560,104 @@ describe("service with postgres registry", () => {
 		}, 60_000);
 	});
 
+	describe("CLI command functions", () => {
+		const cmdArgs = (extra: string[] = []) => [
+			`--url=${base}`,
+			`--admin-token=${ADMIN_TOKEN}`,
+			...extra,
+		];
+
+		test("cmdServiceList returns tenant list", async () => {
+			const { cmdServiceList } = await import("../src/cli-commands.ts");
+			const result = await cmdServiceList(cmdArgs());
+			expect(result.exitCode).toBe(0);
+			expect(result.output).toContain("alice");
+		});
+
+		test("cmdServiceList returns JSON with --json", async () => {
+			const { cmdServiceList } = await import("../src/cli-commands.ts");
+			const result = await cmdServiceList(cmdArgs(["--json"]));
+			expect(result.exitCode).toBe(0);
+			const parsed = JSON.parse(result.output);
+			expect(Array.isArray(parsed)).toBe(true);
+		});
+
+		test("cmdServiceAdd creates a tenant", async () => {
+			const { cmdServiceAdd, cmdServiceRemove } = await import(
+				"../src/cli-commands.ts"
+			);
+			const addResult = await cmdServiceAdd(
+				cmdArgs(["cli-test-tenant", "--json"]),
+			);
+			expect(addResult.exitCode).toBe(0);
+			const parsed = JSON.parse(addResult.output);
+			expect(parsed.tenant.slug).toBe("cli-test-tenant");
+			await cmdServiceRemove(cmdArgs(["cli-test-tenant"]));
+		});
+
+		test("cmdServiceRemove deletes a tenant", async () => {
+			const { cmdServiceAdd, cmdServiceRemove } = await import(
+				"../src/cli-commands.ts"
+			);
+			await cmdServiceAdd(cmdArgs(["cli-remove-tenant"]));
+			const result = await cmdServiceRemove(cmdArgs(["cli-remove-tenant"]));
+			expect(result.exitCode).toBe(0);
+			expect(result.output).toContain("deleted");
+		});
+
+		test("cmdServicePause and cmdServiceWake cycle", async () => {
+			const {
+				cmdServiceAdd,
+				cmdServicePause,
+				cmdServiceWake,
+				cmdServiceRemove,
+			} = await import("../src/cli-commands.ts");
+			await cmdServiceAdd(cmdArgs(["cli-pause-tenant"]));
+			const pauseResult = await cmdServicePause(cmdArgs(["cli-pause-tenant"]));
+			expect(pauseResult.exitCode).toBe(0);
+			expect(pauseResult.output).toContain("paused");
+			const wakeResult = await cmdServiceWake(cmdArgs(["cli-pause-tenant"]));
+			expect(wakeResult.exitCode).toBe(0);
+			expect(wakeResult.output).toContain("woken");
+			await cmdServiceRemove(cmdArgs(["cli-pause-tenant"]));
+		});
+
+		test("cmdServiceSql executes SQL on a tenant", async () => {
+			const { cmdServiceAdd, cmdServiceSql, cmdServiceRemove } = await import(
+				"../src/cli-commands.ts"
+			);
+			await cmdServiceAdd(cmdArgs(["cli-sql-tenant"]));
+			const result = await cmdServiceSql(
+				cmdArgs(["cli-sql-tenant", "SELECT 42 AS answer"]),
+			);
+			expect(result.exitCode).toBe(0);
+			expect(result.output).toContain("42");
+			await cmdServiceRemove(cmdArgs(["cli-sql-tenant"]));
+		});
+
+		test("cmdServiceResetToken rotates bearer token", async () => {
+			const { cmdServiceAdd, cmdServiceResetToken, cmdServiceRemove } =
+				await import("../src/cli-commands.ts");
+			await cmdServiceAdd(cmdArgs(["cli-token-tenant"]));
+			const result = await cmdServiceResetToken(cmdArgs(["cli-token-tenant"]));
+			expect(result.exitCode).toBe(0);
+			expect(result.output).toContain("New token:");
+			await cmdServiceRemove(cmdArgs(["cli-token-tenant"]));
+		});
+
+		test("cmdServiceResetPassword rotates postgres password", async () => {
+			const { cmdServiceAdd, cmdServiceResetPassword, cmdServiceRemove } =
+				await import("../src/cli-commands.ts");
+			await cmdServiceAdd(cmdArgs(["cli-pass-tenant"]));
+			const result = await cmdServiceResetPassword(
+				cmdArgs(["cli-pass-tenant"]),
+			);
+			expect(result.exitCode).toBe(0);
+			expect(result.output).toContain("New password:");
+			await cmdServiceRemove(cmdArgs(["cli-pass-tenant"]));
+		});
+	});
+
 	test("DELETE /admin/tenants/:slug removes tenant from postgres registry", async () => {
 		const res = await fetch(`${base}/admin/tenants/bob`, {
 			method: "DELETE",

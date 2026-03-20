@@ -63,3 +63,4 @@ mydb/
 # CLI build artifacts (binaries are built by CI on release, not stored in git)
 dist/nano-supabase
 dist/nano-supabase-*
+tmp-service-data
