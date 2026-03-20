@@ -57,9 +57,9 @@ export {
 } from "./fetch-adapter/auth-context.ts";
 export {
 	type ApiError,
-	postgresErrorResponse,
 	extractPostgresError,
 	type PostgresError,
+	postgresErrorResponse,
 } from "./fetch-adapter/error-handler.ts";
 
 // Fetch adapter
@@ -102,7 +102,12 @@ export type { QueryBuilder } from "./supabase-client.ts";
 // Original Supabase-compatible client (for direct usage without supabase-js)
 export { createSupabaseClient, SupabaseClient } from "./supabase-client.ts";
 // TCP server (Postgres wire protocol — exposes PGlite as a real Postgres endpoint)
-export { PGliteTCPMuxServer, PGliteTCPServer, type MuxRoute, type TCPServerOptions } from "./tcp-server.ts";
+export {
+	type MuxRoute,
+	PGliteTCPMuxServer,
+	PGliteTCPServer,
+	type TCPServerOptions,
+} from "./tcp-server.ts";
 export type {
 	PoolerConfig,
 	QueryResult,

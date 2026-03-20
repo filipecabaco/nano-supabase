@@ -1,331 +1,671 @@
-/**
- * TCP Server Integration Tests
- *
- * Tests the Postgres wire protocol TCP server by connecting via a real pg client,
- * exercising simple query, extended query, and error handling flows.
- */
-
+import { createConnection, type Socket } from "node:net";
 import { PGlite } from "@electric-sql/pglite";
 import pg from "pg";
-import { PGlitePooler, PGliteTCPMuxServer, PGliteTCPServer } from "../src/index.ts";
+import {
+	PGlitePooler,
+	PGliteTCPMuxServer,
+	PGliteTCPServer,
+} from "../src/index.ts";
 import { assertEquals, assertExists, describe, test } from "./compat.ts";
 
 const TEST_PORT = 54399;
 
-async function setup() {
+class PgWireClient {
+	private socket: Socket;
+	private buffer: Buffer = Buffer.alloc(0);
+	private waiters: Array<(chunk: Buffer) => void> = [];
+
+	private constructor(socket: Socket) {
+		this.socket = socket;
+		socket.on("data", (chunk: Buffer) => {
+			this.buffer = Buffer.concat([this.buffer, chunk]);
+			while (this.waiters.length > 0 && this.buffer.length > 0) {
+				const waiter = this.waiters.shift();
+				if (!waiter) break;
+				waiter(this.buffer);
+			}
+		});
+	}
+
+	static connect(host: string, port: number): Promise<PgWireClient> {
+		return new Promise((resolve, reject) => {
+			const socket = createConnection({ host, port }, () => {
+				resolve(new PgWireClient(socket));
+			});
+			socket.once("error", reject);
+		});
+	}
+
+	private readBytes(n: number): Promise<Buffer> {
+		return new Promise((resolve) => {
+			const tryRead = () => {
+				if (this.buffer.length >= n) {
+					const chunk = this.buffer.subarray(0, n);
+					this.buffer = this.buffer.subarray(n);
+					resolve(Buffer.from(chunk));
+				} else {
+					this.waiters.push(() => tryRead());
+				}
+			};
+			tryRead();
+		});
+	}
+
+	private async readMessage(): Promise<{ type: string; body: Buffer }> {
+		const typeBuf = await this.readBytes(1);
+		const type = String.fromCharCode(typeBuf[0]);
+		const lenBuf = await this.readBytes(4);
+		const len = lenBuf.readInt32BE(0);
+		const body = await this.readBytes(len - 4);
+		return { type, body };
+	}
+
+	private parseRowDescription(body: Buffer): Array<{
+		name: string;
+		tableOid: number;
+		attrNum: number;
+		typeOid: number;
+		typeSize: number;
+		typeMod: number;
+		formatCode: number;
+	}> {
+		const count = body.readInt16BE(0);
+		let offset = 2;
+		const fields = [];
+		for (let i = 0; i < count; i++) {
+			const nameEnd = body.indexOf(0, offset);
+			const name = body.subarray(offset, nameEnd).toString("utf8");
+			offset = nameEnd + 1;
+			const tableOid = body.readInt32BE(offset);
+			offset += 4;
+			const attrNum = body.readInt16BE(offset);
+			offset += 2;
+			const typeOid = body.readInt32BE(offset);
+			offset += 4;
+			const typeSize = body.readInt16BE(offset);
+			offset += 2;
+			const typeMod = body.readInt32BE(offset);
+			offset += 4;
+			const formatCode = body.readInt16BE(offset);
+			offset += 2;
+			fields.push({
+				name,
+				tableOid,
+				attrNum,
+				typeOid,
+				typeSize,
+				typeMod,
+				formatCode,
+			});
+		}
+		return fields;
+	}
+
+	private parseDataRow(body: Buffer): Array<Buffer | null> {
+		const count = body.readInt16BE(0);
+		let offset = 2;
+		const cols: Array<Buffer | null> = [];
+		for (let i = 0; i < count; i++) {
+			const len = body.readInt32BE(offset);
+			offset += 4;
+			if (len === -1) {
+				cols.push(null);
+			} else {
+				cols.push(Buffer.from(body.subarray(offset, offset + len)));
+				offset += len;
+			}
+		}
+		return cols;
+	}
+
+	private parseErrorResponse(body: Buffer): { code: string; message: string } {
+		let offset = 0;
+		let code = "";
+		let message = "";
+		while (offset < body.length) {
+			const fieldType = String.fromCharCode(body[offset]);
+			offset++;
+			if (fieldType === "\0") break;
+			const end = body.indexOf(0, offset);
+			const value = body.subarray(offset, end).toString("utf8");
+			offset = end + 1;
+			if (fieldType === "C") code = value;
+			if (fieldType === "M") message = value;
+		}
+		return { code, message };
+	}
+
+	async startup(params: Record<string, string> = {}): Promise<void> {
+		const defaultParams = { user: "postgres", database: "postgres", ...params };
+		const pairs = Object.entries(defaultParams).flat();
+		let bodyLen = 4;
+		for (const s of pairs) bodyLen += Buffer.byteLength(s, "utf8") + 1;
+		bodyLen += 1;
+
+		const buf = Buffer.alloc(4 + bodyLen);
+		buf.writeInt32BE(4 + bodyLen, 0);
+		buf.writeInt32BE(196608, 4);
+		let offset = 8;
+		for (const s of pairs) {
+			buf.write(s, offset, "utf8");
+			offset += Buffer.byteLength(s, "utf8");
+			buf[offset++] = 0;
+		}
+		buf[offset] = 0;
+		this.socket.write(buf);
+
+		await this.drainUntilReady();
+	}
+
+	private async drainUntilReady(): Promise<void> {
+		while (true) {
+			const msg = await this.readMessage();
+			if (msg.type === "Z") return;
+			if (msg.type === "E") {
+				const err = this.parseErrorResponse(msg.body);
+				throw Object.assign(new Error(err.message), { code: err.code });
+			}
+		}
+	}
+
+	async simpleQuery(sql: string): Promise<{
+		fields: Array<{ name: string; typeOid: number }>;
+		rows: Array<Array<Buffer | null>>;
+		error: string | null;
+		errorCode: string | null;
+	}> {
+		const sqlBuf = Buffer.from(`${sql}\0`, "utf8");
+		const msg = Buffer.alloc(1 + 4 + sqlBuf.length);
+		msg[0] = 0x51;
+		msg.writeInt32BE(4 + sqlBuf.length, 1);
+		sqlBuf.copy(msg, 5);
+		this.socket.write(msg);
+
+		const fields: Array<{ name: string; typeOid: number }> = [];
+		const rows: Array<Array<Buffer | null>> = [];
+		let error: string | null = null;
+		let errorCode: string | null = null;
+
+		while (true) {
+			const { type, body } = await this.readMessage();
+			if (type === "T") {
+				const parsed = this.parseRowDescription(body);
+				for (const f of parsed)
+					fields.push({ name: f.name, typeOid: f.typeOid });
+			} else if (type === "D") {
+				rows.push(this.parseDataRow(body));
+			} else if (type === "E") {
+				const err = this.parseErrorResponse(body);
+				error = err.message;
+				errorCode = err.code;
+			} else if (type === "Z") {
+				break;
+			}
+		}
+
+		return { fields, rows, error, errorCode };
+	}
+
+	async extendedQuery(
+		sql: string,
+		paramValues: Buffer[],
+		resultFormats: number[] = [],
+	): Promise<{
+		fields: Array<{ name: string; typeOid: number }>;
+		rows: Array<Array<Buffer | null>>;
+		error: string | null;
+		errorCode: string | null;
+	}> {
+		const encodeString = (s: string) => Buffer.from(`${s}\0`, "utf8");
+
+		const writeMsgBuf = (type: number, body: Buffer): Buffer => {
+			const out = Buffer.alloc(1 + 4 + body.length);
+			out[0] = type;
+			out.writeInt32BE(4 + body.length, 1);
+			body.copy(out, 5);
+			return out;
+		};
+
+		const stmtName = Buffer.alloc(1);
+		const portalName = Buffer.alloc(1);
+
+		const sqlBuf = encodeString(sql);
+		const parseBody = Buffer.concat([
+			stmtName,
+			sqlBuf,
+			Buffer.from([0, 0, 0, 0]),
+		]);
+		const parseMsg = writeMsgBuf(0x50, parseBody);
+
+		const paramCount = paramValues.length;
+		const bindBodyParts: Buffer[] = [portalName, stmtName];
+		const paramFormatsBuf = Buffer.alloc(2 + paramCount * 2);
+		paramFormatsBuf.writeInt16BE(paramCount, 0);
+		for (let i = 0; i < paramCount; i++)
+			paramFormatsBuf.writeInt16BE(0, 2 + i * 2);
+		bindBodyParts.push(paramFormatsBuf);
+
+		const paramCountBuf = Buffer.alloc(2);
+		paramCountBuf.writeInt16BE(paramCount, 0);
+		bindBodyParts.push(paramCountBuf);
+
+		for (const v of paramValues) {
+			const lenBuf = Buffer.alloc(4);
+			lenBuf.writeInt32BE(v.length, 0);
+			bindBodyParts.push(lenBuf, v);
+		}
+
+		const resultFormatCount = resultFormats.length;
+		const resultFormatsBuf = Buffer.alloc(2 + resultFormatCount * 2);
+		resultFormatsBuf.writeInt16BE(resultFormatCount, 0);
+		for (let i = 0; i < resultFormatCount; i++)
+			resultFormatsBuf.writeInt16BE(resultFormats[i], 2 + i * 2);
+		bindBodyParts.push(resultFormatsBuf);
+
+		const bindMsg = writeMsgBuf(0x42, Buffer.concat(bindBodyParts));
+
+		const describeBody = Buffer.concat([Buffer.from([0x50]), portalName]);
+		const describeMsg = writeMsgBuf(0x44, describeBody);
+
+		const executeBody = Buffer.concat([portalName, Buffer.from([0, 0, 0, 0])]);
+		const executeMsg = writeMsgBuf(0x45, executeBody);
+
+		const syncMsg = writeMsgBuf(0x53, Buffer.alloc(0));
+
+		this.socket.write(
+			Buffer.concat([parseMsg, bindMsg, describeMsg, executeMsg, syncMsg]),
+		);
+
+		const fields: Array<{ name: string; typeOid: number }> = [];
+		const rows: Array<Array<Buffer | null>> = [];
+		let error: string | null = null;
+		let errorCode: string | null = null;
+
+		while (true) {
+			const { type, body } = await this.readMessage();
+			if (type === "T") {
+				const parsed = this.parseRowDescription(body);
+				for (const f of parsed)
+					fields.push({ name: f.name, typeOid: f.typeOid });
+			} else if (type === "D") {
+				rows.push(this.parseDataRow(body));
+			} else if (type === "E") {
+				const err = this.parseErrorResponse(body);
+				error = err.message;
+				errorCode = err.code;
+			} else if (type === "Z") {
+				break;
+			}
+		}
+
+		return { fields, rows, error, errorCode };
+	}
+
+	terminate(): void {
+		const msg = Buffer.alloc(5);
+		msg[0] = 0x58;
+		msg.writeInt32BE(4, 1);
+		this.socket.write(msg);
+		this.socket.destroy();
+	}
+}
+
+async function startServer() {
 	const db = new PGlite();
 	const pooler = await PGlitePooler.create(db);
 	const server = new PGliteTCPServer(pooler);
 	await server.start(TEST_PORT);
-
-	const pool = new pg.Pool({
-		connectionString: `postgresql://postgres@127.0.0.1:${TEST_PORT}/postgres`,
-		max: 3,
-	});
-
 	return {
 		db,
 		server,
-		pool,
 		async teardown() {
-			await pool.end();
 			await server.stop();
 		},
 	};
 }
 
+async function makeClient(): Promise<PgWireClient> {
+	const client = await PgWireClient.connect("127.0.0.1", TEST_PORT);
+	await client.startup();
+	return client;
+}
+
 describe("PGliteTCPServer", () => {
 	test("simple SELECT returns rows", async () => {
-		const { pool, teardown } = await setup();
+		const { teardown } = await startServer();
+		const client = await makeClient();
 		try {
-			const res = await pool.query("SELECT 1 AS num, 'hello' AS str");
+			const res = await client.simpleQuery("SELECT 1 AS num, 'hello' AS str");
 			assertEquals(res.rows.length, 1);
-			assertEquals(res.rows[0].num, 1);
-			assertEquals(res.rows[0].str, "hello");
+			assertEquals(res.rows[0][0]?.toString(), "1");
+			assertEquals(res.rows[0][1]?.toString(), "hello");
+			assertEquals(res.fields[0].name, "num");
+			assertEquals(res.fields[1].name, "str");
 		} finally {
+			client.terminate();
 			await teardown();
 		}
 	});
 
 	test("CREATE TABLE and INSERT/SELECT round-trip", async () => {
-		const { pool, teardown } = await setup();
+		const { teardown } = await startServer();
+		const client = await makeClient();
 		try {
-			await pool.query("CREATE TABLE items (id SERIAL PRIMARY KEY, name TEXT)");
-			await pool.query("INSERT INTO items (name) VALUES ('apple'), ('banana')");
-			const res = await pool.query("SELECT name FROM items ORDER BY name");
+			await client.simpleQuery(
+				"CREATE TABLE items (id SERIAL PRIMARY KEY, name TEXT)",
+			);
+			await client.simpleQuery(
+				"INSERT INTO items (name) VALUES ('apple'), ('banana')",
+			);
+			const res = await client.simpleQuery(
+				"SELECT name FROM items ORDER BY name",
+			);
 			assertEquals(res.rows.length, 2);
-			assertEquals(res.rows[0].name, "apple");
-			assertEquals(res.rows[1].name, "banana");
+			assertEquals(res.rows[0][0]?.toString(), "apple");
+			assertEquals(res.rows[1][0]?.toString(), "banana");
 		} finally {
+			client.terminate();
 			await teardown();
 		}
 	});
 
 	test("parameterized query via extended protocol", async () => {
-		const { pool, teardown } = await setup();
+		const { teardown } = await startServer();
+		const client = await makeClient();
 		try {
-			await pool.query(
+			await client.simpleQuery(
 				"CREATE TABLE products (id SERIAL PRIMARY KEY, price NUMERIC)",
 			);
-			await pool.query(
+			await client.simpleQuery(
 				"INSERT INTO products (price) VALUES (9.99), (19.99), (29.99)",
 			);
-			const res = await pool.query(
+			const res = await client.extendedQuery(
 				"SELECT price FROM products WHERE price > $1 ORDER BY price",
-				[15],
+				[Buffer.from("15")],
 			);
 			assertEquals(res.rows.length, 2);
 		} finally {
+			client.terminate();
 			await teardown();
 		}
 	});
 
 	test("multiple concurrent queries are serialized through pooler", async () => {
-		const { pool, teardown } = await setup();
+		const { teardown } = await startServer();
+		const setupClient = await makeClient();
 		try {
-			await pool.query("CREATE TABLE counters (val INT)");
-			await pool.query("INSERT INTO counters VALUES (0)");
+			await setupClient.simpleQuery("CREATE TABLE counters (val INT)");
+			await setupClient.simpleQuery("INSERT INTO counters VALUES (0)");
+			setupClient.terminate();
 
 			await Promise.all(
-				Array.from({ length: 10 }, (_, i) =>
-					pool.query(`UPDATE counters SET val = val + 1`),
-				),
+				Array.from({ length: 10 }, async () => {
+					const c = await PgWireClient.connect("127.0.0.1", TEST_PORT);
+					await c.startup();
+					await c.simpleQuery("UPDATE counters SET val = val + 1");
+					c.terminate();
+				}),
 			);
 
-			const res = await pool.query("SELECT val FROM counters");
-			assertEquals(res.rows[0].val, 10);
+			const resultClient = await makeClient();
+			const res = await resultClient.simpleQuery("SELECT val FROM counters");
+			assertEquals(res.rows[0][0]?.toString(), "10");
+			resultClient.terminate();
 		} finally {
 			await teardown();
 		}
 	});
 
 	test("SQL error returns error to client without crashing server", async () => {
-		const { pool, teardown } = await setup();
+		const { teardown } = await startServer();
+		const client = await makeClient();
 		try {
-			let caught: Error | null = null;
-			try {
-				await pool.query("SELECT * FROM nonexistent_table_xyz");
-			} catch (err) {
-				caught = err as Error;
-			}
-			assertExists(caught);
+			const errRes = await client.simpleQuery(
+				"SELECT * FROM nonexistent_table_xyz",
+			);
+			assertExists(errRes.error);
 
-			// Server still works after error
-			const res = await pool.query("SELECT 42 AS val");
-			assertEquals(res.rows[0].val, 42);
+			const res = await client.simpleQuery("SELECT 42 AS val");
+			assertEquals(res.rows[0][0]?.toString(), "42");
 		} finally {
+			client.terminate();
 			await teardown();
 		}
 	});
 
 	test("NULL values are handled correctly", async () => {
-		const { pool, teardown } = await setup();
+		const { teardown } = await startServer();
+		const client = await makeClient();
 		try {
-			const res = await pool.query("SELECT NULL::text AS n, 'hello' AS s");
-			assertEquals(res.rows[0].n, null);
-			assertEquals(res.rows[0].s, "hello");
+			const res = await client.simpleQuery(
+				"SELECT NULL::text AS n, 'hello' AS s",
+			);
+			assertEquals(res.rows[0][0], null);
+			assertEquals(res.rows[0][1]?.toString(), "hello");
 		} finally {
+			client.terminate();
 			await teardown();
 		}
 	});
 
 	test("JSONB columns are returned as parsed objects", async () => {
-		const { pool, teardown } = await setup();
+		const { teardown } = await startServer();
+		const client = await makeClient();
 		try {
-			await pool.query("CREATE TABLE docs (data JSONB)");
-			await pool.query(
+			await client.simpleQuery("CREATE TABLE docs (data JSONB)");
+			await client.simpleQuery(
 				`INSERT INTO docs VALUES ('{"key": "value", "num": 42}')`,
 			);
-			const res = await pool.query("SELECT data FROM docs");
-			assertEquals(res.rows[0].data, { key: "value", num: 42 });
+			const res = await client.simpleQuery("SELECT data FROM docs");
+			assertEquals(JSON.parse(res.rows[0][0]?.toString()), {
+				key: "value",
+				num: 42,
+			});
 		} finally {
+			client.terminate();
 			await teardown();
 		}
 	});
 
 	test("multi-statement simple query returns last result", async () => {
-		const { pool, teardown } = await setup();
+		const { teardown } = await startServer();
+		const client = await makeClient();
 		try {
-			await pool.query("CREATE TABLE things (val INT)");
-			await pool.query("INSERT INTO things VALUES (1)");
-			// SET + SELECT — two statements in one simple query (mirrors postgres-meta timeout prefix)
-			const res = await pool.query(
+			await client.simpleQuery("CREATE TABLE things (val INT)");
+			await client.simpleQuery("INSERT INTO things VALUES (1)");
+			const res = await client.simpleQuery(
 				"SET statement_timeout = '5s'; SELECT val FROM things",
 			);
-			assertEquals(res.rows[0].val, 1);
+			assertEquals(res.rows[0][0]?.toString(), "1");
 		} finally {
+			client.terminate();
 			await teardown();
 		}
 	});
 
 	test("pg_catalog queries work (needed for postgres-meta)", async () => {
-		const { pool, teardown } = await setup();
+		const { teardown } = await startServer();
+		const client = await makeClient();
 		try {
-			const res = await pool.query(`
-        SELECT nspname FROM pg_catalog.pg_namespace
-        WHERE nspname NOT LIKE 'pg_%'
-        ORDER BY nspname
-      `);
-			const names = res.rows.map((r: Record<string, unknown>) => r.nspname);
-			assertExists(names.find((n: unknown) => n === "public"));
+			const res = await client.simpleQuery(
+				"SELECT nspname FROM pg_catalog.pg_namespace WHERE nspname NOT LIKE 'pg_%' ORDER BY nspname",
+			);
+			const names = res.rows.map((r) => r[0]?.toString());
+			assertExists(names.find((n) => n === "public"));
 		} finally {
+			client.terminate();
 			await teardown();
 		}
 	});
 
 	test("empty query does not throw", async () => {
-		const { pool, teardown } = await setup();
+		const { teardown } = await startServer();
+		const client = await makeClient();
 		try {
-			const res = await pool.query("");
-			assertEquals(res.rows.length, 0);
+			const res = await client.simpleQuery("");
+			assertEquals(res.error, null);
 		} finally {
+			client.terminate();
 			await teardown();
 		}
 	});
 
 	test("SQLSTATE 23505 on unique violation", async () => {
-		const { pool, teardown } = await setup();
+		const { teardown } = await startServer();
+		const client = await makeClient();
 		try {
-			await pool.query("CREATE TABLE uniq_test (id INT PRIMARY KEY)");
-			await pool.query("INSERT INTO uniq_test VALUES (1)");
-			let err: Error & { code?: string } | null = null;
-			try {
-				await pool.query("INSERT INTO uniq_test VALUES (1)");
-			} catch (e) {
-				err = e as Error & { code?: string };
-			}
-			assertExists(err);
-			assertEquals(err!.code, "23505");
+			await client.simpleQuery("CREATE TABLE uniq_test (id INT PRIMARY KEY)");
+			await client.simpleQuery("INSERT INTO uniq_test VALUES (1)");
+			const res = await client.simpleQuery("INSERT INTO uniq_test VALUES (1)");
+			assertEquals(res.errorCode, "23505");
 		} finally {
+			client.terminate();
 			await teardown();
 		}
 	});
 
 	test("SQLSTATE 42P01 on missing table", async () => {
-		const { pool, teardown } = await setup();
+		const { teardown } = await startServer();
+		const client = await makeClient();
 		try {
-			let err: Error & { code?: string } | null = null;
-			try {
-				await pool.query("SELECT * FROM totally_missing_xyz");
-			} catch (e) {
-				err = e as Error & { code?: string };
-			}
-			assertExists(err);
-			assertEquals(err!.code, "42P01");
+			const res = await client.simpleQuery("SELECT * FROM totally_missing_xyz");
+			assertEquals(res.errorCode, "42P01");
 		} finally {
+			client.terminate();
 			await teardown();
 		}
 	});
 
 	test("res.fields includes column name and dataTypeID", async () => {
-		const { pool, teardown } = await setup();
+		const { teardown } = await startServer();
+		const client = await makeClient();
 		try {
-			const res = await pool.query("SELECT 1::int4 AS num, 'hi'::text AS str");
+			const res = await client.simpleQuery(
+				"SELECT 1::int4 AS num, 'hi'::text AS str",
+			);
 			assertEquals(res.fields.length, 2);
 			assertEquals(res.fields[0].name, "num");
 			assertEquals(res.fields[1].name, "str");
-			assertExists(res.fields[0].dataTypeID);
+			assertExists(res.fields[0].typeOid);
 		} finally {
+			client.terminate();
 			await teardown();
 		}
 	});
 
 	test("explicit BEGIN/COMMIT transaction works", async () => {
-		const { pool, teardown } = await setup();
+		const { teardown } = await startServer();
+		const client = await makeClient();
 		try {
-			await pool.query("CREATE TABLE tx_test (val INT)");
-			await pool.query("BEGIN");
-			await pool.query("INSERT INTO tx_test VALUES (42)");
-			await pool.query("COMMIT");
-			const res = await pool.query("SELECT val FROM tx_test");
-			assertEquals(res.rows[0].val, 42);
+			await client.simpleQuery("CREATE TABLE tx_test (val INT)");
+			await client.simpleQuery("BEGIN");
+			await client.simpleQuery("INSERT INTO tx_test VALUES (42)");
+			await client.simpleQuery("COMMIT");
+			const res = await client.simpleQuery("SELECT val FROM tx_test");
+			assertEquals(res.rows[0][0]?.toString(), "42");
 		} finally {
+			client.terminate();
 			await teardown();
 		}
 	});
 
 	test("explicit BEGIN/ROLLBACK discards changes", async () => {
-		const { pool, teardown } = await setup();
+		const { teardown } = await startServer();
+		const client = await makeClient();
 		try {
-			await pool.query("CREATE TABLE tx_rollback_test (val INT)");
-			await pool.query("BEGIN");
-			await pool.query("INSERT INTO tx_rollback_test VALUES (99)");
-			await pool.query("ROLLBACK");
-			const res = await pool.query("SELECT COUNT(*) AS cnt FROM tx_rollback_test");
-			assertEquals(Number(res.rows[0].cnt), 0);
+			await client.simpleQuery("CREATE TABLE tx_rollback_test (val INT)");
+			await client.simpleQuery("BEGIN");
+			await client.simpleQuery("INSERT INTO tx_rollback_test VALUES (99)");
+			await client.simpleQuery("ROLLBACK");
+			const res = await client.simpleQuery(
+				"SELECT COUNT(*) AS cnt FROM tx_rollback_test",
+			);
+			assertEquals(res.rows[0][0]?.toString(), "0");
 		} finally {
+			client.terminate();
 			await teardown();
 		}
 	});
 
 	test("multi-statement with error rolls back prior inserts", async () => {
-		const { pool, teardown } = await setup();
+		const { teardown } = await startServer();
+		const client = await makeClient();
 		try {
-			await pool.query("CREATE TABLE multi_rollback (val INT)");
-			let err: Error | null = null;
-			try {
-				await pool.query("INSERT INTO multi_rollback VALUES (1); SELECT * FROM missing_xyz_table");
-			} catch (e) {
-				err = e as Error;
-			}
-			assertExists(err);
-			const res = await pool.query("SELECT COUNT(*) AS cnt FROM multi_rollback");
-			assertEquals(Number(res.rows[0].cnt), 0);
+			await client.simpleQuery("CREATE TABLE multi_rollback (val INT)");
+			const errRes = await client.simpleQuery(
+				"INSERT INTO multi_rollback VALUES (1); SELECT * FROM missing_xyz_table",
+			);
+			assertExists(errRes.error);
+			const res = await client.simpleQuery(
+				"SELECT COUNT(*) AS cnt FROM multi_rollback",
+			);
+			assertEquals(res.rows[0][0]?.toString(), "0");
 		} finally {
+			client.terminate();
 			await teardown();
 		}
 	});
 
 	test("real OIDs reported in RowDescription (not all OID 25)", async () => {
-		const { pool, teardown } = await setup();
+		const { teardown } = await startServer();
+		const client = await makeClient();
 		try {
-			const res = await pool.query(
+			const res = await client.simpleQuery(
 				"SELECT 1::int4 AS a, true AS b, 3.14::float8 AS c, 'x'::text AS d",
 			);
-			const byName = Object.fromEntries(res.fields.map((f: { name: string; dataTypeID: number }) => [f.name, f.dataTypeID]));
-			assertEquals(byName.a, 23);   // int4
-			assertEquals(byName.b, 16);   // bool
-			assertEquals(byName.c, 701);  // float8
-			assertEquals(byName.d, 25);   // text
+			const byName = Object.fromEntries(
+				res.fields.map((f) => [f.name, f.typeOid]),
+			);
+			assertEquals(byName.a, 23);
+			assertEquals(byName.b, 16);
+			assertEquals(byName.c, 701);
+			assertEquals(byName.d, 25);
 		} finally {
+			client.terminate();
 			await teardown();
 		}
 	});
 
 	test("binary encoding: common types round-trip via extended protocol", async () => {
-		const { teardown } = await setup();
-		const client = new pg.Client({
-			connectionString: `postgresql://postgres@127.0.0.1:${TEST_PORT}/postgres`,
-		});
-		await client.connect();
+		const { teardown } = await startServer();
+		const client = await makeClient();
 		try {
-			const res = await client.query(
-				"SELECT 42::int4 AS i4, TRUE AS b, 2.718281828::float8 AS f8, 'hello'::text AS t, '550e8400-e29b-41d4-a716-446655440000'::uuid AS id",
+			const res = await client.extendedQuery(
+				"SELECT 42::int4 AS i4, TRUE AS b, '550e8400-e29b-41d4-a716-446655440000'::uuid AS id",
+				[],
+				[1, 1, 1],
 			);
-			assertEquals(res.rows[0].i4, 42);
-			assertEquals(res.rows[0].b, true);
-			assertEquals(res.rows[0].t, "hello");
-			assertEquals(res.rows[0].id, "550e8400-e29b-41d4-a716-446655440000");
-			assertExists(res.rows[0].f8);
+			const i4Field = res.rows[0]?.[0] ?? Buffer.alloc(0);
+			assertEquals(i4Field.length, 4);
+			assertEquals(i4Field.readInt32BE(0), 42);
+			const boolField = res.rows[0]?.[1] ?? Buffer.alloc(0);
+			assertEquals(boolField[0], 1);
+			const uuidField = res.rows[0]?.[2] ?? Buffer.alloc(0);
+			assertEquals(uuidField.length, 16);
 		} finally {
-			await client.end();
+			client.terminate();
 			await teardown();
 		}
 	});
 
 	test("binary encoding: jsonb column returns parsed object", async () => {
-		const { teardown } = await setup();
-		const client = new pg.Client({
-			connectionString: `postgresql://postgres@127.0.0.1:${TEST_PORT}/postgres`,
-		});
-		await client.connect();
+		const { teardown } = await startServer();
+		const client = await makeClient();
 		try {
-			await client.query("CREATE TABLE jsonb_bin (data JSONB)");
-			await client.query("INSERT INTO jsonb_bin VALUES ($1)", ['{"x":1}']);
-			const res = await client.query("SELECT data FROM jsonb_bin");
-			assertEquals(res.rows[0].data, { x: 1 });
+			await client.simpleQuery("CREATE TABLE jsonb_bin (data JSONB)");
+			await client.extendedQuery("INSERT INTO jsonb_bin VALUES ($1)", [
+				Buffer.from('{"x":1}'),
+			]);
+			const res = await client.extendedQuery(
+				"SELECT data FROM jsonb_bin",
+				[],
+				[1],
+			);
+			const raw = res.rows[0]?.[0] ?? Buffer.alloc(0);
+			assertEquals(raw[0], 1);
+			assertEquals(JSON.parse(raw.subarray(1).toString("utf8")), { x: 1 });
 		} finally {
-			await client.end();
+			client.terminate();
 			await teardown();
 		}
 	});
@@ -352,8 +692,12 @@ describe("PGliteTCPMuxServer", () => {
 		await mux.start(MUX_PORT);
 
 		try {
-			const clientA = new pg.Client({ connectionString: `postgresql://tenant-a@127.0.0.1:${MUX_PORT}/postgres` });
-			const clientB = new pg.Client({ connectionString: `postgresql://tenant-b@127.0.0.1:${MUX_PORT}/postgres` });
+			const clientA = new pg.Client({
+				connectionString: `postgresql://tenant-a@127.0.0.1:${MUX_PORT}/postgres`,
+			});
+			const clientB = new pg.Client({
+				connectionString: `postgresql://tenant-b@127.0.0.1:${MUX_PORT}/postgres`,
+			});
 			await clientA.connect();
 			await clientB.connect();
 			try {
@@ -376,7 +720,9 @@ describe("PGliteTCPMuxServer", () => {
 		const mux = new PGliteTCPMuxServer(async () => null);
 		await mux.start(MUX_PORT);
 		try {
-			const client = new pg.Client({ connectionString: `postgresql://unknown@127.0.0.1:${MUX_PORT}/postgres` });
+			const client = new pg.Client({
+				connectionString: `postgresql://unknown@127.0.0.1:${MUX_PORT}/postgres`,
+			});
 			let caught: Error | null = null;
 			try {
 				await client.connect();
@@ -403,7 +749,7 @@ describe("PGliteTCPMuxServer", () => {
 			const client = new pg.Client({
 				connectionString: `postgresql://myuser:wrongpass@127.0.0.1:${MUX_PORT}/postgres`,
 			});
-			let caught: Error & { code?: string } | null = null;
+			let caught: (Error & { code?: string }) | null = null;
 			try {
 				await client.connect();
 			} catch (e) {
@@ -412,7 +758,7 @@ describe("PGliteTCPMuxServer", () => {
 				client.end().catch(() => {});
 			}
 			assertExists(caught);
-			assertEquals(caught!.code, "28P01");
+			assertEquals(caught?.code, "28P01");
 		} finally {
 			await mux.stop();
 			await pooler.stop();
@@ -464,14 +810,18 @@ describe("PGliteTCPMuxServer", () => {
 		try {
 			const [resA, resB] = await Promise.all([
 				(async () => {
-					const c = new pg.Client({ connectionString: `postgresql://tenant-a@127.0.0.1:${MUX_PORT}/postgres` });
+					const c = new pg.Client({
+						connectionString: `postgresql://tenant-a@127.0.0.1:${MUX_PORT}/postgres`,
+					});
 					await c.connect();
 					const r = await c.query("SELECT name FROM items");
 					await c.end();
 					return r;
 				})(),
 				(async () => {
-					const c = new pg.Client({ connectionString: `postgresql://tenant-b@127.0.0.1:${MUX_PORT}/postgres` });
+					const c = new pg.Client({
+						connectionString: `postgresql://tenant-b@127.0.0.1:${MUX_PORT}/postgres`,
+					});
 					await c.connect();
 					const r = await c.query("SELECT name FROM items");
 					await c.end();
@@ -497,7 +847,9 @@ describe("PGliteTCPMuxServer", () => {
 		});
 		await mux.start(MUX_PORT);
 		try {
-			const client = new pg.Client({ connectionString: `postgresql://slowuser@127.0.0.1:${MUX_PORT}/postgres` });
+			const client = new pg.Client({
+				connectionString: `postgresql://slowuser@127.0.0.1:${MUX_PORT}/postgres`,
+			});
 			await client.connect();
 			try {
 				const res = await client.query("SELECT 'async-ok' AS status");

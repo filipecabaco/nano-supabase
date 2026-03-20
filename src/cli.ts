@@ -6,25 +6,25 @@ import { fileURLToPath } from "node:url";
 import type { Extension } from "@electric-sql/pglite";
 
 import {
-  cmdDbDump,
-  cmdDbExec,
-  cmdDbReset,
-  cmdGenTypes,
-  cmdMigrationList,
-  cmdMigrationNew,
-  cmdMigrationUp,
-  cmdStatus,
-  cmdStop,
-  cmdStorageCp,
-  cmdStorageCreateBucket,
-  cmdStorageListBuckets,
-  cmdStorageLs,
-  cmdSyncPull,
-  cmdSyncPush,
-  cmdUsersCreate,
-  cmdUsersDelete,
-  cmdUsersGet,
-  cmdUsersList,
+	cmdDbDump,
+	cmdDbExec,
+	cmdDbReset,
+	cmdGenTypes,
+	cmdMigrationList,
+	cmdMigrationNew,
+	cmdMigrationUp,
+	cmdStatus,
+	cmdStop,
+	cmdStorageCp,
+	cmdStorageCreateBucket,
+	cmdStorageListBuckets,
+	cmdStorageLs,
+	cmdSyncPull,
+	cmdSyncPush,
+	cmdUsersCreate,
+	cmdUsersDelete,
+	cmdUsersGet,
+	cmdUsersList,
 } from "./cli-commands.ts";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -38,34 +38,34 @@ const DEFAULT_SERVICE_ROLE_KEY = "local-service-role-key";
 const argv = process.argv.slice(2);
 
 function getArgValue(args: string[], flag: string): string | undefined {
-  const withEq = args.find((a) => a.startsWith(`${flag}=`));
-  if (withEq) return withEq.slice(flag.length + 1);
-  const idx = args.indexOf(flag);
-  if (idx !== -1 && idx + 1 < args.length && !args[idx + 1].startsWith("--"))
-    return args[idx + 1];
-  return undefined;
+	const withEq = args.find((a) => a.startsWith(`${flag}=`));
+	if (withEq) return withEq.slice(flag.length + 1);
+	const idx = args.indexOf(flag);
+	if (idx !== -1 && idx + 1 < args.length && !args[idx + 1].startsWith("--"))
+		return args[idx + 1];
+	return undefined;
 }
 
 const SUB_COMMANDS = [
-  "start",
-  "stop",
-  "status",
-  "db",
-  "migration",
-  "users",
-  "storage",
-  "gen",
-  "sync",
-  "service",
+	"start",
+	"stop",
+	"status",
+	"db",
+	"migration",
+	"users",
+	"storage",
+	"gen",
+	"sync",
+	"service",
 ];
 const firstArg = argv[0];
 const subCommand =
-  firstArg && SUB_COMMANDS.includes(firstArg) ? firstArg : "start";
+	firstArg && SUB_COMMANDS.includes(firstArg) ? firstArg : "start";
 const subArgs =
-  subCommand === "start" && firstArg !== "start" ? argv : argv.slice(1);
+	subCommand === "start" && firstArg !== "start" ? argv : argv.slice(1);
 
 if (argv.includes("--help") || argv.includes("-h")) {
-  console.log(`nano-supabase — local Supabase-compatible server
+	console.log(`nano-supabase — local Supabase-compatible server
 
 Usage: nano-supabase [command] [options]
 
@@ -138,240 +138,239 @@ Common options:
   --json                       Output raw JSON instead of human-readable text
   --help                       Show this help
   --version                    Show version`);
-  process.exit(0);
+	process.exit(0);
 }
 
 if (argv.includes("--version")) {
-  console.log("0.1.0");
-  process.exit(0);
+	console.log("0.1.0");
+	process.exit(0);
 }
 
 async function runSubCommand(): Promise<void> {
-  let result: { exitCode: number; output: string };
+	let result: { exitCode: number; output: string };
 
-  if (subCommand === "status") {
-    result = await cmdStatus(subArgs);
-  } else if (subCommand === "stop") {
-    result = await cmdStop(subArgs);
-  } else if (subCommand === "db") {
-    const op = subArgs[0];
-    const opArgs = subArgs.slice(1);
-    if (op === "exec") result = await cmdDbExec(opArgs);
-    else if (op === "dump") result = await cmdDbDump(opArgs);
-    else if (op === "reset") result = await cmdDbReset(opArgs);
-    else {
-      process.stderr.write(
-        JSON.stringify({
-          error: "unknown_command",
-          message: `Unknown db command: ${op}`,
-        }) + "\n",
-      );
-      process.exit(1);
-    }
-  } else if (subCommand === "migration") {
-    const op = subArgs[0];
-    const opArgs = subArgs.slice(1);
-    if (op === "new") result = await cmdMigrationNew(opArgs);
-    else if (op === "list") result = await cmdMigrationList(opArgs);
-    else if (op === "up") result = await cmdMigrationUp(opArgs);
-    else {
-      process.stderr.write(
-        JSON.stringify({
-          error: "unknown_command",
-          message: `Unknown migration command: ${op}`,
-        }) + "\n",
-      );
-      process.exit(1);
-    }
-  } else if (subCommand === "users") {
-    const op = subArgs[0];
-    const opArgs = subArgs.slice(1);
-    if (op === "list") result = await cmdUsersList(opArgs);
-    else if (op === "create") result = await cmdUsersCreate(opArgs);
-    else if (op === "get") result = await cmdUsersGet(opArgs);
-    else if (op === "delete") result = await cmdUsersDelete(opArgs);
-    else {
-      process.stderr.write(
-        JSON.stringify({
-          error: "unknown_command",
-          message: `Unknown users command: ${op}`,
-        }) + "\n",
-      );
-      process.exit(1);
-    }
-  } else if (subCommand === "storage") {
-    const op = subArgs[0];
-    const opArgs = subArgs.slice(1);
-    if (op === "list-buckets") result = await cmdStorageListBuckets(opArgs);
-    else if (op === "create-bucket")
-      result = await cmdStorageCreateBucket(opArgs);
-    else if (op === "ls") result = await cmdStorageLs(opArgs);
-    else if (op === "cp") result = await cmdStorageCp(opArgs);
-    else {
-      process.stderr.write(
-        JSON.stringify({
-          error: "unknown_command",
-          message: `Unknown storage command: ${op}`,
-        }) + "\n",
-      );
-      process.exit(1);
-    }
-  } else if (subCommand === "gen") {
-    const op = subArgs[0];
-    const opArgs = subArgs.slice(1);
-    if (op === "types") result = await cmdGenTypes(opArgs);
-    else {
-      process.stderr.write(
-        JSON.stringify({
-          error: "unknown_command",
-          message: `Unknown gen command: ${op}`,
-        }) + "\n",
-      );
-      process.exit(1);
-    }
-  } else if (subCommand === "sync") {
-    const op = subArgs[0];
-    const opArgs = subArgs.slice(1);
-    if (op === "push") result = await cmdSyncPush(opArgs);
-    else if (op === "pull") result = await cmdSyncPull(opArgs);
-    else {
-      process.stderr.write(
-        JSON.stringify({
-          error: "unknown_command",
-          message: `Unknown sync operation: ${op}. Use push or pull.`,
-        }) + "\n",
-      );
-      process.exit(1);
-    }
-  } else {
-    process.stderr.write(
-      JSON.stringify({
-        error: "unknown_command",
-        message: `Unknown command: ${subCommand}`,
-      }) + "\n",
-    );
-    process.exit(1);
-  }
+	if (subCommand === "status") {
+		result = await cmdStatus(subArgs);
+	} else if (subCommand === "stop") {
+		result = await cmdStop(subArgs);
+	} else if (subCommand === "db") {
+		const op = subArgs[0];
+		const opArgs = subArgs.slice(1);
+		if (op === "exec") result = await cmdDbExec(opArgs);
+		else if (op === "dump") result = await cmdDbDump(opArgs);
+		else if (op === "reset") result = await cmdDbReset(opArgs);
+		else {
+			process.stderr.write(
+				`${JSON.stringify({
+					error: "unknown_command",
+					message: `Unknown db command: ${op}`,
+				})}\n`,
+			);
+			process.exit(1);
+		}
+	} else if (subCommand === "migration") {
+		const op = subArgs[0];
+		const opArgs = subArgs.slice(1);
+		if (op === "new") result = await cmdMigrationNew(opArgs);
+		else if (op === "list") result = await cmdMigrationList(opArgs);
+		else if (op === "up") result = await cmdMigrationUp(opArgs);
+		else {
+			process.stderr.write(
+				`${JSON.stringify({
+					error: "unknown_command",
+					message: `Unknown migration command: ${op}`,
+				})}\n`,
+			);
+			process.exit(1);
+		}
+	} else if (subCommand === "users") {
+		const op = subArgs[0];
+		const opArgs = subArgs.slice(1);
+		if (op === "list") result = await cmdUsersList(opArgs);
+		else if (op === "create") result = await cmdUsersCreate(opArgs);
+		else if (op === "get") result = await cmdUsersGet(opArgs);
+		else if (op === "delete") result = await cmdUsersDelete(opArgs);
+		else {
+			process.stderr.write(
+				`${JSON.stringify({
+					error: "unknown_command",
+					message: `Unknown users command: ${op}`,
+				})}\n`,
+			);
+			process.exit(1);
+		}
+	} else if (subCommand === "storage") {
+		const op = subArgs[0];
+		const opArgs = subArgs.slice(1);
+		if (op === "list-buckets") result = await cmdStorageListBuckets(opArgs);
+		else if (op === "create-bucket")
+			result = await cmdStorageCreateBucket(opArgs);
+		else if (op === "ls") result = await cmdStorageLs(opArgs);
+		else if (op === "cp") result = await cmdStorageCp(opArgs);
+		else {
+			process.stderr.write(
+				`${JSON.stringify({
+					error: "unknown_command",
+					message: `Unknown storage command: ${op}`,
+				})}\n`,
+			);
+			process.exit(1);
+		}
+	} else if (subCommand === "gen") {
+		const op = subArgs[0];
+		const opArgs = subArgs.slice(1);
+		if (op === "types") result = await cmdGenTypes(opArgs);
+		else {
+			process.stderr.write(
+				`${JSON.stringify({
+					error: "unknown_command",
+					message: `Unknown gen command: ${op}`,
+				})}\n`,
+			);
+			process.exit(1);
+		}
+	} else if (subCommand === "sync") {
+		const op = subArgs[0];
+		const opArgs = subArgs.slice(1);
+		if (op === "push") result = await cmdSyncPush(opArgs);
+		else if (op === "pull") result = await cmdSyncPull(opArgs);
+		else {
+			process.stderr.write(
+				`${JSON.stringify({
+					error: "unknown_command",
+					message: `Unknown sync operation: ${op}. Use push or pull.`,
+				})}\n`,
+			);
+			process.exit(1);
+		}
+	} else {
+		process.stderr.write(
+			`${JSON.stringify({
+				error: "unknown_command",
+				message: `Unknown command: ${subCommand}`,
+			})}\n`,
+		);
+		process.exit(1);
+	}
 
-  if (result!.exitCode !== 0) {
-    process.stderr.write(result!.output + "\n");
-  } else {
-    process.stdout.write(result!.output + "\n");
-  }
-  process.exit(result!.exitCode);
+	if (result?.exitCode !== 0) {
+		process.stderr.write(`${result?.output}\n`);
+	} else {
+		process.stdout.write(`${result?.output}\n`);
+	}
+	process.exit(result?.exitCode);
 }
 
 if (subCommand !== "start" && subCommand !== "service") {
-  await runSubCommand();
+	await runSubCommand();
 }
 
 function parsePort(
-  raw: string | undefined,
-  fallback: number,
-  name: string,
+	raw: string | undefined,
+	fallback: number,
+	name: string,
 ): number {
-  if (raw === undefined) return fallback;
-  const n = parseInt(raw, 10);
-  if (!Number.isInteger(n) || n < 1 || n > 65535) {
-    process.stderr.write(`Invalid ${name}: "${raw}" (must be 1–65535)\n`);
-    process.exit(1);
-  }
-  return n;
+	if (raw === undefined) return fallback;
+	const n = parseInt(raw, 10);
+	if (!Number.isInteger(n) || n < 1 || n > 65535) {
+		process.stderr.write(`Invalid ${name}: "${raw}" (must be 1–65535)\n`);
+		process.exit(1);
+	}
+	return n;
 }
 
 const httpPort = parsePort(
-  getArgValue(subArgs, "--http-port"),
-  DEFAULT_HTTP_PORT,
-  "--http-port",
+	getArgValue(subArgs, "--http-port"),
+	DEFAULT_HTTP_PORT,
+	"--http-port",
 );
 const tcpPort = parsePort(
-  getArgValue(subArgs, "--tcp-port"),
-  DEFAULT_TCP_PORT,
-  "--tcp-port",
+	getArgValue(subArgs, "--tcp-port"),
+	DEFAULT_TCP_PORT,
+	"--tcp-port",
 );
 const dataDir = getArgValue(subArgs, "--data-dir");
 const serviceRoleKey =
-  getArgValue(subArgs, "--service-role-key") ??
-  process.env.NANO_SUPABASE_SERVICE_ROLE_KEY ??
-  DEFAULT_SERVICE_ROLE_KEY;
+	getArgValue(subArgs, "--service-role-key") ??
+	process.env.NANO_SUPABASE_SERVICE_ROLE_KEY ??
+	DEFAULT_SERVICE_ROLE_KEY;
 const debug = subArgs.includes("--debug");
 const detach = subArgs.includes("--detach");
 const mcp = subArgs.includes("--mcp");
 const pidFile = getArgValue(subArgs, "--pid-file");
 const count = (() => {
-  const raw = getArgValue(subArgs, "--count");
-  if (raw === undefined) return 1;
-  const n = parseInt(raw, 10);
-  if (!Number.isInteger(n) || n < 1) {
-    process.stderr.write(`Invalid --count: "${raw}" (must be >= 1)\n`);
-    process.exit(1);
-  }
-  return n;
+	const raw = getArgValue(subArgs, "--count");
+	if (raw === undefined) return 1;
+	const n = parseInt(raw, 10);
+	if (!Number.isInteger(n) || n < 1) {
+		process.stderr.write(`Invalid --count: "${raw}" (must be >= 1)\n`);
+		process.exit(1);
+	}
+	return n;
 })();
 const extensionNames = (getArgValue(subArgs, "--extensions") ?? "")
-  .split(",")
-  .map((s) => s.trim())
-  .filter(Boolean);
+	.split(",")
+	.map((s) => s.trim())
+	.filter(Boolean);
 
 if (detach) {
-  const serverArgs = subArgs.filter((a) => a !== "--detach");
-  const child = spawn(
-    process.execPath,
-    [process.argv[1], "start", ...serverArgs],
-    {
-      detached: true,
-      stdio: "ignore",
-    },
-  );
-  child.unref();
+	const serverArgs = subArgs.filter((a) => a !== "--detach");
+	const child = spawn(
+		process.execPath,
+		[process.argv[1], "start", ...serverArgs],
+		{
+			detached: true,
+			stdio: "ignore",
+		},
+	);
+	child.unref();
 
-  const serverUrl = `http://localhost:${httpPort}`;
-  for (let i = 0; i < 120; i++) {
-    await new Promise((r) => setTimeout(r, 250));
-    try {
-      const res = await fetch(`${serverUrl}/health`);
-      if (res.ok) {
-        const output = {
-          url: serverUrl,
-          anon_key: DEFAULT_ANON_KEY,
-          service_role_key: serviceRoleKey,
-          pg: `postgresql://postgres@127.0.0.1:${tcpPort}/postgres`,
-          pid: child.pid,
-        };
-        process.stdout.write(JSON.stringify(output) + "\n");
-        process.exit(0);
-      }
-    } catch {
-    }
-  }
-  process.stderr.write(
-    JSON.stringify({
-      error: "start_timeout",
-      message: "Server did not start within 30s",
-    }) + "\n",
-  );
-  process.exit(1);
+	const serverUrl = `http://localhost:${httpPort}`;
+	for (let i = 0; i < 120; i++) {
+		await new Promise((r) => setTimeout(r, 250));
+		try {
+			const res = await fetch(`${serverUrl}/health`);
+			if (res.ok) {
+				const output = {
+					url: serverUrl,
+					anon_key: DEFAULT_ANON_KEY,
+					service_role_key: serviceRoleKey,
+					pg: `postgresql://postgres@127.0.0.1:${tcpPort}/postgres`,
+					pid: child.pid,
+				};
+				process.stdout.write(`${JSON.stringify(output)}\n`);
+				process.exit(0);
+			}
+		} catch {}
+	}
+	process.stderr.write(
+		`${JSON.stringify({
+			error: "start_timeout",
+			message: "Server did not start within 30s",
+		})}\n`,
+	);
+	process.exit(1);
 }
 
 const wasmModule = await WebAssembly.compile(
-  await readFile(join(pgliteDist, "pglite.wasm")),
+	await readFile(join(pgliteDist, "pglite.wasm")),
 );
 const fsBundle = new Blob([await readFile(join(pgliteDist, "pglite.data"))]);
 const postgrestWasm = new Uint8Array(
-  await readFile(join(__dirname, "postgrest_parser_bg.wasm")),
+	await readFile(join(__dirname, "postgrest_parser_bg.wasm")),
 );
 
 const pgcryptoExt: Extension = {
-  name: "pgcrypto",
-  setup: async (_pg, _emscriptenOpts) => ({
-    bundlePath: new URL(`file://${join(pgliteDist, "pgcrypto.tar.gz")}`),
-  }),
+	name: "pgcrypto",
+	setup: async (_pg, _emscriptenOpts) => ({
+		bundlePath: new URL(`file://${join(pgliteDist, "pgcrypto.tar.gz")}`),
+	}),
 };
 const uuidOsspExt: Extension = {
-  name: "uuid-ossp",
-  setup: async (_pg, _emscriptenOpts) => ({
-    bundlePath: new URL(`file://${join(pgliteDist, "uuid-ossp.tar.gz")}`),
-  }),
+	name: "uuid-ossp",
+	setup: async (_pg, _emscriptenOpts) => ({
+		bundlePath: new URL(`file://${join(pgliteDist, "uuid-ossp.tar.gz")}`),
+	}),
 };
 
 const _require = createRequire(import.meta.url);
@@ -379,66 +378,66 @@ const pglitePackageDist = dirname(_require.resolve("@electric-sql/pglite"));
 
 const extraExtensions: Record<string, Extension> = {};
 for (const name of extensionNames) {
-  let tarPath = join(pgliteDist, `${name}.tar.gz`);
-  try {
-    await readFile(tarPath);
-  } catch {
-    const fallback = join(pglitePackageDist, `${name}.tar.gz`);
-    try {
-      await readFile(fallback);
-      tarPath = fallback;
-    } catch {
-      process.stderr.write(
-        JSON.stringify({
-          error: "unknown_extension",
-          message: `Extension "${name}" not found. Available extensions are listed at https://pglite.dev/extensions/`,
-        }) + "\n",
-      );
-      process.exit(1);
-    }
-  }
-  const resolvedPath = tarPath;
-  extraExtensions[name.replace(/-/g, "_")] = {
-    name,
-    setup: async (_pg, _emscriptenOpts) => ({
-      bundlePath: new URL(`file://${resolvedPath}`),
-    }),
-  };
+	let tarPath = join(pgliteDist, `${name}.tar.gz`);
+	try {
+		await readFile(tarPath);
+	} catch {
+		const fallback = join(pglitePackageDist, `${name}.tar.gz`);
+		try {
+			await readFile(fallback);
+			tarPath = fallback;
+		} catch {
+			process.stderr.write(
+				`${JSON.stringify({
+					error: "unknown_extension",
+					message: `Extension "${name}" not found. Available extensions are listed at https://pglite.dev/extensions/`,
+				})}\n`,
+			);
+			process.exit(1);
+		}
+	}
+	const resolvedPath = tarPath;
+	extraExtensions[name.replace(/-/g, "_")] = {
+		name,
+		setup: async (_pg, _emscriptenOpts) => ({
+			bundlePath: new URL(`file://${resolvedPath}`),
+		}),
+	};
 }
 
 if (subCommand === "service") {
-  const { runServiceMode } = await import("./cli-service.ts");
-  await runServiceMode({
-    wasmModule,
-    fsBundle,
-    postgrestWasm,
-    pgcryptoExt,
-    uuidOsspExt,
-    subArgs,
-    parsePort,
-    getArgValue,
-    DEFAULT_SERVICE_ROLE_KEY,
-    DEFAULT_ANON_KEY,
-    pgliteDist,
-  });
+	const { runServiceMode } = await import("./cli-service.ts");
+	await runServiceMode({
+		wasmModule,
+		fsBundle,
+		postgrestWasm,
+		pgcryptoExt,
+		uuidOsspExt,
+		subArgs,
+		parsePort,
+		getArgValue,
+		DEFAULT_SERVICE_ROLE_KEY,
+		DEFAULT_ANON_KEY,
+		pgliteDist,
+	});
 } else {
-  const { runStartMode } = await import("./cli-server.ts");
-  await runStartMode({
-    wasmModule,
-    fsBundle,
-    postgrestWasm,
-    pgcryptoExt,
-    uuidOsspExt,
-    extraExtensions,
-    subArgs,
-    httpPort,
-    tcpPort,
-    dataDir,
-    serviceRoleKey,
-    anonKey: DEFAULT_ANON_KEY,
-    debug,
-    mcp,
-    pidFile,
-    count,
-  });
+	const { runStartMode } = await import("./cli-server.ts");
+	await runStartMode({
+		wasmModule,
+		fsBundle,
+		postgrestWasm,
+		pgcryptoExt,
+		uuidOsspExt,
+		extraExtensions,
+		subArgs,
+		httpPort,
+		tcpPort,
+		dataDir,
+		serviceRoleKey,
+		anonKey: DEFAULT_ANON_KEY,
+		debug,
+		mcp,
+		pidFile,
+		count,
+	});
 }

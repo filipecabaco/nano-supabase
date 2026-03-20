@@ -653,11 +653,15 @@ export class AuthHandler {
 			params.push(attrs.password);
 		}
 		if (attrs.user_metadata) {
-			updates.push(`raw_user_meta_data = raw_user_meta_data || $${paramIndex++}::jsonb`);
+			updates.push(
+				`raw_user_meta_data = raw_user_meta_data || $${paramIndex++}::jsonb`,
+			);
 			params.push(JSON.stringify(attrs.user_metadata));
 		}
 		if (attrs.app_metadata) {
-			updates.push(`raw_app_meta_data = raw_app_meta_data || $${paramIndex++}::jsonb`);
+			updates.push(
+				`raw_app_meta_data = raw_app_meta_data || $${paramIndex++}::jsonb`,
+			);
 			params.push(JSON.stringify(attrs.app_metadata));
 		}
 		if (attrs.ban_duration === "none") {

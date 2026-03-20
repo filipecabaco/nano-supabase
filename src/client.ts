@@ -155,7 +155,11 @@ export async function createComponents(
 		});
 	}
 
-	return { parser: sharedParser ?? new PostgrestParser(), authHandler, storageHandler };
+	return {
+		parser: sharedParser ?? new PostgrestParser(),
+		authHandler,
+		storageHandler,
+	};
 }
 
 export async function createLocalSupabaseClient<T = unknown>(

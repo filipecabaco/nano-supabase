@@ -21,7 +21,7 @@ async function createApp() {
 		supabaseUrl: SUPABASE_URL,
 	});
 
-	const client = (email?: string, password?: string) => {
+	const client = (_email?: string, _password?: string) => {
 		const c = createClient(SUPABASE_URL, "local-anon-key", {
 			auth: { autoRefreshToken: false },
 			global: { fetch: localFetch },
@@ -42,7 +42,7 @@ describe("Image Gallery App", () => {
 			email: "artist@gallery.com",
 			password: "gallery123",
 		});
-		const userId = authData.user!.id;
+		const userId = authData.user?.id;
 
 		await db.exec(`
       CREATE TABLE gallery (
@@ -92,9 +92,9 @@ describe("Image Gallery App", () => {
 			.order("created_at", { ascending: true });
 
 		assertEquals(galleryErr, null);
-		assertEquals(galleryData!.length, 3);
+		assertEquals(galleryData?.length, 3);
 
-		for (const entry of galleryData!) {
+		for (const entry of galleryData ?? []) {
 			const { data: urlData } = supabase.storage
 				.from("gallery-images")
 				.getPublicUrl(entry.storage_path);
@@ -120,7 +120,7 @@ describe("Image Gallery App", () => {
 		assertEquals(deleteErr, null);
 
 		const { data: remaining } = await supabase.from("gallery").select("*");
-		assertEquals(remaining!.length, 2);
+		assertEquals(remaining?.length, 2);
 
 		await db.close();
 	});
@@ -197,7 +197,7 @@ describe("Social Media App", () => {
 			email: "alice@social.app",
 			password: "alice123",
 		});
-		const aliceId = aliceAuth.user!.id;
+		const aliceId = aliceAuth.user?.id;
 
 		const { error: avatarErr } = await alice.storage
 			.from("avatars")
@@ -241,7 +241,7 @@ describe("Social Media App", () => {
 			.select("*")
 			.eq("author_id", aliceId);
 		assertExists(alicePosts);
-		const alicePostId = alicePosts![0].id;
+		const alicePostId = alicePosts?.[0].id;
 
 		// Bob signs up and interacts
 		const bob = client();
@@ -249,7 +249,7 @@ describe("Social Media App", () => {
 			email: "bob@social.app",
 			password: "bob123",
 		});
-		const bobId = bobAuth.user!.id;
+		const bobId = bobAuth.user?.id;
 
 		await bob.from("profiles").insert({
 			id: bobId,
@@ -264,7 +264,7 @@ describe("Social Media App", () => {
 			.order("created_at", { ascending: false });
 		assertEquals(feedErr, null);
 		assertExists(feed);
-		assertEquals(feed!.length >= 1, true);
+		assertEquals(feed?.length >= 1, true);
 
 		// Bob comments on Alice's post
 		const { error: commentErr } = await bob.from("comments").insert({
@@ -304,19 +304,19 @@ describe("Social Media App", () => {
 			.from("posts")
 			.select("*");
 		assertEquals(anonFeedErr, null);
-		assertEquals(anonFeed!.length, 2);
+		assertEquals(anonFeed?.length, 2);
 
 		const { data: anonComments } = await anon
 			.from("comments")
 			.select("*")
 			.eq("post_id", alicePostId);
 		assertExists(anonComments);
-		assertEquals(anonComments!.length, 1);
+		assertEquals(anonComments?.length, 1);
 
 		const { data: anonProfiles } = await anon
 			.from("profiles")
 			.select("username, bio");
-		assertEquals(anonProfiles!.length >= 2, true);
+		assertEquals(anonProfiles?.length >= 2, true);
 
 		const anonImgRes = await localFetch(
 			`${SUPABASE_URL}/storage/v1/object/public/post-images/${bobId}/coffee-shop.jpg`,
@@ -354,10 +354,10 @@ describe("Social Media App", () => {
 			.from("comments")
 			.select("*")
 			.eq("post_id", alicePostId);
-		assertEquals(deletedComments!.length, 0);
+		assertEquals(deletedComments?.length, 0);
 
 		const { data: remainingPosts } = await aliceAgain.from("posts").select("*");
-		assertEquals(remainingPosts!.length, 1);
+		assertEquals(remainingPosts?.length, 1);
 
 		await db.close();
 	});
@@ -405,7 +405,7 @@ describe("Todo App", () => {
 			email: "alice@todo.app",
 			password: "alice123",
 		});
-		const aliceId = aliceAuth.user!.id;
+		const aliceId = aliceAuth.user?.id;
 
 		await alice.from("categories").insert([
 			{ user_id: aliceId, name: "Work", color: "#FF0000" },
@@ -415,12 +415,12 @@ describe("Todo App", () => {
 		const { data: aliceCategories } = await alice
 			.from("categories")
 			.select("*");
-		assertEquals(aliceCategories!.length, 2);
+		assertEquals(aliceCategories?.length, 2);
 
-		const workCat = aliceCategories!.find(
+		const workCat = aliceCategories?.find(
 			(c: { name: string }) => c.name === "Work",
 		);
-		const personalCat = aliceCategories!.find(
+		const personalCat = aliceCategories?.find(
 			(c: { name: string }) => c.name === "Personal",
 		);
 
@@ -445,13 +445,13 @@ describe("Todo App", () => {
 			.from("todos")
 			.select("*")
 			.eq("category_id", workCat.id);
-		assertEquals(workTodos!.length, 2);
+		assertEquals(workTodos?.length, 2);
 
 		// Alice completes a todo
 		await alice.from("todos").update({ done: true }).eq("title", "Code review");
 
 		const { data: allTodos } = await alice.from("todos").select("*");
-		const doneTodos = allTodos!.filter((t: { done: boolean }) => t.done);
+		const doneTodos = allTodos?.filter((t: { done: boolean }) => t.done);
 		assertEquals(doneTodos.length, 1);
 		assertEquals(doneTodos[0].title, "Code review");
 
@@ -461,13 +461,13 @@ describe("Todo App", () => {
 			email: "bob@todo.app",
 			password: "bob123",
 		});
-		const bobId = bobAuth.user!.id;
+		const bobId = bobAuth.user?.id;
 
 		const { data: bobTodos } = await bob.from("todos").select("*");
-		assertEquals(bobTodos!.length, 0);
+		assertEquals(bobTodos?.length, 0);
 
 		const { data: bobCategories } = await bob.from("categories").select("*");
-		assertEquals(bobCategories!.length, 0);
+		assertEquals(bobCategories?.length, 0);
 
 		// Bob creates his own
 		await bob
@@ -478,16 +478,16 @@ describe("Todo App", () => {
 			.insert({ user_id: bobId, title: "Fix production bug" });
 
 		const { data: bobAllTodos } = await bob.from("todos").select("*");
-		assertEquals(bobAllTodos!.length, 1);
+		assertEquals(bobAllTodos?.length, 1);
 
 		// Alice still sees only her 3
 		const { data: aliceAllTodos } = await alice.from("todos").select("*");
-		assertEquals(aliceAllTodos!.length, 3);
+		assertEquals(aliceAllTodos?.length, 3);
 
 		// Alice deletes a todo
 		await alice.from("todos").delete().eq("title", "Buy groceries");
 		const { data: afterDelete } = await alice.from("todos").select("*");
-		assertEquals(afterDelete!.length, 2);
+		assertEquals(afterDelete?.length, 2);
 
 		await db.close();
 	});

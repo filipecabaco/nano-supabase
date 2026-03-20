@@ -45,7 +45,7 @@ describe("Integration", () => {
 		const supabase = await createSupabaseClient(db);
 
 		// INSERT
-		const { data: insertData, error: insertError } = await supabase
+		const { error: insertError } = await supabase
 			.from<User>("users")
 			.insert({ name: "Alice Johnson", email: "alice@example.com", age: 30 });
 

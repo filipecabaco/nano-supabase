@@ -12,7 +12,16 @@ export async function handleAuthRoute(
 	const url = new URL(request.url);
 	const searchParams = url.searchParams;
 
-	const sessionPayload = (s: { access_token: string; token_type: string; expires_in: number; expires_at: number; refresh_token: string }, user: unknown) => ({
+	const sessionPayload = (
+		s: {
+			access_token: string;
+			token_type: string;
+			expires_in: number;
+			expires_at: number;
+			refresh_token: string;
+		},
+		user: unknown,
+	) => ({
 		access_token: s.access_token,
 		token_type: s.token_type,
 		expires_in: s.expires_in,
@@ -101,7 +110,9 @@ export async function handleAuthRoute(
 				);
 			}
 
-			return jsonResponse(sessionPayload(result.data.session, result.data.user));
+			return jsonResponse(
+				sessionPayload(result.data.session, result.data.user),
+			);
 		}
 
 		if (grantType === "refresh_token") {
@@ -138,7 +149,9 @@ export async function handleAuthRoute(
 				);
 			}
 
-			return jsonResponse(sessionPayload(result.data.session, result.data.user));
+			return jsonResponse(
+				sessionPayload(result.data.session, result.data.user),
+			);
 		}
 
 		return jsonResponse(
@@ -209,7 +222,12 @@ export async function handleAuthRoute(
 		const result = await authHandler.updateUser(token, {
 			email: typeof body.email === "string" ? body.email : undefined,
 			password: typeof body.password === "string" ? body.password : undefined,
-			data: typeof body.data === "object" && body.data !== null && !Array.isArray(body.data) ? body.data as Record<string, unknown> : undefined,
+			data:
+				typeof body.data === "object" &&
+				body.data !== null &&
+				!Array.isArray(body.data)
+					? (body.data as Record<string, unknown>)
+					: undefined,
 		});
 
 		if (result.error) {
@@ -303,9 +321,22 @@ export async function handleAuthRoute(
 				email: typeof body.email === "string" ? body.email : undefined,
 				phone: typeof body.phone === "string" ? body.phone : undefined,
 				password: typeof body.password === "string" ? body.password : undefined,
-				email_confirm: typeof body.email_confirm === "boolean" ? body.email_confirm : undefined,
-				user_metadata: typeof body.user_metadata === "object" && body.user_metadata !== null && !Array.isArray(body.user_metadata) ? body.user_metadata as Record<string, unknown> : undefined,
-				app_metadata: typeof body.app_metadata === "object" && body.app_metadata !== null && !Array.isArray(body.app_metadata) ? body.app_metadata as Record<string, unknown> : undefined,
+				email_confirm:
+					typeof body.email_confirm === "boolean"
+						? body.email_confirm
+						: undefined,
+				user_metadata:
+					typeof body.user_metadata === "object" &&
+					body.user_metadata !== null &&
+					!Array.isArray(body.user_metadata)
+						? (body.user_metadata as Record<string, unknown>)
+						: undefined,
+				app_metadata:
+					typeof body.app_metadata === "object" &&
+					body.app_metadata !== null &&
+					!Array.isArray(body.app_metadata)
+						? (body.app_metadata as Record<string, unknown>)
+						: undefined,
 			});
 			return jsonResponse(user);
 		} catch (err) {
@@ -321,7 +352,7 @@ export async function handleAuthRoute(
 	// Admin /auth/v1/admin/users/:id
 	const adminUserMatch = pathname.match(/^\/auth\/v1\/admin\/users\/([^/]+)$/);
 	if (adminUserMatch) {
-		const userId = adminUserMatch[1]!;
+		const userId = adminUserMatch[1] ?? "";
 
 		if (method === "GET") {
 			const user = await authHandler.adminGetUser(userId);
@@ -335,11 +366,28 @@ export async function handleAuthRoute(
 				const user = await authHandler.adminUpdateUser(userId, {
 					email: typeof body.email === "string" ? body.email : undefined,
 					phone: typeof body.phone === "string" ? body.phone : undefined,
-					password: typeof body.password === "string" ? body.password : undefined,
-					user_metadata: typeof body.user_metadata === "object" && body.user_metadata !== null && !Array.isArray(body.user_metadata) ? body.user_metadata as Record<string, unknown> : undefined,
-					app_metadata: typeof body.app_metadata === "object" && body.app_metadata !== null && !Array.isArray(body.app_metadata) ? body.app_metadata as Record<string, unknown> : undefined,
-					ban_duration: typeof body.ban_duration === "string" ? body.ban_duration : undefined,
-					email_confirm: typeof body.email_confirm === "boolean" ? body.email_confirm : undefined,
+					password:
+						typeof body.password === "string" ? body.password : undefined,
+					user_metadata:
+						typeof body.user_metadata === "object" &&
+						body.user_metadata !== null &&
+						!Array.isArray(body.user_metadata)
+							? (body.user_metadata as Record<string, unknown>)
+							: undefined,
+					app_metadata:
+						typeof body.app_metadata === "object" &&
+						body.app_metadata !== null &&
+						!Array.isArray(body.app_metadata)
+							? (body.app_metadata as Record<string, unknown>)
+							: undefined,
+					ban_duration:
+						typeof body.ban_duration === "string"
+							? body.ban_duration
+							: undefined,
+					email_confirm:
+						typeof body.email_confirm === "boolean"
+							? body.email_confirm
+							: undefined,
 				});
 				if (!user) return notFound("User not found");
 				return jsonResponse(user);

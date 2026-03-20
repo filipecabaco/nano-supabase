@@ -368,7 +368,7 @@ export async function cmdMigrationUp(
 				.split(";")
 				.map((s) => s.trim())
 				.filter(Boolean)
-				.map((s) => s + ";");
+				.map((s) => `${s};`);
 			await fetch(`${url}/admin/v1/migrations/applied`, {
 				method: "POST",
 				headers: adminHeaders(key),
@@ -635,7 +635,7 @@ export async function cmdStorageCp(
 			const colonSlashSlash = dst.indexOf("://");
 			const bucket = dst.slice(0, colonSlashSlash);
 			const afterScheme = dst.slice(colonSlashSlash + 3);
-			const objectPath = afterScheme || src.split("/").pop()!;
+			const objectPath = afterScheme || (src.split("/").pop() ?? src);
 			const fileBuffer = await readFile(src);
 			const res = await fetch(
 				`${url}/storage/v1/object/${bucket}/${objectPath}`,
@@ -815,7 +815,7 @@ export async function cmdSyncPush(
 	let client: pg.Client | undefined;
 	try {
 		if (!skipMigrations || !skipStorage) {
-			client = await connectPg(remoteDbUrl!);
+			client = await connectPg(remoteDbUrl ?? "");
 			await client.query(`SET search_path = "$user", public`);
 		}
 
@@ -835,8 +835,8 @@ export async function cmdSyncPush(
 				const applied = new Set(appliedRes.rows.map((r) => r.version));
 
 				for (const file of localFiles) {
-					const match = file.match(MIGRATION_FILE_PATTERN)!;
-					const version = match[1];
+					const match = file.match(MIGRATION_FILE_PATTERN) ?? [];
+					const version = match[1] ?? "";
 					const name = file.replace(/\.sql$/, "").slice(version.length + 1);
 
 					if (applied.has(version)) {
@@ -869,8 +869,8 @@ export async function cmdSyncPush(
 					);
 				}
 				for (const file of localFiles) {
-					const match = file.match(MIGRATION_FILE_PATTERN)!;
-					const version = match[1];
+					const match = file.match(MIGRATION_FILE_PATTERN) ?? [];
+					const version = match[1] ?? "";
 					const name = file.replace(/\.sql$/, "").slice(version.length + 1);
 					const sql = await readFile(join(migrationsDir, file), "utf8");
 					if (!dryRun) {

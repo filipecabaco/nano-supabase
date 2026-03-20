@@ -49,8 +49,8 @@
  */
 import type { PGliteOptions } from "@electric-sql/pglite";
 import type { SupabaseClient, SupabaseClientOptions } from "@supabase/supabase-js";
-import { PostgrestParser } from "./postgrest-parser.ts";
 import { createPGlite } from "./pglite-factory.ts";
+import type { PostgrestParser } from "./postgrest-parser.ts";
 import type { StorageBackend } from "./storage/backend.ts";
 export interface NanoSupabaseOptions {
     /** Persistence path. Omit for in-memory. `"idb://name"` for browser IndexedDB. */

@@ -56,8 +56,8 @@ import type {
 import { createClient as supabaseCreateClient } from "@supabase/supabase-js";
 import { createComponents } from "./client.ts";
 import { createLocalFetch } from "./fetch-adapter/index.ts";
-import { PostgrestParser } from "./postgrest-parser.ts";
 import { createPGlite } from "./pglite-factory.ts";
+import type { PostgrestParser } from "./postgrest-parser.ts";
 import type { StorageBackend } from "./storage/backend.ts";
 import { PGliteTCPServer } from "./tcp-server.ts";
 
@@ -235,7 +235,12 @@ export async function nanoSupabase(
 		postgresOptions,
 	} = options;
 
-	const db = createPGlite(dataDir, { extensions, wasmModule, fsBundle, ...postgresOptions });
+	const db = createPGlite(dataDir, {
+		extensions,
+		wasmModule,
+		fsBundle,
+		...postgresOptions,
+	});
 	const { parser, authHandler, storageHandler } = await createComponents(
 		db,
 		storageBackend,
@@ -282,15 +287,15 @@ export async function nanoSupabase(
 				global: globalOpts,
 				...rest
 			} = options ?? {};
-			// `as any`: supabase-js uses deeply nested conditional generics for SchemaName
-			// that don't resolve when Database defaults to unknown. The return cast preserves safety.
 			return supabaseCreateClient<Database>(url, key, {
 				...rest,
 				global: {
 					...globalOpts,
 					fetch: globalOpts?.fetch ?? (localFetch as typeof fetch),
 				},
-			} as any) as unknown as SupabaseClient<Database>;
+			} as Parameters<
+				typeof supabaseCreateClient
+			>[2]) as unknown as SupabaseClient<Database>;
 		},
 		stop,
 		[Symbol.asyncDispose]: stop,

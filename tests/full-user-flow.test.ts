@@ -72,7 +72,7 @@ describe("Full User Flow", () => {
 		assertEquals(signUpError, null, "Sign up should succeed");
 		assertExists(signUpData.user, "User should be created");
 		assertExists(signUpData.session, "Session should be created");
-		const userId = signUpData.user!.id;
+		const userId = signUpData.user?.id;
 		console.log(`✓ User signed up with ID: ${userId}`);
 
 		// Step 2: User creates an RLS-protected entry

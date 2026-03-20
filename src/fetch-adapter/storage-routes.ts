@@ -103,13 +103,13 @@ export async function handleStorageRoute(
 			/^\/storage\/v1\/bucket\/([^/]+)\/empty$/,
 		);
 		if (emptyMatch && method === "POST") {
-			return await handleEmptyBucket(emptyMatch[1]!, storageHandler);
+			return await handleEmptyBucket(emptyMatch[1] ?? "", storageHandler);
 		}
 
 		// /storage/v1/bucket/:id
 		const bucketIdMatch = pathname.match(/^\/storage\/v1\/bucket\/([^/]+)$/);
 		if (bucketIdMatch) {
-			const bucketId = bucketIdMatch[1]!;
+			const bucketId = bucketIdMatch[1] ?? "";
 			if (method === "GET")
 				return await handleGetBucket(bucketId, storageHandler);
 			if (method === "PUT")
@@ -136,8 +136,8 @@ export async function handleStorageRoute(
 		if (signMatch) {
 			if (method === "POST") {
 				return await handleCreateSignedUrl(
-					signMatch[1]!,
-					signMatch[2]!,
+					signMatch[1] ?? "",
+					signMatch[2] ?? "",
 					request,
 					storageHandler,
 				);
@@ -156,7 +156,7 @@ export async function handleStorageRoute(
 		);
 		if (signBatchMatch && method === "POST") {
 			return await handleCreateSignedUrls(
-				signBatchMatch[1]!,
+				signBatchMatch[1] ?? "",
 				request,
 				storageHandler,
 			);
@@ -168,8 +168,8 @@ export async function handleStorageRoute(
 		);
 		if (publicMatch && method === "GET") {
 			return await handlePublicDownload(
-				publicMatch[1]!,
-				publicMatch[2]!,
+				publicMatch[1] ?? "",
+				publicMatch[2] ?? "",
 				db,
 				storageHandler,
 			);
@@ -181,8 +181,8 @@ export async function handleStorageRoute(
 		);
 		if (infoMatch && method === "GET") {
 			return await handleObjectInfo(
-				infoMatch[1]!,
-				infoMatch[2]!,
+				infoMatch[1] ?? "",
+				infoMatch[2] ?? "",
 				storageHandler,
 			);
 		}
@@ -190,14 +190,18 @@ export async function handleStorageRoute(
 		// POST /storage/v1/object/list/:bucketId — list objects
 		const listMatch = pathname.match(/^\/storage\/v1\/object\/list\/([^/]+)$/);
 		if (listMatch && method === "POST") {
-			return await handleListObjects(listMatch[1]!, request, storageHandler);
+			return await handleListObjects(
+				listMatch[1] ?? "",
+				request,
+				storageHandler,
+			);
 		}
 
 		// DELETE /storage/v1/object/:bucketId — remove objects (batch)
 		const removeMatch = pathname.match(/^\/storage\/v1\/object\/([^/]+)$/);
 		if (removeMatch && method === "DELETE") {
 			return await handleRemoveObjects(
-				removeMatch[1]!,
+				removeMatch[1] ?? "",
 				request,
 				storageHandler,
 			);
@@ -209,8 +213,8 @@ export async function handleStorageRoute(
 		);
 		if (uploadMatch && method === "POST") {
 			return await handleUpload(
-				uploadMatch[1]!,
-				uploadMatch[2]!,
+				uploadMatch[1] ?? "",
+				uploadMatch[2] ?? "",
 				request,
 				storageHandler,
 				{ ownerId: authCtx.userId, upsert: false },
@@ -219,8 +223,8 @@ export async function handleStorageRoute(
 
 		if (uploadMatch && method === "PUT") {
 			return await handleUpload(
-				uploadMatch[1]!,
-				uploadMatch[2]!,
+				uploadMatch[1] ?? "",
+				uploadMatch[2] ?? "",
 				request,
 				storageHandler,
 				{ ownerId: authCtx.userId, upsert: true },
@@ -233,8 +237,8 @@ export async function handleStorageRoute(
 		);
 		if (downloadMatch && method === "GET") {
 			return await handleDownload(
-				downloadMatch[1]!,
-				downloadMatch[2]!,
+				downloadMatch[1] ?? "",
+				downloadMatch[2] ?? "",
 				storageHandler,
 			);
 		}
@@ -242,8 +246,8 @@ export async function handleStorageRoute(
 		// HEAD /storage/v1/object/:bucketId/:path — exists check
 		if (downloadMatch && method === "HEAD") {
 			return await handleExists(
-				downloadMatch[1]!,
-				downloadMatch[2]!,
+				downloadMatch[1] ?? "",
+				downloadMatch[2] ?? "",
 				storageHandler,
 			);
 		}
@@ -255,10 +259,10 @@ export async function handleStorageRoute(
 			const meta = parseTusMetadata(
 				request.headers.get("Upload-Metadata") ?? "",
 			);
-			const bucketId = meta["bucketName"];
-			const objectName = meta["objectName"];
-			const contentType = meta["contentType"] ?? "application/octet-stream";
-			const cacheControl = meta["cacheControl"];
+			const bucketId = meta.bucketName;
+			const objectName = meta.objectName;
+			const contentType = meta.contentType ?? "application/octet-stream";
+			const cacheControl = meta.cacheControl;
 			if (!bucketId || !objectName)
 				return errorResponse("Missing Upload-Metadata", 400);
 
@@ -371,10 +375,11 @@ export async function handleStorageRoute(
 			/^\/storage\/v1\/object\/upload\/sign\/([^/]+)\/(.+)$/,
 		);
 		if (signedUploadCreateMatch && method === "POST") {
-			const bucketId = signedUploadCreateMatch[1]!;
-			const objectPath = signedUploadCreateMatch[2]!;
+			const bucketId = signedUploadCreateMatch[1] ?? "";
+			const objectPath = signedUploadCreateMatch[2] ?? "";
 			const body = await parseBody(request);
-			const expiresIn = (typeof body.expiresIn === "number" ? body.expiresIn : 3600);
+			const expiresIn =
+				typeof body.expiresIn === "number" ? body.expiresIn : 3600;
 			try {
 				const uploadToken = await storageHandler.createSignedUrl(
 					bucketId,
@@ -405,8 +410,8 @@ export async function handleStorageRoute(
 			if (!payload) return errorResponse("Invalid or expired signed URL", 401);
 
 			return await handleUpload(
-				signedUploadCreateMatch[1]!,
-				signedUploadCreateMatch[2]!,
+				signedUploadCreateMatch[1] ?? "",
+				signedUploadCreateMatch[2] ?? "",
 				request,
 				storageHandler,
 				{ ownerId: authCtx.userId, upsert: true },
@@ -421,11 +426,14 @@ export async function handleStorageRoute(
 		);
 		if (listV2Match && method === "POST") {
 			const body = await parseBody(request);
-			const objects = await storageHandler.listObjects(listV2Match[1]!, {
+			const objects = await storageHandler.listObjects(listV2Match[1] ?? "", {
 				prefix: typeof body.prefix === "string" ? body.prefix : undefined,
 				limit: typeof body.limit === "number" ? body.limit : undefined,
 				offset: typeof body.offset === "number" ? body.offset : undefined,
-				sortBy: typeof body.sortBy === "object" && body.sortBy !== null ? body.sortBy as { column: string; order: string } : undefined,
+				sortBy:
+					typeof body.sortBy === "object" && body.sortBy !== null
+						? (body.sortBy as { column: string; order: string })
+						: undefined,
 				search: typeof body.search === "string" ? body.search : undefined,
 			});
 
@@ -464,8 +472,8 @@ export async function handleStorageRoute(
 		if (renderMatch && method === "GET") {
 			// Return original image — no transforms in local emulation
 			return await handleDownload(
-				renderMatch[1]!,
-				renderMatch[2]!,
+				renderMatch[1] ?? "",
+				renderMatch[2] ?? "",
 				storageHandler,
 			);
 		}
@@ -516,7 +524,12 @@ async function handleCreateBucket(
 	handler: StorageHandler,
 ): Promise<Response> {
 	const body = await parseBody(request);
-	const name = typeof body.name === "string" ? body.name : typeof body.id === "string" ? body.id : undefined;
+	const name =
+		typeof body.name === "string"
+			? body.name
+			: typeof body.id === "string"
+				? body.id
+				: undefined;
 	if (!name) return errorResponse("Bucket name is required");
 
 	try {
@@ -524,8 +537,13 @@ async function handleCreateBucket(
 			id: typeof body.id === "string" ? body.id : name,
 			name,
 			public: typeof body.public === "boolean" ? body.public : undefined,
-			file_size_limit: typeof body.file_size_limit === "number" ? body.file_size_limit : undefined,
-			allowed_mime_types: Array.isArray(body.allowed_mime_types) ? body.allowed_mime_types as string[] : undefined,
+			file_size_limit:
+				typeof body.file_size_limit === "number"
+					? body.file_size_limit
+					: undefined,
+			allowed_mime_types: Array.isArray(body.allowed_mime_types)
+				? (body.allowed_mime_types as string[])
+				: undefined,
 		});
 		return jsonResponse({ name: bucket.name }, 200);
 	} catch (err) {
@@ -547,8 +565,13 @@ async function handleUpdateBucket(
 	try {
 		await handler.updateBucket(id, {
 			public: typeof body.public === "boolean" ? body.public : undefined,
-			file_size_limit: typeof body.file_size_limit === "number" ? body.file_size_limit : undefined,
-			allowed_mime_types: Array.isArray(body.allowed_mime_types) ? body.allowed_mime_types as string[] : undefined,
+			file_size_limit:
+				typeof body.file_size_limit === "number"
+					? body.file_size_limit
+					: undefined,
+			allowed_mime_types: Array.isArray(body.allowed_mime_types)
+				? (body.allowed_mime_types as string[])
+				: undefined,
 		});
 		return jsonResponse({ message: "Successfully updated" });
 	} catch (err) {
@@ -680,7 +703,9 @@ async function handleRemoveObjects(
 	handler: StorageHandler,
 ): Promise<Response> {
 	const body = await parseBody(request);
-	const prefixes = Array.isArray(body.prefixes) ? body.prefixes as string[] : undefined;
+	const prefixes = Array.isArray(body.prefixes)
+		? (body.prefixes as string[])
+		: undefined;
 	if (!prefixes) {
 		return errorResponse("prefixes array is required");
 	}
@@ -700,7 +725,10 @@ async function handleListObjects(
 		prefix: typeof body.prefix === "string" ? body.prefix : undefined,
 		limit: typeof body.limit === "number" ? body.limit : undefined,
 		offset: typeof body.offset === "number" ? body.offset : undefined,
-		sortBy: typeof body.sortBy === "object" && body.sortBy !== null ? body.sortBy as { column: string; order: string } : undefined,
+		sortBy:
+			typeof body.sortBy === "object" && body.sortBy !== null
+				? (body.sortBy as { column: string; order: string })
+				: undefined,
 		search: typeof body.search === "string" ? body.search : undefined,
 	});
 
@@ -728,10 +756,16 @@ async function handleMoveObject(
 	handler: StorageHandler,
 ): Promise<Response> {
 	const body = await parseBody(request);
-	const bucketId = typeof body.bucketId === "string" ? body.bucketId : undefined;
-	const sourceKey = typeof body.sourceKey === "string" ? body.sourceKey : undefined;
-	const destinationKey = typeof body.destinationKey === "string" ? body.destinationKey : undefined;
-	const destinationBucket = typeof body.destinationBucket === "string" ? body.destinationBucket : undefined;
+	const bucketId =
+		typeof body.bucketId === "string" ? body.bucketId : undefined;
+	const sourceKey =
+		typeof body.sourceKey === "string" ? body.sourceKey : undefined;
+	const destinationKey =
+		typeof body.destinationKey === "string" ? body.destinationKey : undefined;
+	const destinationBucket =
+		typeof body.destinationBucket === "string"
+			? body.destinationBucket
+			: undefined;
 
 	if (!bucketId || !sourceKey || !destinationKey) {
 		return errorResponse(
@@ -758,10 +792,16 @@ async function handleCopyObject(
 	handler: StorageHandler,
 ): Promise<Response> {
 	const body = await parseBody(request);
-	const bucketId = typeof body.bucketId === "string" ? body.bucketId : undefined;
-	const sourceKey = typeof body.sourceKey === "string" ? body.sourceKey : undefined;
-	const destinationKey = typeof body.destinationKey === "string" ? body.destinationKey : undefined;
-	const destinationBucket = typeof body.destinationBucket === "string" ? body.destinationBucket : undefined;
+	const bucketId =
+		typeof body.bucketId === "string" ? body.bucketId : undefined;
+	const sourceKey =
+		typeof body.sourceKey === "string" ? body.sourceKey : undefined;
+	const destinationKey =
+		typeof body.destinationKey === "string" ? body.destinationKey : undefined;
+	const destinationBucket =
+		typeof body.destinationBucket === "string"
+			? body.destinationBucket
+			: undefined;
 
 	if (!bucketId || !sourceKey || !destinationKey) {
 		return errorResponse(
@@ -790,7 +830,7 @@ async function handleCreateSignedUrl(
 	handler: StorageHandler,
 ): Promise<Response> {
 	const body = await parseBody(request);
-	const expiresIn = (typeof body.expiresIn === "number" ? body.expiresIn : 3600);
+	const expiresIn = typeof body.expiresIn === "number" ? body.expiresIn : 3600;
 
 	try {
 		const token = await handler.createSignedUrl(
@@ -814,8 +854,10 @@ async function handleCreateSignedUrls(
 	handler: StorageHandler,
 ): Promise<Response> {
 	const body = await parseBody(request);
-	const expiresIn = (typeof body.expiresIn === "number" ? body.expiresIn : 3600);
-	const paths = Array.isArray(body.paths) ? body.paths as string[] : undefined;
+	const expiresIn = typeof body.expiresIn === "number" ? body.expiresIn : 3600;
+	const paths = Array.isArray(body.paths)
+		? (body.paths as string[])
+		: undefined;
 
 	if (!paths) {
 		return errorResponse("paths array is required");

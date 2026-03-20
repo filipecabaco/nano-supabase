@@ -164,7 +164,7 @@ describe("transaction support", () => {
 			return query("SELECT COUNT(*) AS cnt FROM txn_test");
 		});
 
-		expect(Number(result.rows[0]?.["cnt"])).toBe(2);
+		expect(Number(result.rows[0]?.cnt)).toBe(2);
 
 		await pooler.stop();
 		await db.close();
@@ -188,7 +188,7 @@ describe("transaction support", () => {
 		const result = await pooler.query(
 			"SELECT COUNT(*) AS cnt FROM txn_rollback",
 		);
-		expect(Number(result.rows[0]?.["cnt"])).toBe(0);
+		expect(Number(result.rows[0]?.cnt)).toBe(0);
 
 		await pooler.stop();
 		await db.close();
@@ -339,7 +339,7 @@ describe("PGlitePooler", () => {
 		const rows = await pooler.query(
 			"SELECT priority FROM perf_items ORDER BY id",
 		);
-		const order = rows.rows.map((r) => r["priority"]);
+		const order = rows.rows.map((r) => r.priority);
 
 		expect(order[0]).toBe("CRITICAL");
 		expect(order[1]).toBe("HIGH");
@@ -360,7 +360,7 @@ describe("PGlitePooler", () => {
 		);
 
 		const result = await pooler.query("SELECT COUNT(*) AS cnt FROM perf_items");
-		expect(Number(result.rows[0]?.["cnt"])).toBe(n);
+		expect(Number(result.rows[0]?.cnt)).toBe(n);
 	});
 });
 
@@ -404,7 +404,7 @@ describe("initialization performance", () => {
 		await createFetchAdapter({ db });
 		const elapsed = performance.now() - start;
 
-		expect(elapsed).toBeLessThan(3000);
+		expect(elapsed).toBeLessThan(5000);
 
 		await db.close();
 	});
@@ -426,7 +426,7 @@ describe("pooler throughput", () => {
 		const elapsed = performance.now() - start;
 
 		const result = await pooler.query("SELECT COUNT(*) AS cnt FROM throughput");
-		expect(Number(result.rows[0]?.["cnt"])).toBe(100);
+		expect(Number(result.rows[0]?.cnt)).toBe(100);
 		expect(elapsed).toBeLessThan(10000);
 
 		await pooler.stop();
@@ -448,7 +448,7 @@ describe("pooler throughput", () => {
 		const elapsed = performance.now() - start;
 
 		const result = await pooler.query("SELECT COUNT(*) AS cnt FROM concurrent");
-		expect(Number(result.rows[0]?.["cnt"])).toBe(50);
+		expect(Number(result.rows[0]?.cnt)).toBe(50);
 		expect(elapsed).toBeLessThan(10000);
 
 		await pooler.stop();

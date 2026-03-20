@@ -85,7 +85,7 @@ describe("RLS", () => {
 			email: "user1@example.com",
 			password: "password123",
 		});
-		const user1Id = user1.data.user!.id;
+		const user1Id = user1.data.user?.id;
 
 		await supabase.from("tasks").insert({ title: "User 1 Task 1" });
 		await supabase.from("tasks").insert({ title: "User 1 Task 2" });
@@ -96,7 +96,7 @@ describe("RLS", () => {
 			email: "user2@example.com",
 			password: "password456",
 		});
-		const user2Id = user2.data.user!.id;
+		const user2Id = user2.data.user?.id;
 
 		await supabase.from("tasks").insert({ title: "User 2 Task 1" });
 
@@ -155,7 +155,7 @@ describe("RLS", () => {
 			email: "test@example.com",
 			password: "password123",
 		});
-		const userId = signUpResult.data.user!.id;
+		const userId = signUpResult.data.user?.id;
 
 		// Insert without specifying user_id
 		const insertResult = await supabase
@@ -187,7 +187,7 @@ describe("Auth Flow", () => {
 			email: "user1@example.com",
 			password: "password123",
 		});
-		const user1Id = user1.data.user!.id;
+		const user1Id = user1.data.user?.id;
 
 		await supabase.from("tasks").insert({ title: "User 1 Task 1" });
 		await supabase.from("tasks").insert({ title: "User 1 Task 2" });
@@ -207,7 +207,7 @@ describe("Auth Flow", () => {
 			email: "user2@example.com",
 			password: "password456",
 		});
-		const user2Id = user2.data.user!.id;
+		const user2Id = user2.data.user?.id;
 
 		assertNotEquals(user1Id, user2Id);
 
@@ -233,7 +233,7 @@ describe("Auth Flow", () => {
 		});
 		assertEquals(user1Result.error, null);
 		assertExists(user1Result.data.user);
-		const user1Id = user1Result.data.user!.id;
+		const user1Id = user1Result.data.user?.id;
 
 		// Sign out
 		const signOutResult = await supabase.auth.signOut();
@@ -246,7 +246,7 @@ describe("Auth Flow", () => {
 		});
 		assertEquals(user2Result.error, null);
 		assertExists(user2Result.data.user);
-		const user2Id = user2Result.data.user!.id;
+		const user2Id = user2Result.data.user?.id;
 
 		// Verify both users exist and are different
 		assertNotEquals(user1Id, user2Id);
@@ -269,7 +269,7 @@ describe("Auth Flow", () => {
 			email: "test@example.com",
 			password: "password123",
 		});
-		const userId = signUpResult.data.user!.id;
+		const userId = signUpResult.data.user?.id;
 
 		await supabase.from("tasks").insert({ title: "Task 1" });
 		await supabase.from("tasks").insert({ title: "Task 2" });
@@ -340,7 +340,7 @@ describe("Auth Flow", () => {
 			email: "test@example.com",
 			password: "password123",
 		});
-		const userId = signUpResult.data.user!.id;
+		const userId = signUpResult.data.user?.id;
 
 		// Verify session exists
 		let sessionCheck = await db.query<CountResult>(
@@ -377,7 +377,7 @@ describe("Auth Flow", () => {
 			email: "user1@example.com",
 			password: "password123",
 		});
-		const user1Id = user1.data.user!.id;
+		const user1Id = user1.data.user?.id;
 
 		await client1.from("tasks").insert({ title: "User 1 Task 1" });
 		await client1.from("tasks").insert({ title: "User 1 Task 2" });
@@ -387,7 +387,7 @@ describe("Auth Flow", () => {
 			email: "user2@example.com",
 			password: "password456",
 		});
-		const user2Id = user2.data.user!.id;
+		const user2Id = user2.data.user?.id;
 
 		await client2.from("tasks").insert({ title: "User 2 Task 1" });
 
@@ -418,18 +418,18 @@ describe("Auth Flow", () => {
 		assertExists(originalRefreshToken);
 
 		const refreshResult = await authHandler.refreshSession(
-			originalRefreshToken!,
+			originalRefreshToken ?? "",
 		);
 		assertEquals(refreshResult.error, null);
 		assertExists(refreshResult.data.session?.access_token);
 		assertExists(refreshResult.data.session?.refresh_token);
 		assertNotEquals(
-			refreshResult.data.session!.refresh_token,
+			refreshResult.data.session?.refresh_token,
 			originalRefreshToken,
 		);
 
 		const userResult = await authHandler.getUser(
-			refreshResult.data.session!.access_token,
+			refreshResult.data.session?.access_token,
 		);
 		assertEquals(userResult.error, null);
 		assertEquals(userResult.data.user?.email, "refresh@example.com");
@@ -448,11 +448,11 @@ describe("Auth Flow", () => {
 		const accessToken = signInResult.data.session?.access_token;
 		assertExists(accessToken);
 
-		const userResult = await authHandler.getUser(accessToken!);
+		const userResult = await authHandler.getUser(accessToken ?? "");
 		assertEquals(userResult.error, null);
 		assertExists(userResult.data.user);
-		assertEquals(userResult.data.user!.email, "getuser@example.com");
-		assertEquals(userResult.data.user!.role, "authenticated");
+		assertEquals(userResult.data.user?.email, "getuser@example.com");
+		assertEquals(userResult.data.user?.role, "authenticated");
 
 		await db.close();
 	});
@@ -468,7 +468,7 @@ describe("Auth Flow", () => {
 		const accessToken = signUpResult.data.session?.access_token;
 		assertExists(accessToken);
 
-		const updateResult = await authHandler.updateUser(accessToken!, {
+		const updateResult = await authHandler.updateUser(accessToken ?? "", {
 			data: { display_name: "Updated Name" },
 		});
 		assertEquals(updateResult.error, null);
@@ -477,7 +477,7 @@ describe("Auth Flow", () => {
 			"Updated Name",
 		);
 
-		const userResult = await authHandler.getUser(accessToken!);
+		const userResult = await authHandler.getUser(accessToken ?? "");
 		assertEquals(
 			userResult.data.user?.user_metadata?.display_name,
 			"Updated Name",
@@ -519,10 +519,10 @@ describe("Auth Flow", () => {
 		const accessToken = signUpResult.data.session?.access_token;
 		assertExists(accessToken);
 
-		const validResult = await authHandler.verifyToken(accessToken!);
+		const validResult = await authHandler.verifyToken(accessToken ?? "");
 		assertEquals(validResult.valid, true);
 		assertExists(validResult.payload);
-		assertEquals(validResult.payload!.email, "verify@example.com");
+		assertEquals(validResult.payload?.email, "verify@example.com");
 
 		const invalidResult = await authHandler.verifyToken("not.a.real.token");
 		assertEquals(invalidResult.valid, false);
@@ -540,7 +540,7 @@ describe("Auth Flow", () => {
 			email: "test@example.com",
 			password: "password123",
 		});
-		const userId = signUpResult.data.user!.id;
+		const userId = signUpResult.data.user?.id;
 
 		// Sign out
 		await supabase.auth.signOut();
@@ -579,7 +579,7 @@ describe("Complex RLS", () => {
 		await createTasksTableWithRLS(db);
 
 		// User 1 creates tasks
-		const user1 = await supabase.auth.signUp({
+		const _user1 = await supabase.auth.signUp({
 			email: "user1@example.com",
 			password: "password123",
 		});
@@ -632,7 +632,7 @@ describe("Complex RLS", () => {
 			email: "test@example.com",
 			password: "password123",
 		});
-		const userId = signUpResult.data.user!.id;
+		const userId = signUpResult.data.user?.id;
 
 		// Multiple operations should all use same context
 		await supabase.from("tasks").insert({ title: "Task 1" });

@@ -10,8 +10,15 @@ export interface McpServerConfig {
 }
 
 function pgTypeToTs(pgType: string): string {
-	const numericPatterns = ["int", "numeric", "float", "double", "real", "decimal"];
-	if (numericPatterns.some(p => pgType.includes(p))) return "number";
+	const numericPatterns = [
+		"int",
+		"numeric",
+		"float",
+		"double",
+		"real",
+		"decimal",
+	];
+	if (numericPatterns.some((p) => pgType.includes(p))) return "number";
 	if (pgType.includes("bool")) return "boolean";
 	if (pgType === "json" || pgType === "jsonb") return "Json";
 	if (
@@ -143,11 +150,18 @@ function buildPlatform(
 			async generateTypescriptTypes(_projectId: string) {
 				type ColumnInfo = { name: string; type: string; nullable: boolean };
 
-				const groupColumnsByTable = (rows: { table_name: string; column_name: string; data_type: string; is_nullable: string }[]): Map<string, ColumnInfo[]> => {
+				const groupColumnsByTable = (
+					rows: {
+						table_name: string;
+						column_name: string;
+						data_type: string;
+						is_nullable: string;
+					}[],
+				): Map<string, ColumnInfo[]> => {
 					const tables = new Map<string, ColumnInfo[]>();
 					for (const row of rows) {
 						if (!tables.has(row.table_name)) tables.set(row.table_name, []);
-						tables.get(row.table_name)!.push({
+						tables.get(row.table_name)?.push({
 							name: row.column_name,
 							type: pgTypeToTs(row.data_type),
 							nullable: row.is_nullable === "YES",
@@ -248,8 +262,11 @@ export function createMcpHandler(
 			const sessionId = req.headers.get("mcp-session-id");
 
 			if (sessionId && sessions.has(sessionId)) {
-				const session = sessions.get(sessionId)!;
-				return session.transport.handleRequest(req);
+				const session = sessions.get(sessionId);
+				return (
+					session?.transport.handleRequest(req) ??
+					new Response(null, { status: 404 })
+				);
 			}
 
 			if (sessionId && !sessions.has(sessionId)) {

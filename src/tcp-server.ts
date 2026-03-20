@@ -70,7 +70,10 @@ export class PGliteTCPServer {
 	private readonly password: string | null;
 	private server: Server | null = null;
 	private readonly connections = new Map<Socket, ConnectionState>();
-	private readonly probeCache = new Map<string, { name: string; dataTypeID: number }[]>();
+	private readonly probeCache = new Map<
+		string,
+		{ name: string; dataTypeID: number }[]
+	>();
 
 	constructor(pooler: PGlitePooler, password?: string) {
 		this.pooler = pooler;
@@ -115,8 +118,8 @@ export class PGliteTCPServer {
 		});
 
 		return new Promise((resolve, reject) => {
-			this.server!.on("error", reject);
-			this.server!.listen(port, host, () => resolve());
+			this.server?.on("error", reject);
+			this.server?.listen(port, host, () => resolve());
 		});
 	}
 
@@ -191,11 +194,17 @@ export class PGliteTCPServer {
 		return true;
 	}
 
-	private handlePasswordMessage(socket: Socket, state: ConnectionState, body: Buffer): void {
+	private handlePasswordMessage(
+		socket: Socket,
+		state: ConnectionState,
+		body: Buffer,
+	): void {
 		const end = body.indexOf(0);
 		const providedBuf = body.slice(0, end < 0 ? undefined : end);
-		const expectedBuf = Buffer.from(this.password!, "utf8");
-		const mismatch = providedBuf.length !== expectedBuf.length || !timingSafeEqual(providedBuf, expectedBuf);
+		const expectedBuf = Buffer.from(this.password ?? "", "utf8");
+		const mismatch =
+			providedBuf.length !== expectedBuf.length ||
+			!timingSafeEqual(providedBuf, expectedBuf);
 		if (mismatch) {
 			const msg = "password authentication failed";
 			const errPayload = Buffer.concat([
@@ -260,7 +269,9 @@ export class PGliteTCPServer {
 	}
 }
 
-export type MuxRoute = (user: string) => Promise<{ pooler: PGlitePooler; password: string } | null>
+export type MuxRoute = (
+	user: string,
+) => Promise<{ pooler: PGlitePooler; password: string } | null>;
 
 interface MuxConnectionState extends ConnectionState {
 	pooler: PGlitePooler | null;
@@ -286,7 +297,10 @@ function parseStartupParams(buf: Buffer): Record<string, string> {
 export class PGliteTCPMuxServer {
 	private server: Server | null = null;
 	private readonly connections = new Map<Socket, MuxConnectionState>();
-	private readonly probeCaches = new Map<PGlitePooler, Map<string, { name: string; dataTypeID: number }[]>>();
+	private readonly probeCaches = new Map<
+		PGlitePooler,
+		Map<string, { name: string; dataTypeID: number }[]>
+	>();
 
 	constructor(private readonly route: MuxRoute) {}
 
@@ -317,8 +331,8 @@ export class PGliteTCPMuxServer {
 		});
 
 		return new Promise((resolve, reject) => {
-			this.server!.on("error", reject);
-			this.server!.listen(port, host, () => resolve());
+			this.server?.on("error", reject);
+			this.server?.listen(port, host, () => resolve());
 		});
 	}
 
@@ -335,7 +349,10 @@ export class PGliteTCPMuxServer {
 		await this.stop();
 	}
 
-	private async drainMux(socket: Socket, state: MuxConnectionState): Promise<void> {
+	private async drainMux(
+		socket: Socket,
+		state: MuxConnectionState,
+	): Promise<void> {
 		if (state.processing) return;
 		state.processing = true;
 		try {
@@ -363,7 +380,10 @@ export class PGliteTCPMuxServer {
 		}
 	}
 
-	private async handleMuxStartup(socket: Socket, state: MuxConnectionState): Promise<boolean> {
+	private async handleMuxStartup(
+		socket: Socket,
+		state: MuxConnectionState,
+	): Promise<boolean> {
 		if (state.buffer.length < 8) return false;
 		const len = state.buffer.readInt32BE(0);
 		if (state.buffer.length < len) return false;
@@ -382,7 +402,7 @@ export class PGliteTCPMuxServer {
 		if (code === 196608) {
 			const parsedParams = parseStartupParams(paramData);
 
-			const user = parsedParams["user"] ?? "";
+			const user = parsedParams.user ?? "";
 			const route = await this.route(user);
 			if (!route) {
 				const errPayload = Buffer.concat([
@@ -411,11 +431,17 @@ export class PGliteTCPMuxServer {
 		return true;
 	}
 
-	private handleMuxPassword(socket: Socket, state: MuxConnectionState, body: Buffer): void {
+	private handleMuxPassword(
+		socket: Socket,
+		state: MuxConnectionState,
+		body: Buffer,
+	): void {
 		const end = body.indexOf(0);
 		const providedBuf = body.slice(0, end < 0 ? undefined : end);
 		const expectedBuf = Buffer.from(state.password ?? "", "utf8");
-		const mismatch = providedBuf.length !== expectedBuf.length || !timingSafeEqual(providedBuf, expectedBuf);
+		const mismatch =
+			providedBuf.length !== expectedBuf.length ||
+			!timingSafeEqual(providedBuf, expectedBuf);
 		if (mismatch) {
 			const msg = "password authentication failed";
 			const errPayload = Buffer.concat([
@@ -437,12 +463,15 @@ export class PGliteTCPMuxServer {
 		type: number,
 		body: Buffer,
 	): Promise<void> {
-		const pooler = state.pooler!;
-		const probeCache = this.probeCaches.get(pooler) ?? (() => {
-			const m = new Map<string, { name: string; dataTypeID: number }[]>();
-			this.probeCaches.set(pooler, m);
-			return m;
-		})();
+		const pooler = state.pooler;
+		if (!pooler) return;
+		const probeCache =
+			this.probeCaches.get(pooler) ??
+			(() => {
+				const m = new Map<string, { name: string; dataTypeID: number }[]>();
+				this.probeCaches.set(pooler, m);
+				return m;
+			})();
 		if (state.errorState) {
 			if (type === MSG_SYNC) {
 				state.errorState = false;
@@ -486,7 +515,9 @@ export class PGliteTCPMuxServer {
 	}
 }
 
-function readMessage(state: ConnectionState): { type: number; body: Buffer } | null {
+function readMessage(
+	state: ConnectionState,
+): { type: number; body: Buffer } | null {
 	if (state.buffer.length < 5) return null;
 	const len = state.buffer.readInt32BE(1);
 	if (state.buffer.length < 1 + len) return null;
@@ -579,13 +610,14 @@ function buildRowDescriptionBuf(
 	header.writeInt16BE(fields.length, 0);
 	const parts: Buffer[] = [header];
 	for (let idx = 0; idx < fields.length; idx++) {
-		const f = fields[idx]!;
+		const f = fields[idx];
+		if (!f) continue;
 		const fmt = effectiveFormat(f.dataTypeID, resultFormats, idx);
 		parts.push(
 			cstring(f.name),
 			int32(0),
 			int16(0),
-			int32(fmt === 1 ? (f.dataTypeID || OID_TEXT) : OID_TEXT),
+			int32(f.dataTypeID || OID_TEXT),
 			int16(-1),
 			int32(-1),
 			int16(fmt),
@@ -597,7 +629,17 @@ function buildRowDescriptionBuf(
 function pgText(val: unknown): string {
 	if (Array.isArray(val)) {
 		if (val.length === 0) return "{}";
-		return "{" + val.map((v) => v === null ? "NULL" : `"${String(v).replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`).join(",") + "}";
+		return (
+			"{" +
+			val
+				.map((v) =>
+					v === null
+						? "NULL"
+						: `"${String(v).replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`,
+				)
+				.join(",") +
+			"}"
+		);
 	}
 	if (val !== null && typeof val === "object") return JSON.stringify(val);
 	return String(val);
@@ -623,7 +665,9 @@ function encodeBinaryVal(val: unknown, oid: number): Buffer {
 		}
 		case OID_INT8: {
 			const b = Buffer.alloc(8);
-			b.writeBigInt64BE(BigInt(typeof val === "string" ? val : Math.trunc(Number(val))));
+			b.writeBigInt64BE(
+				BigInt(typeof val === "string" ? val : Math.trunc(Number(val))),
+			);
 			return b;
 		}
 		case OID_FLOAT4: {
@@ -640,7 +684,10 @@ function encodeBinaryVal(val: unknown, oid: number): Buffer {
 		case OID_TEXT:
 		case OID_BPCHAR:
 		case OID_VARCHAR:
-			return Buffer.from(typeof val === "object" ? JSON.stringify(val) : String(val), "utf8");
+			return Buffer.from(
+				typeof val === "object" ? JSON.stringify(val) : String(val),
+				"utf8",
+			);
 		case OID_JSONB: {
 			const json = Buffer.from(JSON.stringify(val), "utf8");
 			const b = Buffer.alloc(1 + json.length);
@@ -651,7 +698,9 @@ function encodeBinaryVal(val: unknown, oid: number): Buffer {
 		case OID_BYTEA: {
 			if (val instanceof Uint8Array) return Buffer.from(val);
 			const s = String(val);
-			return s.startsWith("\\x") ? Buffer.from(s.slice(2), "hex") : Buffer.from(s, "utf8");
+			return s.startsWith("\\x")
+				? Buffer.from(s.slice(2), "hex")
+				: Buffer.from(s, "utf8");
 		}
 		case OID_UUID:
 			return Buffer.from(String(val).replace(/-/g, ""), "hex");
@@ -681,20 +730,28 @@ function buildDataRowBuf(
 ): Buffer {
 	const parts: Buffer[] = [int16(fields.length)];
 	for (let idx = 0; idx < fields.length; idx++) {
-		const f = fields[idx]!;
+		const f = fields[idx];
+		if (!f) continue;
 		const val = row[f.name];
 		if (val === null || val === undefined) {
 			parts.push(int32(-1));
 		} else {
 			const fmt = effectiveFormat(f.dataTypeID, resultFormats, idx);
-			const bytes = fmt === 1 ? encodeBinaryVal(val, f.dataTypeID) : Buffer.from(pgText(val), "utf8");
+			const bytes =
+				fmt === 1
+					? encodeBinaryVal(val, f.dataTypeID)
+					: Buffer.from(pgText(val), "utf8");
 			parts.push(int32(bytes.length), bytes);
 		}
 	}
 	return buildMsg(0x44, Buffer.concat(parts));
 }
 
-async function execute(pooler: PGlitePooler, sql: string, params?: (string | null)[]): Promise<QueryResult> {
+async function execute(
+	pooler: PGlitePooler,
+	sql: string,
+	params?: (string | null)[],
+): Promise<QueryResult> {
 	if (/pg_stat_statements/i.test(sql)) return { rows: [], fields: [] };
 	try {
 		return await pooler.query(sql, params);
@@ -720,14 +777,22 @@ async function onSimpleQuery(
 ): Promise<void> {
 	const sql = body.slice(0, -1).toString("utf8");
 	if (!sql.trim()) {
-		socket.write(Buffer.concat([buildMsg(0x49, Buffer.alloc(0)), buildReadyForQuery(state.txStatus)]));
+		socket.write(
+			Buffer.concat([
+				buildMsg(0x49, Buffer.alloc(0)),
+				buildReadyForQuery(state.txStatus),
+			]),
+		);
 		return;
 	}
 	const bufs: Buffer[] = [];
 	let errorOccurred = false;
 	try {
 		const result = await execute(pooler, sql);
-		const { rows, fields } = result as { rows: Record<string, unknown>[]; fields?: { name: string; dataTypeID: number }[] };
+		const { rows, fields } = result as {
+			rows: Record<string, unknown>[];
+			fields?: { name: string; dataTypeID: number }[];
+		};
 		if (fields && fields.length > 0) {
 			bufs.push(buildRowDescriptionBuf(fields));
 			for (const row of rows ?? []) bufs.push(buildDataRowBuf(row, fields));
@@ -761,7 +826,10 @@ async function onParse(
 			fields = probeCache.get(probeQuery);
 		} else {
 			try {
-				const r = await execute(pooler, `SELECT * FROM (${probeQuery}) AS _probe LIMIT 0`);
+				const r = await execute(
+					pooler,
+					`SELECT * FROM (${probeQuery}) AS _probe LIMIT 0`,
+				);
 				fields = (r.fields ?? []) as { name: string; dataTypeID: number }[];
 			} catch {
 				fields = [];
@@ -817,7 +885,7 @@ async function onBind(
 
 	const query = state.statements.get(stmtName)?.query ?? "";
 
-	let result: QueryResult | null = null;
+	let result: QueryResult;
 	try {
 		result = await execute(pooler, query, params.length ? params : undefined);
 		updateTxStatus(state, query, false);
@@ -828,11 +896,21 @@ async function onBind(
 		return;
 	}
 
-	state.portals.set(portalName, { query, params, result: result!, offset: 0, resultFormats });
+	state.portals.set(portalName, {
+		query,
+		params,
+		result,
+		offset: 0,
+		resultFormats,
+	});
 	socket.write(buildMsg(0x32, Buffer.alloc(0)));
 }
 
-function onDescribe(socket: Socket, state: ConnectionState, body: Buffer): void {
+function onDescribe(
+	socket: Socket,
+	state: ConnectionState,
+	body: Buffer,
+): void {
 	const kind = body[0];
 	if (kind === 0x53) {
 		const stmtName = body.slice(1, body.indexOf(0, 1)).toString();
@@ -850,11 +928,16 @@ function onDescribe(socket: Socket, state: ConnectionState, body: Buffer): void 
 	} else if (kind === 0x50) {
 		const portalName = body.slice(1, body.indexOf(0, 1)).toString();
 		if (!state.portals.has(portalName)) {
-			socket.write(buildError(new Error(`portal "${portalName}" does not exist`)));
+			socket.write(
+				buildError(new Error(`portal "${portalName}" does not exist`)),
+			);
 			return;
 		}
-		const portal = state.portals.get(portalName)!;
-		const fields = portal.result?.fields as { name: string; dataTypeID: number }[] | undefined;
+		const portal = state.portals.get(portalName);
+		if (!portal) return;
+		const fields = portal.result?.fields as
+			| { name: string; dataTypeID: number }[]
+			| undefined;
 		if (fields && fields.length > 0) {
 			socket.write(buildRowDescriptionBuf(fields, portal.resultFormats));
 		} else {
@@ -871,21 +954,30 @@ function onExecute(socket: Socket, state: ConnectionState, body: Buffer): void {
 
 	const bufs: Buffer[] = [];
 	if (portal) {
-		const { rows, fields } = portal.result as { rows: Record<string, unknown>[]; fields?: { name: string; dataTypeID: number }[] };
+		const { rows, fields } = portal.result as {
+			rows: Record<string, unknown>[];
+			fields?: { name: string; dataTypeID: number }[];
+		};
 		const allRows = rows ?? [];
 		const start = portal.offset;
-		const chunk = rowLimit > 0 ? allRows.slice(start, start + rowLimit) : allRows.slice(start);
+		const chunk =
+			rowLimit > 0
+				? allRows.slice(start, start + rowLimit)
+				: allRows.slice(start);
 		const hasMore = rowLimit > 0 && start + rowLimit < allRows.length;
 
 		if (fields && fields.length > 0) {
-			for (const row of chunk) bufs.push(buildDataRowBuf(row, fields, portal.resultFormats));
+			for (const row of chunk)
+				bufs.push(buildDataRowBuf(row, fields, portal.resultFormats));
 		}
 
 		if (hasMore) {
 			portal.offset = start + rowLimit;
 			bufs.push(buildMsg(0x73, Buffer.alloc(0)));
 		} else {
-			bufs.push(buildMsg(0x43, cstring(commandTag(portal.query, chunk.length))));
+			bufs.push(
+				buildMsg(0x43, cstring(commandTag(portal.query, chunk.length))),
+			);
 		}
 	} else {
 		bufs.push(buildMsg(0x43, cstring("OK")));
@@ -893,7 +985,11 @@ function onExecute(socket: Socket, state: ConnectionState, body: Buffer): void {
 	socket.write(Buffer.concat(bufs));
 }
 
-function updateTxStatus(state: ConnectionState, sql: string, didError: boolean): void {
+function updateTxStatus(
+	state: ConnectionState,
+	sql: string,
+	didError: boolean,
+): void {
 	const s = sql.trimStart().slice(0, 20).toUpperCase();
 	if (didError && state.txStatus === "T") {
 		state.txStatus = "E";
@@ -909,9 +1005,23 @@ function updateTxStatus(state: ConnectionState, sql: string, didError: boolean):
 }
 
 const BINARY_OIDS = new Set([
-	OID_BOOL, OID_BYTEA, OID_INT8, OID_INT2, OID_INT4, OID_TEXT, OID_OID,
-	OID_JSON, OID_FLOAT4, OID_FLOAT8, OID_BPCHAR, OID_VARCHAR, OID_DATE,
-	OID_TIMESTAMP, OID_TIMESTAMPTZ, OID_UUID, OID_JSONB,
+	OID_BOOL,
+	OID_BYTEA,
+	OID_INT8,
+	OID_INT2,
+	OID_INT4,
+	OID_TEXT,
+	OID_OID,
+	OID_JSON,
+	OID_FLOAT4,
+	OID_FLOAT8,
+	OID_BPCHAR,
+	OID_VARCHAR,
+	OID_DATE,
+	OID_TIMESTAMP,
+	OID_TIMESTAMPTZ,
+	OID_UUID,
+	OID_JSONB,
 ]);
 
 function effectiveFormat(oid: number, formats: number[], idx: number): 0 | 1 {
@@ -920,10 +1030,13 @@ function effectiveFormat(oid: number, formats: number[], idx: number): 0 | 1 {
 	return requested === 1 && BINARY_OIDS.has(oid) ? 1 : 0;
 }
 
-function walkSql(sql: string, callbacks: {
-	onStatement?: (stmt: string) => void;
-	onParam?: (index: number) => void;
-}): string {
+function walkSql(
+	sql: string,
+	callbacks: {
+		onStatement?: (stmt: string) => void;
+		onParam?: (index: number) => void;
+	},
+): string {
 	let result = "";
 	let current = "";
 	let i = 0;
@@ -949,8 +1062,14 @@ function walkSql(sql: string, callbacks: {
 		if (sql[i] === "'") {
 			let j = i + 1;
 			while (j < sql.length) {
-				if (sql[j] === "'" && sql[j + 1] === "'") { j += 2; continue; }
-				if (sql[j] === "'") { j++; break; }
+				if (sql[j] === "'" && sql[j + 1] === "'") {
+					j += 2;
+					continue;
+				}
+				if (sql[j] === "'") {
+					j++;
+					break;
+				}
 				j++;
 			}
 			const slice = sql.slice(i, j);
@@ -962,9 +1081,10 @@ function walkSql(sql: string, callbacks: {
 		if (sql[i] === "$") {
 			if (callbacks.onParam) {
 				let j = i + 1;
-				while (j < sql.length && (sql[j] ?? "") >= "0" && (sql[j] ?? "") <= "9") j++;
+				while (j < sql.length && (sql[j] ?? "") >= "0" && (sql[j] ?? "") <= "9")
+					j++;
 				if (j > i + 1) {
-					callbacks.onParam(parseInt(sql.slice(i + 1, j)));
+					callbacks.onParam(parseInt(sql.slice(i + 1, j), 10));
 					result += "NULL";
 					i = j;
 					continue;
@@ -1011,7 +1131,9 @@ function splitStatements(sql: string): string[] {
 function scanQuery(query: string): { paramCount: number; probeQuery: string } {
 	let max = 0;
 	const probeQuery = walkSql(query, {
-		onParam: (index) => { max = Math.max(max, index); },
+		onParam: (index) => {
+			max = Math.max(max, index);
+		},
 	});
 	return { paramCount: max, probeQuery };
 }

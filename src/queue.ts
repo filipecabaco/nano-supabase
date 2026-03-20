@@ -30,7 +30,9 @@ export class PriorityQueue {
 			throw new Error(`Invalid priority: ${query.priority}`);
 		}
 		if (this._size >= this.maxSize) {
-			throw new Error(`Queue is full (size: ${this._size}, max: ${this.maxSize})`);
+			throw new Error(
+				`Queue is full (size: ${this._size}, max: ${this.maxSize})`,
+			);
 		}
 		this.queues[query.priority].push(query);
 		this._size++;
@@ -47,11 +49,13 @@ export class PriorityQueue {
 			const queue = this.queues[p as 0 | 1 | 2 | 3];
 			const head = this.heads[p as 0 | 1 | 2 | 3];
 			if (head < queue.length) {
-				const item = queue[head]!;
+				const item = queue[head] ?? null;
 				this.heads[p as 0 | 1 | 2 | 3]++;
 				this._size--;
 				if (this.heads[p as 0 | 1 | 2 | 3] > queue.length / 2) {
-					this.queues[p as 0 | 1 | 2 | 3] = queue.slice(this.heads[p as 0 | 1 | 2 | 3]);
+					this.queues[p as 0 | 1 | 2 | 3] = queue.slice(
+						this.heads[p as 0 | 1 | 2 | 3],
+					);
 					this.heads[p as 0 | 1 | 2 | 3] = 0;
 				}
 				return item;
@@ -70,8 +74,11 @@ export class PriorityQueue {
 			const upperQueue = this.queues[PROMOTION[priority]];
 
 			for (let i = head; i < queue.length; i++) {
-				const query = queue[i]!;
-				if (now - query.enqueuedAt > this.agingThresholdMs) {
+				const query = queue[i];
+				if (
+					query !== undefined &&
+					now - query.enqueuedAt > this.agingThresholdMs
+				) {
 					query.priority = PROMOTION[priority];
 					upperQueue.push(query);
 					(queue as (QueuedQuery | null)[])[i] = null;
@@ -83,7 +90,7 @@ export class PriorityQueue {
 				const remaining: QueuedQuery[] = [];
 				for (let i = head; i < queue.length; i++) {
 					const q = (queue as (QueuedQuery | null)[])[i];
-					if (q !== null) remaining.push(q!);
+					if (q !== null && q !== undefined) remaining.push(q);
 				}
 				this.queues[priority] = remaining;
 				this.heads[priority] = 0;
@@ -100,7 +107,10 @@ export class PriorityQueue {
 		for (let p = 0; p < 4; p++) {
 			const queue = this.queues[p as 0 | 1 | 2 | 3];
 			const head = this.heads[p as 0 | 1 | 2 | 3];
-			for (let i = head; i < queue.length; i++) all.push(queue[i]!);
+			for (let i = head; i < queue.length; i++) {
+				const item = queue[i];
+				if (item !== undefined) all.push(item);
+			}
 			this.queues[p as 0 | 1 | 2 | 3] = [];
 			this.heads[p as 0 | 1 | 2 | 3] = 0;
 		}

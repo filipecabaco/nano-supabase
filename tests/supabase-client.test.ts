@@ -167,10 +167,7 @@ describe("Supabase Client", () => {
 
 		const client = await createSupabaseClient(db);
 
-		const { data, error } = await client
-			.from("users")
-			.delete()
-			.eq("name", "Alice");
+		const { error } = await client.from("users").delete().eq("name", "Alice");
 
 		assertEquals(error, null);
 

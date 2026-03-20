@@ -58,8 +58,8 @@ describe("Storage", () => {
 
 		assertEquals(listError, null);
 		assertExists(listData);
-		assertEquals(listData!.length, 1);
-		assertEquals(listData![0]!.name, "hello.txt");
+		assertEquals(listData?.length, 1);
+		assertEquals(listData?.[0]?.name, "hello.txt");
 
 		const { data: downloadData, error: downloadError } = await supabase.storage
 			.from("user-files")
@@ -67,7 +67,7 @@ describe("Storage", () => {
 
 		assertEquals(downloadError, null);
 		assertExists(downloadData);
-		const text = await downloadData!.text();
+		const text = await downloadData?.text();
 		assertEquals(text, "Hello from supabase-js!");
 
 		const { data: removeData, error: removeError } = await supabase.storage
@@ -121,13 +121,13 @@ describe("Storage", () => {
 		// Root listing: should show folder "a" and file "root.txt"
 		const { data: root } = await supabase.storage.from("nav-bucket").list("");
 		assertExists(root);
-		const rootNames = root!.map((o) => o.name).sort();
+		const rootNames = root?.map((o) => o.name).sort();
 		assertEquals(rootNames, ["a", "root.txt"]);
 
 		// One level deep: list "a" — should show folder "b" and file "shallow.txt"
 		const { data: inA } = await supabase.storage.from("nav-bucket").list("a");
 		assertExists(inA);
-		const inANames = inA!.map((o) => o.name).sort();
+		const inANames = inA?.map((o) => o.name).sort();
 		assertEquals(inANames, ["b", "shallow.txt"]);
 
 		// Two levels deep: list "a/b" — should show file "deep.txt"
@@ -135,8 +135,8 @@ describe("Storage", () => {
 			.from("nav-bucket")
 			.list("a/b");
 		assertExists(inAB);
-		assertEquals(inAB!.length, 1);
-		assertEquals(inAB![0]!.name, "deep.txt");
+		assertEquals(inAB?.length, 1);
+		assertEquals(inAB?.[0]?.name, "deep.txt");
 
 		await db.close();
 	});
@@ -182,19 +182,19 @@ describe("Storage", () => {
 			.download("a/b/c/deep.txt");
 		assertEquals(de, null);
 		assertExists(deepFile);
-		assertEquals(await deepFile!.text(), "deep content");
+		assertEquals(await deepFile?.text(), "deep content");
 
 		const { data: midFile } = await supabase.storage
 			.from("nested-bucket")
 			.download("a/b/mid.txt");
 		assertExists(midFile);
-		assertEquals(await midFile!.text(), "mid content");
+		assertEquals(await midFile?.text(), "mid content");
 
 		const { data: topFile } = await supabase.storage
 			.from("nested-bucket")
 			.download("a/top.txt");
 		assertExists(topFile);
-		assertEquals(await topFile!.text(), "top content");
+		assertEquals(await topFile?.text(), "top content");
 
 		await db.close();
 	});
@@ -235,8 +235,8 @@ describe("Storage", () => {
 			.from("move-bucket")
 			.list("folder-b");
 		assertExists(atNew);
-		assertEquals(atNew!.length, 1);
-		assertEquals(atNew![0]!.name, "file.txt");
+		assertEquals(atNew?.length, 1);
+		assertEquals(atNew?.[0]?.name, "file.txt");
 
 		await db.close();
 	});
@@ -283,7 +283,7 @@ describe("Storage", () => {
 			.from("rm-bucket")
 			.list("keep");
 		assertExists(afterKeep);
-		assertEquals(afterKeep!.length, 1);
+		assertEquals(afterKeep?.length, 1);
 
 		await db.close();
 	});
@@ -364,7 +364,7 @@ describe("Storage", () => {
 		assertEquals(signedError, null);
 		assertExists(signedData?.signedUrl);
 
-		const downloadRes = await localFetch(signedData!.signedUrl, {
+		const downloadRes = await localFetch(signedData?.signedUrl, {
 			method: "GET",
 		});
 
@@ -446,7 +446,7 @@ describe("Storage", () => {
 			.from("user-uploads")
 			.list("");
 		assertExists(listB);
-		assertEquals(listB!.length >= 2, true);
+		assertEquals(listB?.length >= 2, true);
 
 		await db.close();
 	});
@@ -478,8 +478,8 @@ describe("Storage", () => {
 			await supabase.storage.listBuckets();
 		assertEquals(listErr, null);
 		assertExists(buckets);
-		assertEquals(buckets!.length >= 1, true);
-		const found = buckets!.find(
+		assertEquals(buckets?.length >= 1, true);
+		const found = buckets?.find(
 			(b: { name: string }) => b.name === "test-bucket",
 		);
 		assertExists(found);
@@ -488,8 +488,8 @@ describe("Storage", () => {
 			await supabase.storage.getBucket("test-bucket");
 		assertEquals(getErr, null);
 		assertExists(bucket);
-		assertEquals(bucket!.name, "test-bucket");
-		assertEquals(bucket!.public, false);
+		assertEquals(bucket?.name, "test-bucket");
+		assertEquals(bucket?.public, false);
 
 		const { error: updateErr } = await supabase.storage.updateBucket(
 			"test-bucket",
@@ -498,7 +498,7 @@ describe("Storage", () => {
 		assertEquals(updateErr, null);
 
 		const { data: updated } = await supabase.storage.getBucket("test-bucket");
-		assertEquals(updated!.public, true);
+		assertEquals(updated?.public, true);
 
 		const { error: emptyErr } =
 			await supabase.storage.emptyBucket("test-bucket");
@@ -539,15 +539,15 @@ describe("Storage", () => {
 				contentType: "text/plain",
 			});
 
-		const info = await storageHandler!.getObjectInfo(
+		const info = await storageHandler?.getObjectInfo(
 			"info-bucket",
 			"docs/readme.txt",
 		);
 		assertExists(info);
-		assertEquals(info!.bucket_id, "info-bucket");
-		assertEquals(info!.name, "docs/readme.txt");
+		assertEquals(info?.bucket_id, "info-bucket");
+		assertEquals(info?.name, "docs/readme.txt");
 
-		const missing = await storageHandler!.getObjectInfo(
+		const missing = await storageHandler?.getObjectInfo(
 			"info-bucket",
 			"does/not/exist.txt",
 		);
@@ -580,19 +580,19 @@ describe("Storage", () => {
 				contentType: "text/plain",
 			});
 
-		const token = await storageHandler!.createSignedUrl(
+		const token = await storageHandler?.createSignedUrl(
 			"signed-bucket",
 			"file.txt",
 			3600,
 		);
 		assertExists(token);
 
-		const payload = await storageHandler!.verifySignedUrl(token);
+		const payload = await storageHandler?.verifySignedUrl(token);
 		assertExists(payload);
-		assertEquals(payload!.bucket_id, "signed-bucket");
-		assertEquals(payload!.object_name, "file.txt");
+		assertEquals(payload?.bucket_id, "signed-bucket");
+		assertEquals(payload?.object_name, "file.txt");
 
-		const nullResult = await storageHandler!.verifySignedUrl("invalid.token");
+		const nullResult = await storageHandler?.verifySignedUrl("invalid.token");
 		assertEquals(nullResult, null);
 
 		await db.close();
@@ -632,7 +632,7 @@ describe("Storage", () => {
 			.from("files")
 			.download("copy.txt");
 		assertExists(copyDownload);
-		assertEquals(await copyDownload!.text(), "original content");
+		assertEquals(await copyDownload?.text(), "original content");
 
 		const { error: moveErr } = await supabase.storage
 			.from("files")
@@ -643,7 +643,7 @@ describe("Storage", () => {
 			.from("files")
 			.download("moved.txt");
 		assertExists(movedDownload);
-		assertEquals(await movedDownload!.text(), "original content");
+		assertEquals(await movedDownload?.text(), "original content");
 
 		const { error: goneErr } = await supabase.storage
 			.from("files")

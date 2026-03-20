@@ -19,7 +19,7 @@ export { AUTH_SCHEMA_SQL, type AuthChangeEvent, type AuthError, AuthHandler, typ
 export { decodeJWT, type JWTPayload, signJWT, verifyJWT } from "./auth/jwt.ts";
 export { createFetchAdapter, createLocalSupabaseClient, initializeAuth, type LocalSupabaseClientConfig, type LocalSupabaseClientResult, } from "./client.ts";
 export { type AuthContext, clearAuthContext, setAuthContext, } from "./fetch-adapter/auth-context.ts";
-export { type ApiError, postgresErrorResponse, extractPostgresError, type PostgresError, } from "./fetch-adapter/error-handler.ts";
+export { type ApiError, extractPostgresError, type PostgresError, postgresErrorResponse, } from "./fetch-adapter/error-handler.ts";
 export { createLocalFetch, type FetchAdapterConfig, handleAuthRoute, handleDataRoute, handleStorageRoute, } from "./fetch-adapter/index.ts";
 export { createClient, type NanoSupabaseInstance, type NanoSupabaseOptions, nanoSupabase, } from "./nano.ts";
 export { createPGlite, LEAN_POSTGRES_OPTIONS } from "./pglite-factory.ts";
@@ -30,7 +30,7 @@ export { PriorityQueue } from "./queue.ts";
 export { type BlobMetadata, type CreateBucketOptions, MemoryStorageBackend, type SignedUrlToken, STORAGE_SCHEMA_SQL, type StorageBackend, type StorageBucket, StorageHandler, type StorageObject, } from "./storage/index.ts";
 export type { QueryBuilder } from "./supabase-client.ts";
 export { createSupabaseClient, SupabaseClient } from "./supabase-client.ts";
-export { PGliteTCPMuxServer, PGliteTCPServer, type MuxRoute, type TCPServerOptions } from "./tcp-server.ts";
+export { type MuxRoute, PGliteTCPMuxServer, PGliteTCPServer, type TCPServerOptions, } from "./tcp-server.ts";
 export type { PoolerConfig, QueryResult, QueuedQuery, QueueMetrics, } from "./types.ts";
 export { QueryPriority } from "./types.ts";
 //# sourceMappingURL=index.d.ts.map

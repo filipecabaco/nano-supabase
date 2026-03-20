@@ -230,7 +230,9 @@ export function extractBearerToken(headers: Headers): string | null {
 	return auth.slice(7);
 }
 
-export async function parseBody(request: Request): Promise<Record<string, unknown>> {
+export async function parseBody(
+	request: Request,
+): Promise<Record<string, unknown>> {
 	try {
 		const text = await request.text();
 		if (!text) return {};

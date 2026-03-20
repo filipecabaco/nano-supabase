@@ -8,7 +8,15 @@ const rootDir = join(__dirname, "..");
 
 const target = process.argv[2];
 
-const NODE_EXTERNALS = ["node:*", "net", "tls", "crypto", "node:net", "node:tls", "node:crypto"];
+const NODE_EXTERNALS = [
+	"node:*",
+	"net",
+	"tls",
+	"crypto",
+	"node:net",
+	"node:tls",
+	"node:crypto",
+];
 
 const commonOptions = {
 	bundle: true,
@@ -30,7 +38,9 @@ async function buildLib() {
 		entryPoints: [join(rootDir, "src/index.ts")],
 		outfile: join(rootDir, "dist/index.js"),
 	});
-	console.log(`  dist/index.js  ${(await import("node:fs")).statSync(join(rootDir, "dist/index.js")).size / 1024 | 0}KB`);
+	console.log(
+		`  dist/index.js  ${((await import("node:fs")).statSync(join(rootDir, "dist/index.js")).size / 1024) | 0}KB`,
+	);
 }
 
 async function buildCli() {
@@ -46,15 +56,27 @@ async function buildCli() {
 	chmodSync(join(rootDir, "dist/cli.js"), 0o755);
 
 	const pgliteDistDir = join(rootDir, "node_modules/@electric-sql/pglite/dist");
-	for (const file of ["pglite.wasm", "initdb.wasm", "pglite.data", "pgcrypto.tar.gz", "uuid-ossp.tar.gz"]) {
+	for (const file of [
+		"pglite.wasm",
+		"initdb.wasm",
+		"pglite.data",
+		"pgcrypto.tar.gz",
+		"uuid-ossp.tar.gz",
+	]) {
 		copyFileSync(join(pgliteDistDir, file), join(rootDir, "dist", file));
 	}
 	copyFileSync(
 		join(rootDir, "node_modules/postgrest-parser/pkg/postgrest_parser_bg.wasm"),
 		join(rootDir, "dist/postgrest_parser_bg.wasm"),
 	);
-	cpSync(join(rootDir, "src/service-migrations"), join(rootDir, "dist/service-migrations"), { recursive: true });
-	console.log(`  dist/cli.js    ${(await import("node:fs")).statSync(join(rootDir, "dist/cli.js")).size / 1024 | 0}KB`);
+	cpSync(
+		join(rootDir, "src/service-migrations"),
+		join(rootDir, "dist/service-migrations"),
+		{ recursive: true },
+	);
+	console.log(
+		`  dist/cli.js    ${((await import("node:fs")).statSync(join(rootDir, "dist/cli.js")).size / 1024) | 0}KB`,
+	);
 }
 
 async function build() {

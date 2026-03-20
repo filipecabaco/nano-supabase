@@ -567,7 +567,7 @@ export class StorageHandler {
 		const [payloadB64, sigB64] = parts;
 
 		try {
-			const payloadStr = atob(fromUrlSafeBase64(payloadB64!));
+			const payloadStr = atob(fromUrlSafeBase64(payloadB64 ?? ""));
 			const payload: SignedUrlToken = JSON.parse(payloadStr);
 
 			if (payload.exp < Math.floor(Date.now() / 1000)) return null;
@@ -586,8 +586,9 @@ export class StorageHandler {
 				["verify"],
 			);
 
-			const sigBytes = Uint8Array.from(atob(fromUrlSafeBase64(sigB64!)), (c) =>
-				c.charCodeAt(0),
+			const sigBytes = Uint8Array.from(
+				atob(fromUrlSafeBase64(sigB64 ?? "")),
+				(c) => c.charCodeAt(0),
 			);
 			const valid = await crypto.subtle.verify(
 				"HMAC",

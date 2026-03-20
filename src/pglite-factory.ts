@@ -37,8 +37,13 @@ export function createPGlite(
 
 export const LEAN_POSTGRES_OPTIONS: Pick<PGliteOptions, "startParams"> = {
 	startParams: [
-		"--single", "-F", "-O", "-j",
-		"-c", "shared_buffers=128kB",
-		"-c", "work_mem=64kB",
+		"--single",
+		"-F",
+		"-O",
+		"-j",
+		"-c",
+		"shared_buffers=128kB",
+		"-c",
+		"work_mem=64kB",
 	],
 };

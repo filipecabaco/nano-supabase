@@ -1168,7 +1168,7 @@ describe("initializeAuth", () => {
 
 		assertEquals(result.error, null);
 		assertExists(result.data.user);
-		assertEquals(result.data.user!.email, "initauth@example.com");
+		assertEquals(result.data.user?.email, "initauth@example.com");
 
 		await db.close();
 	});
@@ -1184,7 +1184,7 @@ describe("initializeAuth", () => {
 		assertExists(result.data.user);
 
 		const userResult = await handler1.getUser(
-			result.data.session!.access_token,
+			result.data.session?.access_token,
 		);
 		assertEquals(userResult.error, null);
 		assertEquals(userResult.data.user?.email, "idempotent@example.com");
@@ -1344,7 +1344,7 @@ describe("Fetch RLS", () => {
 			"password123",
 		);
 		const accessToken = signUpResult.data.session?.access_token;
-		const userId = signUpResult.data.user?.id;
+		const _userId = signUpResult.data.user?.id;
 
 		// Create a table that uses auth.uid()
 		await db.exec(`
@@ -1355,7 +1355,7 @@ describe("Fetch RLS", () => {
   `);
 
 		// Insert using auth.uid()
-		const insertResponse = await localFetch(
+		const _insertResponse = await localFetch(
 			`${SUPABASE_URL}/rest/v1/rpc/test_insert_auth_uid`,
 			{
 				method: "POST",

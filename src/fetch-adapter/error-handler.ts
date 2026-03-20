@@ -38,7 +38,10 @@ export function extractPostgresError(err: unknown): ApiError {
 /**
  * Create JSON error response
  */
-export function postgresErrorResponse(err: unknown, status: number = 400): Response {
+export function postgresErrorResponse(
+	err: unknown,
+	status: number = 400,
+): Response {
 	const apiError = extractPostgresError(err);
 	return new Response(JSON.stringify(apiError), {
 		status,

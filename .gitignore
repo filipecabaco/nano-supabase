@@ -56,6 +56,10 @@ PLAN.md
 examples/prisma/client/
 .npmrc
 
+# Local PGlite data directories
+*.nano-supabase-data/
+mydb/
+
 # CLI build artifacts (binaries are built by CI on release, not stored in git)
 dist/nano-supabase
 dist/nano-supabase-*
