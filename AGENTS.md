@@ -208,6 +208,7 @@ Service mode runs nano-supabase as a multi-tenant HTTP gateway. Each tenant gets
 ```bash
 npx nano-supabase service \
   --admin-token=<secret> \
+  --secret=<encryption-secret> \
   --service-port=8080 \
   --data-dir=./service-data \
   --cold-dir=./service-cold \
@@ -219,6 +220,7 @@ npx nano-supabase service \
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--admin-token` | required | Bearer token for admin API |
+| `--secret` | required | Master encryption secret for tenant passwords at rest (AES-256-GCM). Also via `NANO_SECRET` env var. |
 | `--registry-db-url` | required | Postgres connection URL for tenant registry (or `NANO_REGISTRY_DB_URL` env). Must be an external Postgres — decoupled from tenant instances so a fleet of service nodes can share it. |
 | `--service-port` | `8080` | HTTP port |
 | `--data-dir` | `/tmp/nano-service-data` | Base directory for tenant data directories |
@@ -250,7 +252,7 @@ curl -X POST http://localhost:8080/admin/tenants \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"slug": "acme"}'
-# → { "token": "<tenant-token>", "tenant": { "id": "...", "slug": "acme", "state": "running" } }
+# → { "token": "<tenant-token>", "password": "<postgres-password>", "tenant": { "id": "...", "slug": "acme", "state": "running" } }
 
 # Use tenant (supabase-compatible endpoint)
 curl -X POST http://localhost:8080/acme/auth/v1/signup \
@@ -329,3 +331,9 @@ Prisma: `DATABASE_URL=postgresql://postgres@127.0.0.1:5432/postgres?sslmode=disa
 **Library**: Node.js, Deno, Bun, browsers, Cloudflare Workers, Vercel Edge. Uses Web Crypto API only.
 
 **CLI**: Node.js 18+ (Bun also supported for local use).
+
+## Known Limitations
+
+- `PostgrestParser` uses a static `initPromise` and global WASM schema state. In service mode, tenants with different schemas share one parser — only the first schema introspected is used. This is a WASM binding constraint.
+- `PGlitePooler` timeout does not cancel the underlying PGlite query (PGlite has no query cancellation API). A timed-out query continues running and blocks the queue until it finishes.
+- `TcpServer` (exported from the library) uses `node:net` and `node:buffer` — it is Node.js-only and will not work in browser, Deno, or edge runtimes.

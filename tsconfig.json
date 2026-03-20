@@ -39,6 +39,9 @@
 		"dist",
 		"**/*.test.ts",
 		"src/cli.ts",
-		"src/cli-commands.ts"
+		"src/cli-commands.ts",
+		"src/cli-server.ts",
+		"src/cli-service.ts",
+		"src/cli-display.ts"
 	]
 }

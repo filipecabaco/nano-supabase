@@ -60,7 +60,7 @@ function authError(message: string, status: number, code?: string): AuthError {
  * Auth handler class
  */
 export class AuthHandler {
-	private db: PGlite;
+	private readonly db: PGlite;
 	private initPromise: Promise<unknown> | null = null;
 	private subscriptions = new Map<string, AuthStateChangeCallback>();
 	private currentSession: Session | null = null;
@@ -639,31 +639,31 @@ export class AuthHandler {
 		await this.initialize();
 		const updates: string[] = [];
 		const params: unknown[] = [];
-		let i = 1;
+		let paramIndex = 1;
 		if (attrs.email !== undefined) {
-			updates.push(`email = $${i++}`);
+			updates.push(`email = $${paramIndex++}`);
 			params.push(attrs.email);
 		}
 		if (attrs.phone !== undefined) {
-			updates.push(`phone = $${i++}`);
+			updates.push(`phone = $${paramIndex++}`);
 			params.push(attrs.phone);
 		}
 		if (attrs.password) {
-			updates.push(`encrypted_password = auth.hash_password($${i++})`);
+			updates.push(`encrypted_password = auth.hash_password($${paramIndex++})`);
 			params.push(attrs.password);
 		}
 		if (attrs.user_metadata) {
-			updates.push(`raw_user_meta_data = raw_user_meta_data || $${i++}::jsonb`);
+			updates.push(`raw_user_meta_data = raw_user_meta_data || $${paramIndex++}::jsonb`);
 			params.push(JSON.stringify(attrs.user_metadata));
 		}
 		if (attrs.app_metadata) {
-			updates.push(`raw_app_meta_data = raw_app_meta_data || $${i++}::jsonb`);
+			updates.push(`raw_app_meta_data = raw_app_meta_data || $${paramIndex++}::jsonb`);
 			params.push(JSON.stringify(attrs.app_metadata));
 		}
 		if (attrs.ban_duration === "none") {
 			updates.push("banned_until = NULL");
 		} else if (attrs.ban_duration) {
-			updates.push(`banned_until = NOW() + $${i++}::interval`);
+			updates.push(`banned_until = NOW() + $${paramIndex++}::interval`);
 			params.push(attrs.ban_duration);
 		}
 		if (attrs.email_confirm) {
@@ -673,7 +673,7 @@ export class AuthHandler {
 		updates.push("updated_at = NOW()");
 		params.push(id);
 		const result = await this.db.query<StoredUser>(
-			`UPDATE auth.users SET ${updates.join(", ")} WHERE id = $${i} RETURNING *`,
+			`UPDATE auth.users SET ${updates.join(", ")} WHERE id = $${paramIndex} RETURNING *`,
 			params,
 		);
 		const user = result.rows[0];
@@ -705,7 +705,21 @@ export class AuthHandler {
 	/**
 	 * Verify access token and return payload
 	 */
-	async verifyToken(accessToken: string) {
+	async verifyToken(accessToken: string): Promise<{
+		valid: boolean;
+		payload?: {
+			sub: string;
+			aud: string;
+			role: string;
+			email?: string;
+			session_id: string;
+			iat: number;
+			exp: number;
+			user_metadata: Record<string, unknown>;
+			app_metadata: Record<string, unknown>;
+		};
+		error?: string;
+	}> {
 		return verifyAccessToken(this.db, accessToken);
 	}
 }

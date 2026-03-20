@@ -39,27 +39,27 @@ defmodule LoadTest do
 
   def setup_tenant(slug) do
     resp = admin(:post, "/admin/tenants", %{slug: slug})
-    {token, info} = case resp.status do
-      201 -> {resp.body["token"], resp.body["tenant"]}
+    {token, password, info} = case resp.status do
+      201 -> {resp.body["token"], resp.body["password"], resp.body["tenant"]}
       409 ->
-        tok = admin(:post, "/admin/tenants/#{slug}/reset-token").body["token"]
+        reset = admin(:post, "/admin/tenants/#{slug}/reset-token")
         ensure_running(slug)
-        {tok, admin(:get, "/admin/tenants/#{slug}").body}
+        {reset.body["token"], reset.body["password"] || "", admin(:get, "/admin/tenants/#{slug}").body}
     end
     tcp_port = info["tcpPort"]
     IO.puts("  #{String.pad_trailing(slug, 12)}  pg=#{info["pgUrl"]}")
-    conn = connect_postgrex(tcp_port)
+    conn = connect_postgrex(tcp_port, password)
     setup_schema(conn, slug)
-    {slug, token, tcp_port, conn}
+    {slug, token, tcp_port, password, conn}
   end
 
-  def connect_postgrex(port, retries \\ 5) do
+  def connect_postgrex(port, password \\ "", retries \\ 5) do
     case Postgrex.start_link(hostname: @pg_host, port: port, username: "postgres",
-           database: "postgres", password: "", ssl: false, pool_size: 4,
+           database: "postgres", password: password || "", ssl: false, pool_size: 4,
            queue_target: 15_000, queue_interval: 15_000) do
       {:ok, conn} -> conn
       {:error, _} when retries > 0 ->
-        Process.sleep(1000); connect_postgrex(port, retries - 1)
+        Process.sleep(1000); connect_postgrex(port, password, retries - 1)
       {:error, e} -> raise e
     end
   end
@@ -231,8 +231,8 @@ defmodule LoadTest do
   end
 
   # Per-tenant worker: runs indefinitely, sends stats every @report_every_s seconds
-  def run_worker(slug, token, tcp_port, stats_pid) do
-    conn = connect_postgrex(tcp_port)
+  def run_worker(slug, token, tcp_port, password, stats_pid) do
+    conn = connect_postgrex(tcp_port, password)
     all_ops = ops(conn, slug, token)
     interval_ms = div(1000, @rps)
     ok  = :counters.new(1, [:atomics])
@@ -282,7 +282,7 @@ defmodule LoadTest do
 
   # Stats aggregator — waits for one report per tenant per epoch
   def stats_loop(tenants, epoch \\ 1) do
-    reports = Enum.map(tenants, fn {slug, _, _, _} ->
+    reports = Enum.map(tenants, fn {slug, _, _, _, _} ->
       receive do
         {:report, ^slug, ok, err} -> {slug, ok, err}
       after (@report_every_s + 5) * 1000 -> {slug, 0, 0}
@@ -322,8 +322,8 @@ defmodule LoadTest do
     IO.puts("\nAll tenants ready. Continuous load started...\n")
 
     stats_pid = self()
-    Enum.each(tenants, fn {slug, token, tcp_port, _} ->
-      spawn(fn -> run_worker(slug, token, tcp_port, stats_pid) end)
+    Enum.each(tenants, fn {slug, token, tcp_port, password, _} ->
+      spawn(fn -> run_worker(slug, token, tcp_port, password, stats_pid) end)
     end)
 
     stats_loop(tenants)

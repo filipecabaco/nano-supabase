@@ -386,3 +386,117 @@ describe("service with postgres registry", () => {
 		expect(check.status).toBe(404);
 	});
 });
+
+describe("circuit breaker", () => {
+	let svcProcess: ChildProcess;
+	let dataDir: string;
+	let coldDir: string;
+	const port = 54475;
+	const base = `http://localhost:${port}`;
+
+	beforeAll(async () => {
+		dataDir = mkdtempSync(join(tmpdir(), "nano-svc-cb-data-"));
+		coldDir = mkdtempSync(join(tmpdir(), "nano-svc-cb-cold-"));
+		svcProcess = startService(port, dataDir, coldDir, ["--circuit-breaker-threshold=3"]);
+		await waitForHealth(base);
+	}, 60_000);
+
+	afterAll(async () => {
+		svcProcess?.kill("SIGTERM");
+		await new Promise((r) => setTimeout(r, 500));
+		rmSync(dataDir, { recursive: true, force: true });
+		rmSync(coldDir, { recursive: true, force: true });
+	});
+
+	test("tenant is auto-paused after N consecutive 5xx responses", async () => {
+		const createRes = await fetch(`${base}/admin/tenants`, {
+			method: "POST",
+			headers: { Authorization: `Bearer ${ADMIN_TOKEN}`, "Content-Type": "application/json" },
+			body: JSON.stringify({ slug: "cb-trip" }),
+		});
+		expect(createRes.status).toBe(201);
+		const { token } = await createRes.json();
+
+		await fetch(`${base}/admin/tenants/cb-trip/sql`, {
+			method: "POST",
+			headers: { Authorization: `Bearer ${ADMIN_TOKEN}`, "Content-Type": "application/json" },
+			body: JSON.stringify({ sql: "DROP TABLE auth.users CASCADE" }),
+		});
+
+		for (let i = 0; i < 3; i++) {
+			const res = await fetch(`${base}/cb-trip/auth/v1/signup`, {
+				method: "POST",
+				headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+				body: JSON.stringify({ email: `user${i}@test.com`, password: "password123" }),
+			});
+			expect(res.status).toBe(500);
+		}
+
+		const tenantRes = await fetch(`${base}/admin/tenants/cb-trip`, {
+			headers: { Authorization: `Bearer ${ADMIN_TOKEN}` },
+		});
+		expect(tenantRes.status).toBe(200);
+		const tenant = await tenantRes.json();
+		expect(tenant.state).toBe("sleeping");
+	}, 30_000);
+
+	test("consecutive error counter resets on a successful request before threshold", async () => {
+		const createRes = await fetch(`${base}/admin/tenants`, {
+			method: "POST",
+			headers: { Authorization: `Bearer ${ADMIN_TOKEN}`, "Content-Type": "application/json" },
+			body: JSON.stringify({ slug: "cb-reset" }),
+		});
+		expect(createRes.status).toBe(201);
+		const { token } = await createRes.json();
+
+		await fetch(`${base}/admin/tenants/cb-reset/sql`, {
+			method: "POST",
+			headers: { Authorization: `Bearer ${ADMIN_TOKEN}`, "Content-Type": "application/json" },
+			body: JSON.stringify({ sql: "DROP TABLE auth.users CASCADE" }),
+		});
+
+		for (let i = 0; i < 2; i++) {
+			const res = await fetch(`${base}/cb-reset/auth/v1/signup`, {
+				method: "POST",
+				headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+				body: JSON.stringify({ email: `user${i}@test.com`, password: "password123" }),
+			});
+			expect(res.status).toBe(500);
+		}
+
+		await fetch(`${base}/admin/tenants/cb-reset/sql`, {
+			method: "POST",
+			headers: { Authorization: `Bearer ${ADMIN_TOKEN}`, "Content-Type": "application/json" },
+			body: JSON.stringify({ sql: "CREATE TABLE IF NOT EXISTS auth.users (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), email text UNIQUE, encrypted_password text, created_at timestamptz DEFAULT now(), updated_at timestamptz DEFAULT now(), role text DEFAULT 'authenticated', aud text DEFAULT 'authenticated', confirmation_token text, email_confirmed_at timestamptz, raw_app_meta_data jsonb DEFAULT '{}'::jsonb, raw_user_meta_data jsonb DEFAULT '{}'::jsonb)" }),
+		});
+
+		const successRes = await fetch(`${base}/cb-reset/auth/v1/signup`, {
+			method: "POST",
+			headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+			body: JSON.stringify({ email: "success@test.com", password: "password123" }),
+		});
+		expect(successRes.status).toBe(200);
+
+		await fetch(`${base}/admin/tenants/cb-reset/sql`, {
+			method: "POST",
+			headers: { Authorization: `Bearer ${ADMIN_TOKEN}`, "Content-Type": "application/json" },
+			body: JSON.stringify({ sql: "DROP TABLE auth.users CASCADE" }),
+		});
+
+		for (let i = 0; i < 2; i++) {
+			const res = await fetch(`${base}/cb-reset/auth/v1/signup`, {
+				method: "POST",
+				headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+				body: JSON.stringify({ email: `after${i}@test.com`, password: "password123" }),
+			});
+			expect(res.status).toBe(500);
+		}
+
+		const tenantRes = await fetch(`${base}/admin/tenants/cb-reset`, {
+			headers: { Authorization: `Bearer ${ADMIN_TOKEN}` },
+		});
+		expect(tenantRes.status).toBe(200);
+		const tenant = await tenantRes.json();
+		expect(tenant.state).toBe("running");
+	}, 30_000);
+});

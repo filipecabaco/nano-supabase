@@ -222,6 +222,24 @@ export function createLocalFetch(
 	};
 }
 
+export function extractBearerToken(headers: Headers): string | null {
+	const auth = headers.get("Authorization");
+	if (!auth || !auth.startsWith("Bearer ")) {
+		return null;
+	}
+	return auth.slice(7);
+}
+
+export async function parseBody(request: Request): Promise<Record<string, unknown>> {
+	try {
+		const text = await request.text();
+		if (!text) return {};
+		return JSON.parse(text);
+	} catch {
+		return {};
+	}
+}
+
 export { handleAuthRoute } from "./auth-routes.ts";
 export { handleDataRoute } from "./data-routes.ts";
 export { handleStorageRoute } from "./storage-routes.ts";

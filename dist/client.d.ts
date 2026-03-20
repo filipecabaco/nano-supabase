@@ -10,11 +10,6 @@ import { PostgrestParser } from "./postgrest-parser.ts";
 import type { StorageBackend } from "./storage/backend.ts";
 import { StorageHandler } from "./storage/handler.ts";
 /**
- * Generic type for the Supabase client
- * This allows users to pass their own SupabaseClient type
- */
-type SupabaseJsClient = unknown;
-/**
  * Configuration for creating a local Supabase client
  */
 export interface LocalSupabaseClientConfig {
@@ -63,7 +58,7 @@ export interface LocalSupabaseClientConfig {
 /**
  * Result from creating a local Supabase client
  */
-export interface LocalSupabaseClientResult<T = SupabaseJsClient> {
+export interface LocalSupabaseClientResult<T = unknown> {
     /**
      * The Supabase client configured to use local emulation
      */
@@ -115,12 +110,12 @@ export interface LocalSupabaseClientResult<T = SupabaseJsClient> {
  * await supabase.storage.from('avatars').upload('avatar.png', file)
  * ```
  */
-export declare function initComponents(db: PGlite, storageBackend: StorageBackend | false | undefined, postgrestWasmBytes?: Uint8Array, sharedParser?: PostgrestParser): Promise<{
+export declare function createComponents(db: PGlite, storageBackend: StorageBackend | false | undefined, postgrestWasmBytes?: Uint8Array, sharedParser?: PostgrestParser): Promise<{
     parser: PostgrestParser;
     authHandler: AuthHandler;
     storageHandler: StorageHandler | undefined;
 }>;
-export declare function createLocalSupabaseClient<T = SupabaseJsClient>(config: LocalSupabaseClientConfig, createClient: (url: string, key: string, options?: {
+export declare function createLocalSupabaseClient<T = unknown>(config: LocalSupabaseClientConfig, createClient: (url: string, key: string, options?: {
     global?: {
         fetch?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
     };
@@ -175,5 +170,4 @@ export declare function createFetchAdapter(config: {
     parser: PostgrestParser;
     storageHandler?: StorageHandler;
 }>;
-export {};
 //# sourceMappingURL=client.d.ts.map

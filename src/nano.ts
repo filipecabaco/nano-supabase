@@ -54,7 +54,7 @@ import type {
 	SupabaseClientOptions,
 } from "@supabase/supabase-js";
 import { createClient as supabaseCreateClient } from "@supabase/supabase-js";
-import { initComponents } from "./client.ts";
+import { createComponents } from "./client.ts";
 import { createLocalFetch } from "./fetch-adapter/index.ts";
 import { PostgrestParser } from "./postgrest-parser.ts";
 import { createPGlite } from "./pglite-factory.ts";
@@ -192,6 +192,12 @@ export async function createClient<Database = unknown>(
 		tcp,
 		storageBackend,
 		debug,
+		wasmModule,
+		fsBundle,
+		postgrestWasmBytes,
+		serviceRoleKey,
+		parser,
+		postgresOptions,
 		url,
 		key,
 		...clientOptions
@@ -202,6 +208,12 @@ export async function createClient<Database = unknown>(
 		tcp,
 		storageBackend,
 		debug,
+		wasmModule,
+		fsBundle,
+		postgrestWasmBytes,
+		serviceRoleKey,
+		parser,
+		postgresOptions,
 	});
 	return nano.createClient<Database>({ url, key, ...clientOptions });
 }
@@ -224,7 +236,7 @@ export async function nanoSupabase(
 	} = options;
 
 	const db = createPGlite(dataDir, { extensions, wasmModule, fsBundle, ...postgresOptions });
-	const { parser, authHandler, storageHandler } = await initComponents(
+	const { parser, authHandler, storageHandler } = await createComponents(
 		db,
 		storageBackend,
 		postgrestWasmBytes,

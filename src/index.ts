@@ -57,7 +57,7 @@ export {
 } from "./fetch-adapter/auth-context.ts";
 export {
 	type ApiError,
-	errorResponse,
+	postgresErrorResponse,
 	extractPostgresError,
 	type PostgresError,
 } from "./fetch-adapter/error-handler.ts";

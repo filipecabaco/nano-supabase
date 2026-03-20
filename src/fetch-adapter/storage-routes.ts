@@ -1,38 +1,8 @@
-/**
- * Storage routes handler — processes /storage/v1/* requests
- *
- * Intercepts supabase-js storage client calls and handles them locally:
- *   /storage/v1/bucket/*        → bucket CRUD
- *   /storage/v1/object/*        → object upload/download/list/move/copy/remove
- *   /storage/v1/upload/resumable → TUS resumable upload (POST/HEAD/PATCH)
- *   /storage/v1/object/sign/*   → signed URL creation & download
- *   /storage/v1/object/public/* → public file download
- *   /storage/v1/object/info/*   → object metadata
- *   /storage/v1/render/*        → image transform (returns original)
- */
-
 import type { PGlite } from "@electric-sql/pglite";
 import type { StorageHandler } from "../storage/handler.ts";
 import { setAuthContext } from "./auth-context.ts";
+import { extractBearerToken, parseBody } from "./index.ts";
 import { errorResponse, jsonResponse } from "./response.ts";
-
-function extractBearerToken(headers: Headers): string | null {
-	const auth = headers.get("Authorization");
-	if (!auth || !auth.startsWith("Bearer ")) return null;
-	return auth.slice(7);
-}
-
-async function parseJsonBody(
-	request: Request,
-): Promise<Record<string, unknown>> {
-	try {
-		const text = await request.text();
-		if (!text) return {};
-		return JSON.parse(text);
-	} catch {
-		return {};
-	}
-}
 
 /**
  * Read the request body as a Uint8Array (for file uploads)
@@ -160,20 +130,27 @@ export async function handleStorageRoute(
 			return await handleCopyObject(request, storageHandler);
 		}
 
-		// POST /storage/v1/object/sign/:bucketId/:path — create signed URL
 		const signMatch = pathname.match(
 			/^\/storage\/v1\/object\/sign\/([^/]+)\/(.+)$/,
 		);
-		if (signMatch && method === "POST") {
-			return await handleCreateSignedUrl(
-				signMatch[1]!,
-				signMatch[2]!,
-				request,
-				storageHandler,
-			);
+		if (signMatch) {
+			if (method === "POST") {
+				return await handleCreateSignedUrl(
+					signMatch[1]!,
+					signMatch[2]!,
+					request,
+					storageHandler,
+				);
+			}
+			if (method === "GET") {
+				const url = new URL(request.url);
+				const signedToken = url.searchParams.get("token");
+				if (signedToken) {
+					return await handleSignedDownload(signedToken, db, storageHandler);
+				}
+			}
 		}
 
-		// POST /storage/v1/object/sign/:bucketId — create signed URLs (batch)
 		const signBatchMatch = pathname.match(
 			/^\/storage\/v1\/object\/sign\/([^/]+)$/,
 		);
@@ -183,19 +160,6 @@ export async function handleStorageRoute(
 				request,
 				storageHandler,
 			);
-		}
-
-		// GET /storage/v1/object/sign/:token — download via signed URL
-		// The signed URL format from supabase-js is /storage/v1/object/sign/:bucketId/:path?token=<token>
-		const signedDownloadMatch = pathname.match(
-			/^\/storage\/v1\/object\/sign\/([^/]+)\/(.+)$/,
-		);
-		if (signedDownloadMatch && method === "GET") {
-			const url = new URL(request.url);
-			const signedToken = url.searchParams.get("token");
-			if (signedToken) {
-				return await handleSignedDownload(signedToken, db, storageHandler);
-			}
 		}
 
 		// GET /storage/v1/object/public/:bucketId/:path — public download
@@ -249,20 +213,17 @@ export async function handleStorageRoute(
 				uploadMatch[2]!,
 				request,
 				storageHandler,
-				authCtx.userId,
-				false,
+				{ ownerId: authCtx.userId, upsert: false },
 			);
 		}
 
-		// PUT /storage/v1/object/:bucketId/:path — update (upsert)
 		if (uploadMatch && method === "PUT") {
 			return await handleUpload(
 				uploadMatch[1]!,
 				uploadMatch[2]!,
 				request,
 				storageHandler,
-				authCtx.userId,
-				true,
+				{ ownerId: authCtx.userId, upsert: true },
 			);
 		}
 
@@ -412,8 +373,8 @@ export async function handleStorageRoute(
 		if (signedUploadCreateMatch && method === "POST") {
 			const bucketId = signedUploadCreateMatch[1]!;
 			const objectPath = signedUploadCreateMatch[2]!;
-			const body = await parseJsonBody(request);
-			const expiresIn = (body.expiresIn as number) ?? 3600;
+			const body = await parseBody(request);
+			const expiresIn = (typeof body.expiresIn === "number" ? body.expiresIn : 3600);
 			try {
 				const uploadToken = await storageHandler.createSignedUrl(
 					bucketId,
@@ -448,8 +409,7 @@ export async function handleStorageRoute(
 				signedUploadCreateMatch[2]!,
 				request,
 				storageHandler,
-				authCtx.userId,
-				true,
+				{ ownerId: authCtx.userId, upsert: true },
 			);
 		}
 
@@ -460,16 +420,16 @@ export async function handleStorageRoute(
 			/^\/storage\/v1\/object\/list-v2\/([^/]+)$/,
 		);
 		if (listV2Match && method === "POST") {
-			const body = await parseJsonBody(request);
+			const body = await parseBody(request);
 			const objects = await storageHandler.listObjects(listV2Match[1]!, {
-				prefix: body.prefix as string | undefined,
-				limit: body.limit as number | undefined,
-				offset: body.offset as number | undefined,
-				sortBy: body.sortBy as { column: string; order: string } | undefined,
-				search: body.search as string | undefined,
+				prefix: typeof body.prefix === "string" ? body.prefix : undefined,
+				limit: typeof body.limit === "number" ? body.limit : undefined,
+				offset: typeof body.offset === "number" ? body.offset : undefined,
+				sortBy: typeof body.sortBy === "object" && body.sortBy !== null ? body.sortBy as { column: string; order: string } : undefined,
+				search: typeof body.search === "string" ? body.search : undefined,
 			});
 
-			const prefix = (body.prefix as string) ?? "";
+			const prefix = typeof body.prefix === "string" ? body.prefix : "";
 			const prefixes: { name: string }[] = [];
 			const items: Record<string, unknown>[] = [];
 
@@ -555,17 +515,17 @@ async function handleCreateBucket(
 	request: Request,
 	handler: StorageHandler,
 ): Promise<Response> {
-	const body = await parseJsonBody(request);
-	const name = (body.name ?? body.id) as string;
+	const body = await parseBody(request);
+	const name = typeof body.name === "string" ? body.name : typeof body.id === "string" ? body.id : undefined;
 	if (!name) return errorResponse("Bucket name is required");
 
 	try {
 		const bucket = await handler.createBucket({
-			id: (body.id as string) ?? name,
+			id: typeof body.id === "string" ? body.id : name,
 			name,
-			public: body.public as boolean | undefined,
-			file_size_limit: body.file_size_limit as number | undefined,
-			allowed_mime_types: body.allowed_mime_types as string[] | undefined,
+			public: typeof body.public === "boolean" ? body.public : undefined,
+			file_size_limit: typeof body.file_size_limit === "number" ? body.file_size_limit : undefined,
+			allowed_mime_types: Array.isArray(body.allowed_mime_types) ? body.allowed_mime_types as string[] : undefined,
 		});
 		return jsonResponse({ name: bucket.name }, 200);
 	} catch (err) {
@@ -583,12 +543,12 @@ async function handleUpdateBucket(
 	request: Request,
 	handler: StorageHandler,
 ): Promise<Response> {
-	const body = await parseJsonBody(request);
+	const body = await parseBody(request);
 	try {
 		await handler.updateBucket(id, {
-			public: body.public as boolean | undefined,
-			file_size_limit: body.file_size_limit as number | undefined,
-			allowed_mime_types: body.allowed_mime_types as string[] | undefined,
+			public: typeof body.public === "boolean" ? body.public : undefined,
+			file_size_limit: typeof body.file_size_limit === "number" ? body.file_size_limit : undefined,
+			allowed_mime_types: Array.isArray(body.allowed_mime_types) ? body.allowed_mime_types as string[] : undefined,
 		});
 		return jsonResponse({ message: "Successfully updated" });
 	} catch (err) {
@@ -636,10 +596,9 @@ async function handleUpload(
 	objectPath: string,
 	request: Request,
 	handler: StorageHandler,
-	ownerId: string | undefined,
-	upsert: boolean,
+	opts: { ownerId: string | undefined; upsert: boolean },
 ): Promise<Response> {
-	// x-upsert header can also control upsert behavior
+	let upsert = opts.upsert;
 	const xUpsert = request.headers.get("x-upsert");
 	if (xUpsert === "true") upsert = true;
 
@@ -656,7 +615,7 @@ async function handleUpload(
 			{
 				cacheControl,
 				upsert,
-				ownerId,
+				ownerId: opts.ownerId,
 			},
 		);
 
@@ -720,9 +679,9 @@ async function handleRemoveObjects(
 	request: Request,
 	handler: StorageHandler,
 ): Promise<Response> {
-	const body = await parseJsonBody(request);
-	const prefixes = body.prefixes as string[] | undefined;
-	if (!prefixes || !Array.isArray(prefixes)) {
+	const body = await parseBody(request);
+	const prefixes = Array.isArray(body.prefixes) ? body.prefixes as string[] : undefined;
+	if (!prefixes) {
 		return errorResponse("prefixes array is required");
 	}
 
@@ -735,18 +694,17 @@ async function handleListObjects(
 	request: Request,
 	handler: StorageHandler,
 ): Promise<Response> {
-	const body = await parseJsonBody(request);
+	const body = await parseBody(request);
 
 	const objects = await handler.listObjects(bucketId, {
-		prefix: body.prefix as string | undefined,
-		limit: body.limit as number | undefined,
-		offset: body.offset as number | undefined,
-		sortBy: body.sortBy as { column: string; order: string } | undefined,
-		search: body.search as string | undefined,
+		prefix: typeof body.prefix === "string" ? body.prefix : undefined,
+		limit: typeof body.limit === "number" ? body.limit : undefined,
+		offset: typeof body.offset === "number" ? body.offset : undefined,
+		sortBy: typeof body.sortBy === "object" && body.sortBy !== null ? body.sortBy as { column: string; order: string } : undefined,
+		search: typeof body.search === "string" ? body.search : undefined,
 	});
 
-	// Transform to match Supabase Storage API response format
-	const prefix = (body.prefix as string) ?? "";
+	const prefix = typeof body.prefix === "string" ? body.prefix : "";
 	const items = objects.map((obj) => {
 		const relativeName = obj.name.startsWith(prefix)
 			? obj.name.slice(prefix.length)
@@ -769,11 +727,11 @@ async function handleMoveObject(
 	request: Request,
 	handler: StorageHandler,
 ): Promise<Response> {
-	const body = await parseJsonBody(request);
-	const bucketId = body.bucketId as string;
-	const sourceKey = body.sourceKey as string;
-	const destinationKey = body.destinationKey as string;
-	const destinationBucket = body.destinationBucket as string | undefined;
+	const body = await parseBody(request);
+	const bucketId = typeof body.bucketId === "string" ? body.bucketId : undefined;
+	const sourceKey = typeof body.sourceKey === "string" ? body.sourceKey : undefined;
+	const destinationKey = typeof body.destinationKey === "string" ? body.destinationKey : undefined;
+	const destinationBucket = typeof body.destinationBucket === "string" ? body.destinationBucket : undefined;
 
 	if (!bucketId || !sourceKey || !destinationKey) {
 		return errorResponse(
@@ -799,11 +757,11 @@ async function handleCopyObject(
 	request: Request,
 	handler: StorageHandler,
 ): Promise<Response> {
-	const body = await parseJsonBody(request);
-	const bucketId = body.bucketId as string;
-	const sourceKey = body.sourceKey as string;
-	const destinationKey = body.destinationKey as string;
-	const destinationBucket = body.destinationBucket as string | undefined;
+	const body = await parseBody(request);
+	const bucketId = typeof body.bucketId === "string" ? body.bucketId : undefined;
+	const sourceKey = typeof body.sourceKey === "string" ? body.sourceKey : undefined;
+	const destinationKey = typeof body.destinationKey === "string" ? body.destinationKey : undefined;
+	const destinationBucket = typeof body.destinationBucket === "string" ? body.destinationBucket : undefined;
 
 	if (!bucketId || !sourceKey || !destinationKey) {
 		return errorResponse(
@@ -831,8 +789,8 @@ async function handleCreateSignedUrl(
 	request: Request,
 	handler: StorageHandler,
 ): Promise<Response> {
-	const body = await parseJsonBody(request);
-	const expiresIn = (body.expiresIn as number) ?? 3600;
+	const body = await parseBody(request);
+	const expiresIn = (typeof body.expiresIn === "number" ? body.expiresIn : 3600);
 
 	try {
 		const token = await handler.createSignedUrl(
@@ -855,11 +813,11 @@ async function handleCreateSignedUrls(
 	request: Request,
 	handler: StorageHandler,
 ): Promise<Response> {
-	const body = await parseJsonBody(request);
-	const expiresIn = (body.expiresIn as number) ?? 3600;
-	const paths = body.paths as string[] | undefined;
+	const body = await parseBody(request);
+	const expiresIn = (typeof body.expiresIn === "number" ? body.expiresIn : 3600);
+	const paths = Array.isArray(body.paths) ? body.paths as string[] : undefined;
 
-	if (!paths || !Array.isArray(paths)) {
+	if (!paths) {
 		return errorResponse("paths array is required");
 	}
 

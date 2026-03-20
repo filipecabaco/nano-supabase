@@ -1,37 +1,7 @@
-/**
- * Auth routes handler - processes /auth/v1/* requests
- */
-
 import type { AuthHandler } from "../auth/handler.ts";
+import { extractBearerToken, parseBody } from "./index.ts";
 import { jsonResponse, notFound, notSupported } from "./response.ts";
 
-/**
- * Extract bearer token from Authorization header
- */
-function extractBearerToken(headers: Headers): string | null {
-	const auth = headers.get("Authorization");
-	if (!auth || !auth.startsWith("Bearer ")) {
-		return null;
-	}
-	return auth.slice(7);
-}
-
-/**
- * Parse request body as JSON
- */
-async function parseBody(request: Request): Promise<Record<string, unknown>> {
-	try {
-		const text = await request.text();
-		if (!text) return {};
-		return JSON.parse(text);
-	} catch {
-		return {};
-	}
-}
-
-/**
- * Handle auth routes
- */
 export async function handleAuthRoute(
 	request: Request,
 	pathname: string,
@@ -42,7 +12,15 @@ export async function handleAuthRoute(
 	const url = new URL(request.url);
 	const searchParams = url.searchParams;
 
-	// POST /auth/v1/signup
+	const sessionPayload = (s: { access_token: string; token_type: string; expires_in: number; expires_at: number; refresh_token: string }, user: unknown) => ({
+		access_token: s.access_token,
+		token_type: s.token_type,
+		expires_in: s.expires_in,
+		expires_at: s.expires_at,
+		refresh_token: s.refresh_token,
+		user,
+	});
+
 	if (method === "POST" && pathname === "/auth/v1/signup") {
 		const body = await parseBody(request);
 		const email = typeof body.email === "string" ? body.email : undefined;
@@ -84,15 +62,7 @@ export async function handleAuthRoute(
 			);
 		}
 
-		// Return Supabase auth format (flat structure with token fields)
-		return jsonResponse({
-			access_token: result.data.session.access_token,
-			token_type: result.data.session.token_type,
-			expires_in: result.data.session.expires_in,
-			expires_at: result.data.session.expires_at,
-			refresh_token: result.data.session.refresh_token,
-			user: result.data.user,
-		});
+		return jsonResponse(sessionPayload(result.data.session, result.data.user));
 	}
 
 	// POST /auth/v1/token?grant_type=password (sign in)
@@ -131,14 +101,7 @@ export async function handleAuthRoute(
 				);
 			}
 
-			return jsonResponse({
-				access_token: result.data.session.access_token,
-				token_type: result.data.session.token_type,
-				expires_in: result.data.session.expires_in,
-				expires_at: result.data.session.expires_at,
-				refresh_token: result.data.session.refresh_token,
-				user: result.data.user,
-			});
+			return jsonResponse(sessionPayload(result.data.session, result.data.user));
 		}
 
 		if (grantType === "refresh_token") {
@@ -175,14 +138,7 @@ export async function handleAuthRoute(
 				);
 			}
 
-			return jsonResponse({
-				access_token: result.data.session.access_token,
-				token_type: result.data.session.token_type,
-				expires_in: result.data.session.expires_in,
-				expires_at: result.data.session.expires_at,
-				refresh_token: result.data.session.refresh_token,
-				user: result.data.user,
-			});
+			return jsonResponse(sessionPayload(result.data.session, result.data.user));
 		}
 
 		return jsonResponse(
@@ -251,9 +207,9 @@ export async function handleAuthRoute(
 
 		const body = await parseBody(request);
 		const result = await authHandler.updateUser(token, {
-			email: body.email as string | undefined,
-			password: body.password as string | undefined,
-			data: body.data as Record<string, unknown> | undefined,
+			email: typeof body.email === "string" ? body.email : undefined,
+			password: typeof body.password === "string" ? body.password : undefined,
+			data: typeof body.data === "object" && body.data !== null && !Array.isArray(body.data) ? body.data as Record<string, unknown> : undefined,
 		});
 
 		if (result.error) {
@@ -344,14 +300,12 @@ export async function handleAuthRoute(
 		const body = await parseBody(request);
 		try {
 			const user = await authHandler.adminCreateUser({
-				email: body.email as string | undefined,
-				phone: body.phone as string | undefined,
-				password: body.password as string | undefined,
-				email_confirm: body.email_confirm as boolean | undefined,
-				user_metadata: body.user_metadata as
-					| Record<string, unknown>
-					| undefined,
-				app_metadata: body.app_metadata as Record<string, unknown> | undefined,
+				email: typeof body.email === "string" ? body.email : undefined,
+				phone: typeof body.phone === "string" ? body.phone : undefined,
+				password: typeof body.password === "string" ? body.password : undefined,
+				email_confirm: typeof body.email_confirm === "boolean" ? body.email_confirm : undefined,
+				user_metadata: typeof body.user_metadata === "object" && body.user_metadata !== null && !Array.isArray(body.user_metadata) ? body.user_metadata as Record<string, unknown> : undefined,
+				app_metadata: typeof body.app_metadata === "object" && body.app_metadata !== null && !Array.isArray(body.app_metadata) ? body.app_metadata as Record<string, unknown> : undefined,
 			});
 			return jsonResponse(user);
 		} catch (err) {
@@ -379,17 +333,13 @@ export async function handleAuthRoute(
 			const body = await parseBody(request);
 			try {
 				const user = await authHandler.adminUpdateUser(userId, {
-					email: body.email as string | undefined,
-					phone: body.phone as string | undefined,
-					password: body.password as string | undefined,
-					user_metadata: body.user_metadata as
-						| Record<string, unknown>
-						| undefined,
-					app_metadata: body.app_metadata as
-						| Record<string, unknown>
-						| undefined,
-					ban_duration: body.ban_duration as string | undefined,
-					email_confirm: body.email_confirm as boolean | undefined,
+					email: typeof body.email === "string" ? body.email : undefined,
+					phone: typeof body.phone === "string" ? body.phone : undefined,
+					password: typeof body.password === "string" ? body.password : undefined,
+					user_metadata: typeof body.user_metadata === "object" && body.user_metadata !== null && !Array.isArray(body.user_metadata) ? body.user_metadata as Record<string, unknown> : undefined,
+					app_metadata: typeof body.app_metadata === "object" && body.app_metadata !== null && !Array.isArray(body.app_metadata) ? body.app_metadata as Record<string, unknown> : undefined,
+					ban_duration: typeof body.ban_duration === "string" ? body.ban_duration : undefined,
+					email_confirm: typeof body.email_confirm === "boolean" ? body.email_confirm : undefined,
 				});
 				if (!user) return notFound("User not found");
 				return jsonResponse(user);

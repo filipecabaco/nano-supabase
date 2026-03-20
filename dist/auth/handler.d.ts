@@ -7,7 +7,7 @@ import type { AuthError, AuthResponse, AuthStateChangeCallback, AuthSubscription
  * Auth handler class
  */
 export declare class AuthHandler {
-    private db;
+    private readonly db;
     private initPromise;
     private subscriptions;
     private currentSession;

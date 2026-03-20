@@ -19,7 +19,7 @@ export { AUTH_SCHEMA_SQL, type AuthChangeEvent, type AuthError, AuthHandler, typ
 export { decodeJWT, type JWTPayload, signJWT, verifyJWT } from "./auth/jwt.ts";
 export { createFetchAdapter, createLocalSupabaseClient, initializeAuth, type LocalSupabaseClientConfig, type LocalSupabaseClientResult, } from "./client.ts";
 export { type AuthContext, clearAuthContext, setAuthContext, } from "./fetch-adapter/auth-context.ts";
-export { type ApiError, errorResponse, extractPostgresError, type PostgresError, } from "./fetch-adapter/error-handler.ts";
+export { type ApiError, postgresErrorResponse, extractPostgresError, type PostgresError, } from "./fetch-adapter/error-handler.ts";
 export { createLocalFetch, type FetchAdapterConfig, handleAuthRoute, handleDataRoute, handleStorageRoute, } from "./fetch-adapter/index.ts";
 export { createClient, type NanoSupabaseInstance, type NanoSupabaseOptions, nanoSupabase, } from "./nano.ts";
 export { createPGlite, LEAN_POSTGRES_OPTIONS } from "./pglite-factory.ts";

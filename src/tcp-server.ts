@@ -1,10 +1,39 @@
 import { Buffer } from "node:buffer";
+import { timingSafeEqual } from "node:crypto";
 import { createServer, type Server, type Socket } from "node:net";
 import type { PGlite } from "@electric-sql/pglite";
 import { AuthHandler } from "./auth/handler.ts";
 import { PGlitePooler } from "./pooler.ts";
 import { StorageHandler } from "./storage/handler.ts";
 import type { PoolerConfig, QueryResult } from "./types.ts";
+
+const MSG_QUERY = 0x51;
+const MSG_PARSE = 0x50;
+const MSG_BIND = 0x42;
+const MSG_DESCRIBE = 0x44;
+const MSG_EXECUTE = 0x45;
+const MSG_SYNC = 0x53;
+const MSG_FLUSH = 0x48;
+const MSG_CLOSE = 0x43;
+const MSG_TERMINATE = 0x58;
+
+const OID_BOOL = 16;
+const OID_INT2 = 21;
+const OID_INT4 = 23;
+const OID_OID = 26;
+const OID_INT8 = 20;
+const OID_FLOAT4 = 700;
+const OID_FLOAT8 = 701;
+const OID_JSON = 114;
+const OID_TEXT = 25;
+const OID_BPCHAR = 1042;
+const OID_VARCHAR = 1043;
+const OID_JSONB = 3802;
+const OID_BYTEA = 17;
+const OID_UUID = 2950;
+const OID_DATE = 1082;
+const OID_TIMESTAMP = 1114;
+const OID_TIMESTAMPTZ = 1184;
 
 interface PreparedStatement {
 	query: string;
@@ -23,6 +52,7 @@ interface Portal {
 interface ConnectionState {
 	buffer: Buffer;
 	startupDone: boolean;
+	authenticated: boolean;
 	statements: Map<string, PreparedStatement>;
 	portals: Map<string, Portal>;
 	processing: boolean;
@@ -37,24 +67,27 @@ export interface TCPServerOptions {
 
 export class PGliteTCPServer {
 	private readonly pooler: PGlitePooler;
+	private readonly password: string | null;
 	private server: Server | null = null;
 	private readonly connections = new Map<Socket, ConnectionState>();
 	private readonly probeCache = new Map<string, { name: string; dataTypeID: number }[]>();
 
-	constructor(pooler: PGlitePooler) {
+	constructor(pooler: PGlitePooler, password?: string) {
 		this.pooler = pooler;
+		this.password = password ?? null;
 	}
 
 	static async create(
 		db: PGlite,
 		config?: Partial<PoolerConfig>,
+		password?: string,
 	): Promise<PGliteTCPServer> {
 		const auth = new AuthHandler(db);
 		const storage = new StorageHandler(db);
 		await auth.initialize();
 		await storage.initialize();
 		const pooler = await PGlitePooler.create(db, config);
-		return new PGliteTCPServer(pooler);
+		return new PGliteTCPServer(pooler, password);
 	}
 
 	async start(port = 5432, host = "127.0.0.1"): Promise<void> {
@@ -62,6 +95,7 @@ export class PGliteTCPServer {
 			this.connections.set(socket, {
 				buffer: Buffer.alloc(0),
 				startupDone: false,
+				authenticated: this.password === null,
 				statements: new Map(),
 				portals: new Map(),
 				processing: false,
@@ -107,6 +141,14 @@ export class PGliteTCPServer {
 			while (state.buffer.length > 0) {
 				if (!state.startupDone) {
 					if (!this.handleStartup(socket, state)) break;
+				} else if (!state.authenticated) {
+					const msg = this.readMessage(state);
+					if (!msg) break;
+					if (msg.type === 0x70) {
+						this.handlePasswordMessage(socket, state, msg.body);
+					} else {
+						socket.end();
+					}
 				} else {
 					const msg = this.readMessage(state);
 					if (!msg) break;
@@ -136,9 +178,37 @@ export class PGliteTCPServer {
 		}
 		if (code === 196608) {
 			state.startupDone = true;
-			socket.write(this.buildStartupResponse());
+			if (this.password !== null) {
+				const authReq = Buffer.alloc(9);
+				authReq.writeUInt8(0x52, 0);
+				authReq.writeInt32BE(8, 1);
+				authReq.writeInt32BE(3, 5);
+				socket.write(authReq);
+			} else {
+				socket.write(this.buildStartupResponse());
+			}
 		}
 		return true;
+	}
+
+	private handlePasswordMessage(socket: Socket, state: ConnectionState, body: Buffer): void {
+		const end = body.indexOf(0);
+		const providedBuf = body.slice(0, end < 0 ? undefined : end);
+		const expectedBuf = Buffer.from(this.password!, "utf8");
+		const mismatch = providedBuf.length !== expectedBuf.length || !timingSafeEqual(providedBuf, expectedBuf);
+		if (mismatch) {
+			const msg = "password authentication failed";
+			const errPayload = Buffer.concat([
+				Buffer.from("SFATAL\0VFATAL\0C28P01\0M"),
+				Buffer.from(msg),
+				Buffer.from("\0\0"),
+			]);
+			socket.write(this.msg(0x45, errPayload));
+			socket.end();
+			return;
+		}
+		state.authenticated = true;
+		socket.write(this.buildStartupResponse());
 	}
 
 	private readMessage(
@@ -160,34 +230,34 @@ export class PGliteTCPServer {
 		body: Buffer,
 	): Promise<void> {
 		if (state.errorState) {
-			if (type === 0x53) {
+			if (type === MSG_SYNC) {
 				state.errorState = false;
 				socket.write(this.buildReadyForQuery(state.txStatus));
-			} else if (type === 0x58) socket.end();
+			} else if (type === MSG_TERMINATE) socket.end();
 			return;
 		}
 		switch (type) {
-			case 0x51:
+			case MSG_QUERY:
 				await this.onSimpleQuery(socket, state, body);
 				break;
-			case 0x50:
+			case MSG_PARSE:
 				await this.onParse(socket, state, body);
 				break;
-			case 0x42:
+			case MSG_BIND:
 				await this.onBind(socket, state, body);
 				break;
-			case 0x44:
+			case MSG_DESCRIBE:
 				this.onDescribe(socket, state, body);
 				break;
-			case 0x45:
+			case MSG_EXECUTE:
 				this.onExecute(socket, state, body);
 				break;
-			case 0x53:
+			case MSG_SYNC:
 				socket.write(this.buildReadyForQuery(state.txStatus));
 				break;
-			case 0x48:
+			case MSG_FLUSH:
 				break;
-			case 0x43: {
+			case MSG_CLOSE: {
 				const kind = body[0];
 				const name = body.slice(1, body.indexOf(0, 1)).toString();
 				if (kind === 0x53) state.statements.delete(name);
@@ -195,7 +265,7 @@ export class PGliteTCPServer {
 				socket.write(this.msg(0x33, Buffer.alloc(0)));
 				break;
 			}
-			case 0x58:
+			case MSG_TERMINATE:
 				socket.end();
 				break;
 		}
@@ -325,7 +395,7 @@ export class PGliteTCPServer {
 			const paramCount = stmt?.paramCount ?? 0;
 			const pd = Buffer.alloc(2 + paramCount * 4);
 			pd.writeInt16BE(paramCount, 0);
-			for (let i = 0; i < paramCount; i++) pd.writeInt32BE(25, 2 + i * 4);
+			for (let i = 0; i < paramCount; i++) pd.writeInt32BE(OID_TEXT, 2 + i * 4);
 			socket.write(this.msg(0x74, pd));
 			if (stmt?.fields && stmt.fields.length > 0) {
 				socket.write(this.buildRowDescription(stmt.fields));
@@ -486,7 +556,7 @@ export class PGliteTCPServer {
 				this.cstring(f.name),
 				this.int32(0),
 				this.int16(0),
-				this.int32(fmt === 1 ? (f.dataTypeID || 25) : 25),
+				this.int32(fmt === 1 ? (f.dataTypeID || OID_TEXT) : OID_TEXT),
 				this.int16(-1),
 				this.int32(-1),
 				this.int16(fmt),
@@ -539,69 +609,69 @@ export class PGliteTCPServer {
 
 	private encodeBinary(val: unknown, oid: number): Buffer {
 		switch (oid) {
-			case 16: {
+			case OID_BOOL: {
 				const b = Buffer.alloc(1);
 				b[0] = val ? 1 : 0;
 				return b;
 			}
-			case 21: {
+			case OID_INT2: {
 				const b = Buffer.alloc(2);
 				b.writeInt16BE(Number(val), 0);
 				return b;
 			}
-			case 23:
-			case 26: {
+			case OID_INT4:
+			case OID_OID: {
 				const b = Buffer.alloc(4);
 				b.writeInt32BE(Number(val), 0);
 				return b;
 			}
-			case 20: {
+			case OID_INT8: {
 				const b = Buffer.alloc(8);
 				b.writeBigInt64BE(BigInt(typeof val === "string" ? val : Math.trunc(Number(val))));
 				return b;
 			}
-			case 700: {
+			case OID_FLOAT4: {
 				const b = Buffer.alloc(4);
 				b.writeFloatBE(Number(val), 0);
 				return b;
 			}
-			case 701: {
+			case OID_FLOAT8: {
 				const b = Buffer.alloc(8);
 				b.writeDoubleBE(Number(val), 0);
 				return b;
 			}
-			case 114:
-			case 25:
-			case 1042:
-			case 1043:
+			case OID_JSON:
+			case OID_TEXT:
+			case OID_BPCHAR:
+			case OID_VARCHAR:
 				return Buffer.from(
 					typeof val === "object" ? JSON.stringify(val) : String(val),
 					"utf8",
 				);
-			case 3802: {
+			case OID_JSONB: {
 				const json = Buffer.from(JSON.stringify(val), "utf8");
 				const b = Buffer.alloc(1 + json.length);
 				b[0] = 1;
 				json.copy(b, 1);
 				return b;
 			}
-			case 17: {
+			case OID_BYTEA: {
 				if (val instanceof Uint8Array) return Buffer.from(val);
 				const s = String(val);
 				return s.startsWith("\\x")
 					? Buffer.from(s.slice(2), "hex")
 					: Buffer.from(s, "utf8");
 			}
-			case 2950:
+			case OID_UUID:
 				return Buffer.from(String(val).replace(/-/g, ""), "hex");
-			case 1082: {
+			case OID_DATE: {
 				const b = Buffer.alloc(4);
 				const d = val instanceof Date ? val : new Date(String(val));
 				b.writeInt32BE(Math.floor((d.getTime() - 946684800000) / 86400000), 0);
 				return b;
 			}
-			case 1114:
-			case 1184: {
+			case OID_TIMESTAMP:
+			case OID_TIMESTAMPTZ: {
 				const d = val instanceof Date ? val : new Date(String(val));
 				const us = BigInt(d.getTime()) * 1000n - BigInt(946684800) * 1000000n;
 				const b = Buffer.alloc(8);
@@ -671,7 +741,9 @@ export class PGliteTCPServer {
 }
 
 const BINARY_OIDS = new Set([
-	16, 17, 20, 21, 23, 25, 26, 114, 700, 701, 1042, 1043, 1082, 1114, 1184, 2950, 3802,
+	OID_BOOL, OID_BYTEA, OID_INT8, OID_INT2, OID_INT4, OID_TEXT, OID_OID,
+	OID_JSON, OID_FLOAT4, OID_FLOAT8, OID_BPCHAR, OID_VARCHAR, OID_DATE,
+	OID_TIMESTAMP, OID_TIMESTAMPTZ, OID_UUID, OID_JSONB,
 ]);
 
 function effectiveFormat(oid: number, formats: number[], idx: number): 0 | 1 {
@@ -680,121 +752,100 @@ function effectiveFormat(oid: number, formats: number[], idx: number): 0 | 1 {
 	return requested === 1 && BINARY_OIDS.has(oid) ? 1 : 0;
 }
 
-function splitStatements(sql: string): string[] {
-	const statements: string[] = [];
+function walkSql(sql: string, callbacks: {
+	onStatement?: (stmt: string) => void;
+	onParam?: (index: number) => void;
+}): string {
+	let result = "";
 	let current = "";
 	let i = 0;
 	while (i < sql.length) {
 		if (sql[i] === "-" && sql[i + 1] === "-") {
 			const end = sql.indexOf("\n", i);
 			const stop = end === -1 ? sql.length : end;
-			current += sql.slice(i, stop);
+			const slice = sql.slice(i, stop);
+			current += slice;
+			result += slice;
 			i = stop;
 			continue;
 		}
 		if (sql[i] === "/" && sql[i + 1] === "*") {
 			const end = sql.indexOf("*/", i + 2);
 			const stop = end === -1 ? sql.length : end + 2;
-			current += sql.slice(i, stop);
+			const slice = sql.slice(i, stop);
+			current += slice;
+			result += slice;
 			i = stop;
 			continue;
 		}
 		if (sql[i] === "'") {
 			let j = i + 1;
 			while (j < sql.length) {
-				if (sql[j] === "'" && sql[j + 1] === "'") {
-					j += 2;
-					continue;
-				}
-				if (sql[j] === "'") {
-					j++;
-					break;
-				}
+				if (sql[j] === "'" && sql[j + 1] === "'") { j += 2; continue; }
+				if (sql[j] === "'") { j++; break; }
 				j++;
 			}
-			current += sql.slice(i, j);
+			const slice = sql.slice(i, j);
+			current += slice;
+			result += slice;
 			i = j;
 			continue;
 		}
 		if (sql[i] === "$") {
+			if (callbacks.onParam) {
+				let j = i + 1;
+				while (j < sql.length && (sql[j] ?? "") >= "0" && (sql[j] ?? "") <= "9") j++;
+				if (j > i + 1) {
+					callbacks.onParam(parseInt(sql.slice(i + 1, j)));
+					result += "NULL";
+					i = j;
+					continue;
+				}
+			}
 			const tagEnd = sql.indexOf("$", i + 1);
 			if (tagEnd !== -1 && !/^\d+$/.test(sql.slice(i + 1, tagEnd))) {
 				const tag = sql.slice(i, tagEnd + 1);
 				const closeIdx = sql.indexOf(tag, tagEnd + 1);
 				if (closeIdx !== -1) {
-					current += sql.slice(i, closeIdx + tag.length);
+					const slice = sql.slice(i, closeIdx + tag.length);
+					current += slice;
+					result += slice;
 					i = closeIdx + tag.length;
 					continue;
 				}
 			}
 		}
-		if (sql[i] === ";") {
+		if (callbacks.onStatement && sql[i] === ";") {
 			const stmt = current.trim();
-			if (stmt) statements.push(stmt);
+			if (stmt) callbacks.onStatement(stmt);
 			current = "";
+			result += sql[i];
 			i++;
 			continue;
 		}
-		current += sql[i++];
+		current += sql[i];
+		result += sql[i];
+		i++;
 	}
-	const last = current.trim();
-	if (last) statements.push(last);
+	if (callbacks.onStatement) {
+		const last = current.trim();
+		if (last) callbacks.onStatement(last);
+	}
+	return result;
+}
+
+function splitStatements(sql: string): string[] {
+	const statements: string[] = [];
+	walkSql(sql, { onStatement: (stmt) => statements.push(stmt) });
 	return statements;
 }
 
 function scanQuery(query: string): { paramCount: number; probeQuery: string } {
 	let max = 0;
-	let result = "";
-	let i = 0;
-	while (i < query.length) {
-		if (query[i] === "-" && query[i + 1] === "-") {
-			const end = query.indexOf("\n", i);
-			const stop = end === -1 ? query.length : end + 1;
-			result += query.slice(i, stop);
-			i = stop;
-			continue;
-		}
-		if (query[i] === "/" && query[i + 1] === "*") {
-			const end = query.indexOf("*/", i + 2);
-			const stop = end === -1 ? query.length : end + 2;
-			result += query.slice(i, stop);
-			i = stop;
-			continue;
-		}
-		if (query[i] === "'") {
-			let j = i + 1;
-			while (j < query.length) {
-				if (query[j] === "'" && query[j + 1] === "'") { j += 2; continue; }
-				if (query[j] === "'") { j++; break; }
-				j++;
-			}
-			result += query.slice(i, j);
-			i = j;
-			continue;
-		}
-		if (query[i] === "$") {
-			let j = i + 1;
-			while (j < query.length && (query[j] ?? "") >= "0" && (query[j] ?? "") <= "9") j++;
-			if (j > i + 1) {
-				max = Math.max(max, parseInt(query.slice(i + 1, j)));
-				result += "NULL";
-				i = j;
-				continue;
-			}
-			const tagEnd = query.indexOf("$", i + 1);
-			if (tagEnd !== -1) {
-				const tag = query.slice(i, tagEnd + 1);
-				const closeIdx = query.indexOf(tag, tagEnd + 1);
-				if (closeIdx !== -1) {
-					result += query.slice(i, closeIdx + tag.length);
-					i = closeIdx + tag.length;
-					continue;
-				}
-			}
-		}
-		result += query[i++];
-	}
-	return { paramCount: max, probeQuery: result };
+	const probeQuery = walkSql(query, {
+		onParam: (index) => { max = Math.max(max, index); },
+	});
+	return { paramCount: max, probeQuery };
 }
 
 function commandTag(sql: string, rowCount: number): string {

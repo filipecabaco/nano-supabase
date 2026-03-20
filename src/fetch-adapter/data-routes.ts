@@ -1,43 +1,10 @@
-/**
- * Data routes handler - processes /rest/v1/* requests using PostgREST parser
- */
-
 import type { PGlite } from "@electric-sql/pglite";
 import type { PostgrestParser } from "../postgrest-parser.ts";
 import { setAuthContext } from "./auth-context.ts";
-import { errorResponse } from "./error-handler.ts";
-
+import { postgresErrorResponse } from "./error-handler.ts";
+import { extractBearerToken, parseBody } from "./index.ts";
 import { jsonResponse } from "./response.ts";
 
-/**
- * Extract bearer token from Authorization header
- */
-function extractBearerToken(headers: Headers): string | null {
-	const auth = headers.get("Authorization");
-	if (!auth || !auth.startsWith("Bearer ")) {
-		return null;
-	}
-	return auth.slice(7);
-}
-
-/**
- * Parse request body as JSON
- */
-async function parseBody(
-	request: Request,
-): Promise<Record<string, unknown> | null> {
-	try {
-		const text = await request.text();
-		if (!text) return null;
-		return JSON.parse(text);
-	} catch {
-		return null;
-	}
-}
-
-/**
- * Handle data routes (PostgREST API)
- */
 export async function handleDataRoute(
 	request: Request,
 	pathname: string,
@@ -144,14 +111,16 @@ export async function handleDataRoute(
 		// Execute the actual query with parameters
 		const result = await db.query(sql, [...parsed.params]);
 
-		// Determine response format based on headers
 		const returnMinimal = prefer.includes("return=minimal");
 		const countHeader =
 			prefer.includes("count=exact") ||
 			prefer.includes("count=planned") ||
 			prefer.includes("count=estimated");
 
-		// Build response headers
+		const isCreate = method === "POST";
+		const isMutate = method === "PATCH" || method === "PUT";
+		const isDelete = method === "DELETE";
+
 		const responseHeaders: Record<string, string> = {};
 
 		if (countHeader) {
@@ -159,7 +128,6 @@ export async function handleDataRoute(
 				`0-${result.rows.length - 1}/${result.rows.length}`;
 		}
 
-		// Handle different operations
 		if (method === "HEAD") {
 			responseHeaders["Content-Range"] =
 				`0-${result.rows.length - 1}/${result.rows.length}`;
@@ -170,14 +138,14 @@ export async function handleDataRoute(
 			return jsonResponse(result.rows, 200, responseHeaders);
 		}
 
-		if (method === "POST") {
+		if (isCreate) {
 			if (returnMinimal) {
 				return new Response(null, { status: 201, headers: responseHeaders });
 			}
 			return jsonResponse(result.rows, 201, responseHeaders);
 		}
 
-		if (method === "PATCH" || method === "PUT") {
+		if (isMutate) {
 			if (returnMinimal) {
 				return new Response(null, { status: 204, headers: responseHeaders });
 			}
@@ -187,7 +155,7 @@ export async function handleDataRoute(
 			return new Response(null, { status: 204, headers: responseHeaders });
 		}
 
-		if (method === "DELETE") {
+		if (isDelete) {
 			if (returnRepresentation) {
 				return jsonResponse(result.rows, 200, responseHeaders);
 			}
@@ -196,6 +164,6 @@ export async function handleDataRoute(
 
 		return jsonResponse(result.rows, 200, responseHeaders);
 	} catch (err) {
-		return errorResponse(err);
+		return postgresErrorResponse(err);
 	}
 }

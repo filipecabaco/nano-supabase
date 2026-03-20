@@ -1,55 +1,39 @@
-/**
- * Crypto utilities for auth tokens
- * Uses Web Crypto API for JWT operations (browser/edge runtime compatible)
- */
-
 import type { PGlite } from "@electric-sql/pglite";
 import { decodeJWT, type JWTPayload, signJWT, verifyJWT } from "./jwt.ts";
 import type { TokenPair, User } from "./types.ts";
 
-// Default token expiry: 1 hour (in seconds)
 const DEFAULT_ACCESS_TOKEN_EXPIRY = 3600;
 
-// JWT secret key (in production, this should come from environment)
-// For now, we'll store it in the database and retrieve it
-let cachedSecret: string | null = null;
+const secretCache = new WeakMap<PGlite, string>();
 
-/**
- * Get or create JWT secret from database
- */
 async function getJWTSecret(db: PGlite): Promise<string> {
-	if (cachedSecret) return cachedSecret;
+	const cached = secretCache.get(db);
+	if (cached) return cached;
 
-	// Get or create secret from database
 	const result = await db.query<{ value: string }>(
 		`SELECT value FROM auth.config WHERE key = 'jwt_secret'`,
 	);
 
 	if (result.rows.length > 0 && result.rows[0]) {
-		cachedSecret = result.rows[0].value;
-		return cachedSecret;
+		secretCache.set(db, result.rows[0].value);
+		return result.rows[0].value;
 	}
 
-	// Generate new secret (256-bit random hex string)
 	const bytes = new Uint8Array(32);
 	crypto.getRandomValues(bytes);
 	const secret = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join(
 		"",
 	);
 
-	await db.exec(`
-    INSERT INTO auth.config (key, value)
-    VALUES ('jwt_secret', '${secret}')
-    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
-  `);
+	await db.query(
+		`INSERT INTO auth.config (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+		["jwt_secret", secret],
+	);
 
-	cachedSecret = secret;
+	secretCache.set(db, secret);
 	return secret;
 }
 
-/**
- * Create an access token using Web Crypto API
- */
 export async function createAccessToken(
 	db: PGlite,
 	user: User,
@@ -74,9 +58,6 @@ export async function createAccessToken(
 	return signJWT(payload, secret);
 }
 
-/**
- * Verify and decode an access token using Web Crypto API
- */
 export async function verifyAccessToken(
 	db: PGlite,
 	token: string,
@@ -99,9 +80,6 @@ export async function verifyAccessToken(
 	return verifyJWT(token, secret);
 }
 
-/**
- * Generate a token pair (access + refresh) for a user session
- */
 export async function generateTokenPair(
 	db: PGlite,
 	user: User,
@@ -120,18 +98,11 @@ export async function generateTokenPair(
 	};
 }
 
-/**
- * Extract user ID from access token without full verification
- * (useful for quick checks, but should verify for security-sensitive operations)
- */
 export function extractUserIdFromToken(token: string): string | null {
 	const payload = decodeJWT(token);
 	return payload?.sub || null;
 }
 
-/**
- * Extract session ID from access token without full verification
- */
 export function extractSessionIdFromToken(token: string): string | null {
 	const payload = decodeJWT(token);
 	return payload?.session_id || null;

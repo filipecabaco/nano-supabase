@@ -44,8 +44,8 @@ export interface SignedUrlToken {
     exp: number;
 }
 export declare class StorageHandler {
-    private db;
-    private backend;
+    private readonly db;
+    private readonly backend;
     private initPromise;
     constructor(db: PGlite, backend?: StorageBackend);
     initialize(): Promise<void>;

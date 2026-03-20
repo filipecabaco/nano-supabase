@@ -8,23 +8,18 @@ const PROMOTION: Readonly<Record<1 | 2 | 3, QueryPriority>> = {
 };
 
 export class PriorityQueue {
-	private readonly queues: Map<QueryPriority, QueuedQuery[]>;
+	private readonly queues: [QueuedQuery[], QueuedQuery[], QueuedQuery[], QueuedQuery[]];
 	private readonly maxSize: number;
 	private readonly agingThresholdMs: number;
 
 	constructor(maxSize: number = 1000, agingThresholdMs: number = 5000) {
 		this.maxSize = maxSize;
 		this.agingThresholdMs = agingThresholdMs;
-		this.queues = new Map([
-			[0, []],
-			[1, []],
-			[2, []],
-			[3, []],
-		]);
+		this.queues = [[], [], [], []];
 	}
 
 	enqueue(query: QueuedQuery): void {
-		const queue = this.queues.get(query.priority);
+		const queue = this.queues[query.priority];
 		if (!queue) {
 			throw new Error(`Invalid priority: ${query.priority}`);
 		}
@@ -43,8 +38,8 @@ export class PriorityQueue {
 		this.applyAging();
 
 		for (const priority of [0, 1, 2, 3] as const) {
-			const queue = this.queues.get(priority);
-			if (queue && queue.length > 0) {
+			const queue = this.queues[priority];
+			if (queue.length > 0) {
 				return queue.shift() ?? null;
 			}
 		}
@@ -54,8 +49,8 @@ export class PriorityQueue {
 	private applyAging(): void {
 		const now = Date.now();
 		for (const priority of [1, 2, 3] as const) {
-			const queue = this.queues.get(priority);
-			if (!queue || queue.length === 0) continue;
+			const queue = this.queues[priority];
+			if (queue.length === 0) continue;
 
 			const promoted: QueuedQuery[] = [];
 			const remaining: QueuedQuery[] = [];
@@ -71,22 +66,19 @@ export class PriorityQueue {
 			if (promoted.length > 0) {
 				queue.length = 0;
 				for (const q of remaining) queue.push(q);
-				const upperQueue = this.queues.get(PROMOTION[priority])!;
+				const upperQueue = this.queues[PROMOTION[priority]];
 				for (const q of promoted) upperQueue.push(q);
 			}
 		}
 	}
 
 	size(): number {
-		return Array.from(this.queues.values()).reduce(
-			(sum, q) => sum + q.length,
-			0,
-		);
+		return this.queues.reduce((sum, q) => sum + q.length, 0);
 	}
 
 	clear(): QueuedQuery[] {
 		const all: QueuedQuery[] = [];
-		for (const queue of this.queues.values()) {
+		for (const queue of this.queues) {
 			for (const q of queue) all.push(q);
 			queue.length = 0;
 		}
@@ -95,10 +87,10 @@ export class PriorityQueue {
 
 	sizeByPriority(): Record<QueryPriority, number> {
 		return {
-			0: this.queues.get(0)!.length,
-			1: this.queues.get(1)!.length,
-			2: this.queues.get(2)!.length,
-			3: this.queues.get(3)!.length,
+			0: this.queues[0].length,
+			1: this.queues[1].length,
+			2: this.queues[2].length,
+			3: this.queues[3].length,
 		};
 	}
 }

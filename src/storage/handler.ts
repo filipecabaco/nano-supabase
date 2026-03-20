@@ -66,8 +66,8 @@ function fromUrlSafeBase64(b64url: string): string {
 // ─── Handler ──────────────────────────────────────────────────────────
 
 export class StorageHandler {
-	private db: PGlite;
-	private backend: StorageBackend;
+	private readonly db: PGlite;
+	private readonly backend: StorageBackend;
 	private initPromise: Promise<unknown> | null = null;
 
 	constructor(db: PGlite, backend?: StorageBackend) {
@@ -435,14 +435,15 @@ export class StorageHandler {
 		const destBucket = destinationBucket ?? bucketId;
 
 		// Update DB row
-		const result = await this.db.query(
+		const result = await this.db.query<StorageObject>(
 			`UPDATE storage.objects
        SET bucket_id = $3, name = $4, updated_at = now()
-       WHERE bucket_id = $1 AND name = $2`,
+       WHERE bucket_id = $1 AND name = $2
+       RETURNING *`,
 			[bucketId, sourceKey, destBucket, destinationKey],
 		);
 
-		if ((result as { rowCount?: number }).rowCount === 0) {
+		if (result.rows.length === 0) {
 			throw new Error("Object not found");
 		}
 

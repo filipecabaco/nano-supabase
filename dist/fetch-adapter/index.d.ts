@@ -69,6 +69,8 @@ export interface FetchAdapterConfig {
  * ```
  */
 export declare function createLocalFetch(config: FetchAdapterConfig): (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
+export declare function extractBearerToken(headers: Headers): string | null;
+export declare function parseBody(request: Request): Promise<Record<string, unknown>>;
 export { handleAuthRoute } from "./auth-routes.ts";
 export { handleDataRoute } from "./data-routes.ts";
 export { handleStorageRoute } from "./storage-routes.ts";

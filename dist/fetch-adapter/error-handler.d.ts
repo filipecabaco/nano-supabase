@@ -19,5 +19,5 @@ export declare function extractPostgresError(err: unknown): ApiError;
 /**
  * Create JSON error response
  */
-export declare function errorResponse(err: unknown, status?: number): Response;
+export declare function postgresErrorResponse(err: unknown, status?: number): Response;
 //# sourceMappingURL=error-handler.d.ts.map
