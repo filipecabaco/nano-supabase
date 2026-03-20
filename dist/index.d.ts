@@ -22,7 +22,7 @@ export { type AuthContext, clearAuthContext, setAuthContext, } from "./fetch-ada
 export { type ApiError, errorResponse, extractPostgresError, type PostgresError, } from "./fetch-adapter/error-handler.ts";
 export { createLocalFetch, type FetchAdapterConfig, handleAuthRoute, handleDataRoute, handleStorageRoute, } from "./fetch-adapter/index.ts";
 export { createClient, type NanoSupabaseInstance, type NanoSupabaseOptions, nanoSupabase, } from "./nano.ts";
-export { createPGlite } from "./pglite-factory.ts";
+export { createPGlite, LEAN_POSTGRES_OPTIONS } from "./pglite-factory.ts";
 export { PGlitePooler } from "./pooler.ts";
 export type { ParsedQuery, QueryExecutor } from "./postgrest-parser.ts";
 export { PostgrestParser } from "./postgrest-parser.ts";

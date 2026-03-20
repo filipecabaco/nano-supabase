@@ -172,4 +172,161 @@ describe("PGliteTCPServer", () => {
 			await teardown();
 		}
 	});
+
+	test("empty query does not throw", async () => {
+		const { pool, teardown } = await setup();
+		try {
+			const res = await pool.query("");
+			assertEquals(res.rows.length, 0);
+		} finally {
+			await teardown();
+		}
+	});
+
+	test("SQLSTATE 23505 on unique violation", async () => {
+		const { pool, teardown } = await setup();
+		try {
+			await pool.query("CREATE TABLE uniq_test (id INT PRIMARY KEY)");
+			await pool.query("INSERT INTO uniq_test VALUES (1)");
+			let err: Error & { code?: string } | null = null;
+			try {
+				await pool.query("INSERT INTO uniq_test VALUES (1)");
+			} catch (e) {
+				err = e as Error & { code?: string };
+			}
+			assertExists(err);
+			assertEquals(err!.code, "23505");
+		} finally {
+			await teardown();
+		}
+	});
+
+	test("SQLSTATE 42P01 on missing table", async () => {
+		const { pool, teardown } = await setup();
+		try {
+			let err: Error & { code?: string } | null = null;
+			try {
+				await pool.query("SELECT * FROM totally_missing_xyz");
+			} catch (e) {
+				err = e as Error & { code?: string };
+			}
+			assertExists(err);
+			assertEquals(err!.code, "42P01");
+		} finally {
+			await teardown();
+		}
+	});
+
+	test("res.fields includes column name and dataTypeID", async () => {
+		const { pool, teardown } = await setup();
+		try {
+			const res = await pool.query("SELECT 1::int4 AS num, 'hi'::text AS str");
+			assertEquals(res.fields.length, 2);
+			assertEquals(res.fields[0].name, "num");
+			assertEquals(res.fields[1].name, "str");
+			assertExists(res.fields[0].dataTypeID);
+		} finally {
+			await teardown();
+		}
+	});
+
+	test("explicit BEGIN/COMMIT transaction works", async () => {
+		const { pool, teardown } = await setup();
+		try {
+			await pool.query("CREATE TABLE tx_test (val INT)");
+			await pool.query("BEGIN");
+			await pool.query("INSERT INTO tx_test VALUES (42)");
+			await pool.query("COMMIT");
+			const res = await pool.query("SELECT val FROM tx_test");
+			assertEquals(res.rows[0].val, 42);
+		} finally {
+			await teardown();
+		}
+	});
+
+	test("explicit BEGIN/ROLLBACK discards changes", async () => {
+		const { pool, teardown } = await setup();
+		try {
+			await pool.query("CREATE TABLE tx_rollback_test (val INT)");
+			await pool.query("BEGIN");
+			await pool.query("INSERT INTO tx_rollback_test VALUES (99)");
+			await pool.query("ROLLBACK");
+			const res = await pool.query("SELECT COUNT(*) AS cnt FROM tx_rollback_test");
+			assertEquals(Number(res.rows[0].cnt), 0);
+		} finally {
+			await teardown();
+		}
+	});
+
+	test("multi-statement with error rolls back prior inserts", async () => {
+		const { pool, teardown } = await setup();
+		try {
+			await pool.query("CREATE TABLE multi_rollback (val INT)");
+			let err: Error | null = null;
+			try {
+				await pool.query("INSERT INTO multi_rollback VALUES (1); SELECT * FROM missing_xyz_table");
+			} catch (e) {
+				err = e as Error;
+			}
+			assertExists(err);
+			const res = await pool.query("SELECT COUNT(*) AS cnt FROM multi_rollback");
+			assertEquals(Number(res.rows[0].cnt), 0);
+		} finally {
+			await teardown();
+		}
+	});
+
+	test("real OIDs reported in RowDescription (not all OID 25)", async () => {
+		const { pool, teardown } = await setup();
+		try {
+			const res = await pool.query(
+				"SELECT 1::int4 AS a, true AS b, 3.14::float8 AS c, 'x'::text AS d",
+			);
+			const byName = Object.fromEntries(res.fields.map((f: { name: string; dataTypeID: number }) => [f.name, f.dataTypeID]));
+			assertEquals(byName.a, 23);   // int4
+			assertEquals(byName.b, 16);   // bool
+			assertEquals(byName.c, 701);  // float8
+			assertEquals(byName.d, 25);   // text
+		} finally {
+			await teardown();
+		}
+	});
+
+	test("binary encoding: common types round-trip via extended protocol", async () => {
+		const { teardown } = await setup();
+		const client = new pg.Client({
+			connectionString: `postgresql://postgres@127.0.0.1:${TEST_PORT}/postgres`,
+		});
+		await client.connect();
+		try {
+			const res = await client.query(
+				"SELECT 42::int4 AS i4, TRUE AS b, 2.718281828::float8 AS f8, 'hello'::text AS t, '550e8400-e29b-41d4-a716-446655440000'::uuid AS id",
+			);
+			assertEquals(res.rows[0].i4, 42);
+			assertEquals(res.rows[0].b, true);
+			assertEquals(res.rows[0].t, "hello");
+			assertEquals(res.rows[0].id, "550e8400-e29b-41d4-a716-446655440000");
+			assertExists(res.rows[0].f8);
+		} finally {
+			await client.end();
+			await teardown();
+		}
+	});
+
+	test("binary encoding: jsonb column returns parsed object", async () => {
+		const { teardown } = await setup();
+		const client = new pg.Client({
+			connectionString: `postgresql://postgres@127.0.0.1:${TEST_PORT}/postgres`,
+		});
+		await client.connect();
+		try {
+			await client.query("CREATE TABLE jsonb_bin (data JSONB)");
+			await client.query("INSERT INTO jsonb_bin VALUES ($1)", ['{"x":1}']);
+			const res = await client.query("SELECT data FROM jsonb_bin");
+			assertEquals(res.rows[0].data, { x: 1 });
+		} finally {
+			await client.end();
+			await teardown();
+		}
+	});
 });

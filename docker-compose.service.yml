@@ -1,0 +1,78 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: nano_registry
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  localstack:
+    image: localstack/localstack:latest
+    environment:
+      SERVICES: s3
+      DEFAULT_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+    ports:
+      - "4566:4566"
+    healthcheck:
+      test: ["CMD-SHELL", "awslocal s3 ls || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  setup:
+    image: localstack/localstack:latest
+    depends_on:
+      localstack:
+        condition: service_healthy
+    environment:
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      AWS_DEFAULT_REGION: us-east-1
+    entrypoint: >
+      sh -c "awslocal --endpoint-url=http://localstack:4566 s3 mb s3://nano-tenants --region us-east-1"
+
+  nano:
+    build: .
+    ports:
+      - "8080:8080"
+      - "54400-54499:54400-54499"
+    environment:
+      NANO_REGISTRY_DB_URL: postgres://postgres:postgres@postgres:5432/nano_registry
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      AWS_REGION: us-east-1
+    command:
+      - --admin-token=secret
+      - --service-port=8080
+      - --tcp-base-port=54400
+      - --routing=subdomain
+      - --base-domain=localhost
+      - --data-dir=/data/tenants
+      - --cold-dir=/data/cold
+      - --s3-bucket=nano-tenants
+      - --s3-endpoint=http://localstack:4566
+    volumes:
+      - nano-data:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      setup:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+volumes:
+  nano-data:

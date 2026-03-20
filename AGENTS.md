@@ -201,6 +201,80 @@ Environment variables: `SUPABASE_DB_URL` (substitutes `--remote-db-url`).
 - No file is written if the resulting DDL is empty.
 - Pull only writes files — it does not apply them. Run `npx nano-supabase migration up` after pulling to apply migrations to the local database.
 
+## Service Mode
+
+Service mode runs nano-supabase as a multi-tenant HTTP gateway. Each tenant gets an isolated PGlite instance, managed by a persistent registry backed by PGlite itself.
+
+```bash
+npx nano-supabase service \
+  --admin-token=<secret> \
+  --service-port=8080 \
+  --data-dir=./service-data \
+  --cold-dir=./service-cold \
+  --idle-timeout=600000
+```
+
+**Flags:**
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--admin-token` | required | Bearer token for admin API |
+| `--registry-db-url` | required | Postgres connection URL for tenant registry (or `NANO_REGISTRY_DB_URL` env). Must be an external Postgres — decoupled from tenant instances so a fleet of service nodes can share it. |
+| `--service-port` | `8080` | HTTP port |
+| `--data-dir` | `/tmp/nano-service-data` | Base directory for tenant data directories |
+| `--cold-dir` | `/tmp/nano-service-cold` | Directory for offloaded tenant archives (disk mode) |
+| `--idle-timeout` | `600000` | Milliseconds before idle tenant is auto-paused |
+| `--s3-bucket` | — | S3 bucket name for offload storage |
+| `--s3-endpoint` | — | Custom S3 endpoint (for MinIO, R2, etc.) |
+
+**Tenant routing:** requests are dispatched as `/<slug>/...` — the slug identifies the tenant, the remainder is forwarded to its local nano instance. Every tenant request requires `Authorization: Bearer <tenant-token>`.
+
+**Admin API** (all require `Authorization: Bearer <admin-token>`):
+
+```
+GET  /health                              # liveness check
+GET  /admin/tenants                       # list all tenants
+POST /admin/tenants                       # create tenant, body: { "slug": "my-tenant" }
+GET  /admin/tenants/:slug                 # get tenant info
+DELETE /admin/tenants/:slug               # delete tenant (stops instance, removes data)
+POST /admin/tenants/:slug/pause           # pause running tenant (offload to disk/S3)
+POST /admin/tenants/:slug/wake            # wake sleeping tenant (restore from disk/S3)
+POST /admin/tenants/:slug/reset-token     # rotate tenant bearer token
+```
+
+**Examples:**
+
+```bash
+# Create tenant
+curl -X POST http://localhost:8080/admin/tenants \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"slug": "acme"}'
+# → { "token": "<tenant-token>", "tenant": { "id": "...", "slug": "acme", "state": "running" } }
+
+# Use tenant (supabase-compatible endpoint)
+curl -X POST http://localhost:8080/acme/auth/v1/signup \
+  -H "Authorization: Bearer $TENANT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"email": "user@example.com", "password": "password"}'
+
+# Pause tenant to free memory
+curl -X POST http://localhost:8080/admin/tenants/acme/pause \
+  -H "Authorization: Bearer $ADMIN_TOKEN"
+
+# Wake tenant (auto-wakes on first request too)
+curl -X POST http://localhost:8080/admin/tenants/acme/wake \
+  -H "Authorization: Bearer $ADMIN_TOKEN"
+```
+
+**Offload behavior:**
+- **Disk (default):** paused tenant data is archived as `<cold-dir>/<tenant-id>.tar.gz` using `tar czf`. On wake, the archive is extracted back.
+- **S3:** when `--s3-bucket` is set, archives are uploaded to `tenants/<tenant-id>/data.tar.gz` in the bucket. Credentials read from `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_REGION`.
+
+**Registry persistence:** tenant metadata (slug, token hash, data dir, state) is stored in an external Postgres database (`--registry-db-url`). This decouples the registry from individual service nodes — a fleet of service instances can share the same registry. On restart, all tenants are loaded from the registry as sleeping and auto-wake on first request.
+
+**Memory advantage:** tenants share a single process and wake/sleep on demand, using far less memory than running a separate Node.js process per tenant.
+
 ## MCP Server
 
 The CLI exposes an MCP server on `/mcp` (Streamable HTTP transport) when started with `--mcp`. Powered by `@supabase/mcp-server-supabase`.

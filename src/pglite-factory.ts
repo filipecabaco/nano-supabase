@@ -34,3 +34,11 @@ export function createPGlite(
 	const opts = { ...options, extensions: ext };
 	return dataDir ? new PGlite(dataDir, opts) : new PGlite(opts);
 }
+
+export const LEAN_POSTGRES_OPTIONS: Pick<PGliteOptions, "startParams"> = {
+	startParams: [
+		"--single", "-F", "-O", "-j",
+		"-c", "shared_buffers=128kB",
+		"-c", "work_mem=64kB",
+	],
+};

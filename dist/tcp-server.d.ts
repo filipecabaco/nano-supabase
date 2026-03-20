@@ -9,6 +9,7 @@ export declare class PGliteTCPServer {
     private readonly pooler;
     private server;
     private readonly connections;
+    private readonly probeCache;
     constructor(pooler: PGlitePooler);
     static create(db: PGlite, config?: Partial<PoolerConfig>): Promise<PGliteTCPServer>;
     start(port?: number, host?: string): Promise<void>;
@@ -25,11 +26,15 @@ export declare class PGliteTCPServer {
     private onExecute;
     private execute;
     private executeMulti;
+    private updateTxStatus;
     private buildStartupResponse;
     private buildResultMessages;
     private buildRowDescription;
+    private pgText;
     private buildDataRow;
+    private encodeBinary;
     private buildReadyForQuery;
+    private sqlstate;
     private buildError;
     private msg;
     private cstring;

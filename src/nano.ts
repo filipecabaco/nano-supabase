@@ -56,6 +56,7 @@ import type {
 import { createClient as supabaseCreateClient } from "@supabase/supabase-js";
 import { initComponents } from "./client.ts";
 import { createLocalFetch } from "./fetch-adapter/index.ts";
+import { PostgrestParser } from "./postgrest-parser.ts";
 import { createPGlite } from "./pglite-factory.ts";
 import type { StorageBackend } from "./storage/backend.ts";
 import { PGliteTCPServer } from "./tcp-server.ts";
@@ -94,6 +95,23 @@ export interface NanoSupabaseOptions {
 	 * Service role key. When provided, admin auth routes (/auth/v1/admin/*) require it as bearer token.
 	 */
 	serviceRoleKey?: string;
+	/**
+	 * Shared PostgREST parser instance. When provided, skips WASM init and schema introspection
+	 * for this instance — the caller is responsible for ensuring the parser's schema matches this db.
+	 * Use this when running many instances with the same schema to reduce startup cost.
+	 */
+	parser?: PostgrestParser;
+	/**
+	 * Additional Postgres GUC options passed directly to PGlite via `startParams`.
+	 * Merged with any existing `startParams` in the PGlite options.
+	 *
+	 * @example
+	 * ```typescript
+	 * import { LEAN_POSTGRES_OPTIONS } from 'nano-supabase'
+	 * const nano = await nanoSupabase({ postgresOptions: LEAN_POSTGRES_OPTIONS })
+	 * ```
+	 */
+	postgresOptions?: Pick<PGliteOptions, "startParams">;
 }
 
 export interface NanoSupabaseInstance {
@@ -201,13 +219,16 @@ export async function nanoSupabase(
 		fsBundle,
 		postgrestWasmBytes,
 		serviceRoleKey,
+		parser: sharedParser,
+		postgresOptions,
 	} = options;
 
-	const db = createPGlite(dataDir, { extensions, wasmModule, fsBundle });
+	const db = createPGlite(dataDir, { extensions, wasmModule, fsBundle, ...postgresOptions });
 	const { parser, authHandler, storageHandler } = await initComponents(
 		db,
 		storageBackend,
 		postgrestWasmBytes,
+		sharedParser,
 	);
 
 	const localFetch = createLocalFetch({

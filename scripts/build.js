@@ -1,4 +1,4 @@
-import { chmodSync, copyFileSync, mkdirSync, rmSync } from "node:fs";
+import { chmodSync, copyFileSync, cpSync, mkdirSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import * as esbuild from "esbuild";
@@ -6,15 +6,9 @@ import * as esbuild from "esbuild";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const rootDir = join(__dirname, "..");
 
-const commonExternals = [
-	"node:*",
-	"net",
-	"tls",
-	"crypto",
-	"node:net",
-	"node:tls",
-	"node:crypto",
-];
+const target = process.argv[2];
+
+const NODE_EXTERNALS = ["node:*", "net", "tls", "crypto", "node:net", "node:tls", "node:crypto"];
 
 const commonOptions = {
 	bundle: true,
@@ -27,25 +21,23 @@ const commonOptions = {
 	mainFields: ["module", "main"],
 };
 
-async function build() {
-	console.log("Building nano-supabase...\n");
-
-	rmSync(join(rootDir, "dist"), { recursive: true, force: true });
-	mkdirSync(join(rootDir, "dist"), { recursive: true });
-
-	// Library bundle (pglite stays external for library consumers)
+async function buildLib() {
+	console.log("Building lib...");
 	await esbuild.build({
 		...commonOptions,
-		external: ["@electric-sql/pglite", ...commonExternals],
+		external: ["@electric-sql/pglite", ...NODE_EXTERNALS],
 		platform: "neutral",
 		entryPoints: [join(rootDir, "src/index.ts")],
 		outfile: join(rootDir, "dist/index.js"),
 	});
+	console.log(`  dist/index.js  ${(await import("node:fs")).statSync(join(rootDir, "dist/index.js")).size / 1024 | 0}KB`);
+}
 
-	// CLI bundle (Node.js, with shebang) — pglite is bundled in
+async function buildCli() {
+	console.log("Building cli...");
 	await esbuild.build({
 		...commonOptions,
-		external: [...commonExternals, "pg", "pg-native"],
+		external: [...NODE_EXTERNALS, "pg", "pg-native", "node-pg-migrate"],
 		platform: "node",
 		entryPoints: [join(rootDir, "src/cli.ts")],
 		outfile: join(rootDir, "dist/cli.js"),
@@ -53,27 +45,32 @@ async function build() {
 	});
 	chmodSync(join(rootDir, "dist/cli.js"), 0o755);
 
-	// Copy WASM file from postgrest-parser to dist
-	const wasmSource = join(
-		rootDir,
-		"node_modules/postgrest-parser/pkg/postgrest_parser_bg.wasm",
-	);
-	const wasmDest = join(rootDir, "dist/postgrest_parser_bg.wasm");
-	copyFileSync(wasmSource, wasmDest);
-
-	// Copy PGlite binary assets to dist (so CLI is self-contained)
 	const pgliteDistDir = join(rootDir, "node_modules/@electric-sql/pglite/dist");
-	for (const file of [
-		"pglite.wasm",
-		"initdb.wasm",
-		"pglite.data",
-		"pgcrypto.tar.gz",
-		"uuid-ossp.tar.gz",
-	]) {
+	for (const file of ["pglite.wasm", "initdb.wasm", "pglite.data", "pgcrypto.tar.gz", "uuid-ossp.tar.gz"]) {
 		copyFileSync(join(pgliteDistDir, file), join(rootDir, "dist", file));
 	}
+	copyFileSync(
+		join(rootDir, "node_modules/postgrest-parser/pkg/postgrest_parser_bg.wasm"),
+		join(rootDir, "dist/postgrest_parser_bg.wasm"),
+	);
+	cpSync(join(rootDir, "src/service-migrations"), join(rootDir, "dist/service-migrations"), { recursive: true });
+	console.log(`  dist/cli.js    ${(await import("node:fs")).statSync(join(rootDir, "dist/cli.js")).size / 1024 | 0}KB`);
+}
 
-	console.log("Build complete!");
+async function build() {
+	rmSync(join(rootDir, "dist"), { recursive: true, force: true });
+	mkdirSync(join(rootDir, "dist"), { recursive: true });
+
+	if (target === "lib") {
+		await buildLib();
+	} else if (target === "cli") {
+		await buildCli();
+	} else {
+		await buildLib();
+		await buildCli();
+	}
+
+	console.log("Done.");
 }
 
 build().catch((err) => {

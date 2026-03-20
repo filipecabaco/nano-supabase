@@ -78,7 +78,7 @@ export {
 	nanoSupabase,
 } from "./nano.ts";
 // PGlite factory — creates a PGlite instance with all required extensions pre-registered
-export { createPGlite } from "./pglite-factory.ts";
+export { createPGlite, LEAN_POSTGRES_OPTIONS } from "./pglite-factory.ts";
 // Connection pooler
 export { PGlitePooler } from "./pooler.ts";
 export type { ParsedQuery, QueryExecutor } from "./postgrest-parser.ts";

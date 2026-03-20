@@ -131,6 +131,7 @@ export async function initComponents(
 	db: PGlite,
 	storageBackend: StorageBackend | false | undefined,
 	postgrestWasmBytes?: Uint8Array,
+	sharedParser?: PostgrestParser,
 ): Promise<{
 	parser: PostgrestParser;
 	authHandler: AuthHandler;
@@ -138,26 +139,29 @@ export async function initComponents(
 }> {
 	const authHandler = new AuthHandler(db);
 
-	// WASM load and auth schema DDL are independent — run in parallel
-	await Promise.all([
-		PostgrestParser.init(postgrestWasmBytes),
-		authHandler.initialize(),
-	]);
+	if (sharedParser) {
+		await authHandler.initialize();
+	} else {
+		await Promise.all([
+			PostgrestParser.init(postgrestWasmBytes),
+			authHandler.initialize(),
+		]);
+	}
 
-	// Storage roles depend on auth schema being created first
 	let storageHandler: StorageHandler | undefined;
 	if (storageBackend !== false) {
 		storageHandler = new StorageHandler(db, storageBackend || undefined);
 		await storageHandler.initialize();
 	}
 
-	// Schema introspection needs both WASM and all schemas ready
-	await PostgrestParser.initSchema(async (sql: string) => {
-		const result = await db.query(sql);
-		return { rows: result.rows };
-	});
+	if (!sharedParser) {
+		await PostgrestParser.initSchema(async (sql: string) => {
+			const result = await db.query(sql);
+			return { rows: result.rows };
+		});
+	}
 
-	return { parser: new PostgrestParser(), authHandler, storageHandler };
+	return { parser: sharedParser ?? new PostgrestParser(), authHandler, storageHandler };
 }
 
 export async function createLocalSupabaseClient<T = SupabaseJsClient>(
