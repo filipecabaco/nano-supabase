@@ -258,6 +258,88 @@ Starts an MCP (Model Context Protocol) server on `/mcp` using Streamable HTTP tr
 | `--extensions=<names>` | — | Comma-separated PGlite extensions to load (e.g. `vector,pg_trgm`) |
 | `--json` | — | Output JSON instead of human-readable text |
 
+## Service Mode
+
+Run nano-supabase as a multi-tenant HTTP gateway. Each tenant gets an isolated PGlite instance with automatic wake/sleep lifecycle.
+
+The registry (tenant metadata) defaults to a local PGlite instance — no external database needed for local dev. Use `--registry-db-url` for shared multi-node deployments.
+
+```bash
+# Local dev — zero external dependencies
+npx nano-supabase service \
+  --admin-token=<secret> \
+  --secret=<encryption-secret> \
+  --data-dir=./service-data
+
+# Multi-node / production — shared external Postgres registry
+npx nano-supabase service \
+  --admin-token=<secret> \
+  --secret=<encryption-secret> \
+  --registry-db-url=<postgres-url> \
+  --service-port=8080
+```
+
+**Flags:**
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--admin-token` | required | Bearer token for admin API (or `NANO_ADMIN_TOKEN`) |
+| `--secret` | required | Encryption secret for tenant Postgres passwords (or `NANO_SECRET`) |
+| `--registry-db-url` | local PGlite | External Postgres for registry — omit for local dev, required for multi-node (or `NANO_REGISTRY_DB_URL`) |
+| `--service-port` | `8080` | HTTP port |
+| `--tcp-port` | `5432` | Postgres TCP multiplex port |
+| `--data-dir` | `/tmp/nano-service-data` | Base directory for tenant data and local PGlite registry |
+| `--cold-dir` | `/tmp/nano-service-cold` | Directory for disk-offload archives |
+| `--idle-timeout` | `600000` | Milliseconds before idle tenant is auto-paused |
+| `--s3-bucket` | — | S3 bucket for offload storage (enables S3 mode) |
+| `--s3-endpoint` | — | Custom S3 endpoint (MinIO, R2, etc.) |
+
+**Manage tenants** (all commands accept `--url`, `--admin-token`/`NANO_ADMIN_TOKEN`, `--json`):
+
+```bash
+# Create — all flags optional, random values used if omitted
+npx nano-supabase service add acme
+npx nano-supabase service add acme --token=my-token --password=my-pass --anon-key=my-anon --service-role-key=my-svc
+
+npx nano-supabase service list
+npx nano-supabase service remove acme
+npx nano-supabase service pause acme
+npx nano-supabase service wake acme
+npx nano-supabase service sql acme "SELECT count(*) FROM auth.users"
+npx nano-supabase service reset-token acme
+npx nano-supabase service reset-password acme [--password=<new>]
+
+# --json flag on all commands for scripting
+npx nano-supabase service list --json | jq '.[].slug'
+npx nano-supabase service add acme --json | jq '.token'
+```
+
+`service add` prints connection info (API endpoints, DB URL, auth keys, token) in the same box layout as `nano-supabase start`.
+
+**`ServiceClient`** — programmatic tenant management for tests and scripts:
+
+```typescript
+import { ServiceClient } from 'nano-supabase'
+
+const client = new ServiceClient({ url: 'http://localhost:8080', adminToken: process.env.NANO_ADMIN_TOKEN })
+
+// All options are optional — random/default values used if omitted
+const { token, password, tenant } = await client.createTenant('acme', {
+  token: 'my-token',
+  password: 'my-pass',
+  anonKey: 'my-anon-key',
+  serviceRoleKey: 'my-service-role-key',
+})
+
+await client.sql('acme', 'SELECT count(*) FROM auth.users')
+await client.pauseTenant('acme')
+await client.wakeTenant('acme')
+await client.resetToken('acme')
+await client.deleteTenant('acme')
+```
+
+See `AGENTS.md` for the full admin HTTP API reference and `ServiceClient` method list.
+
 ## Architecture
 
 ```

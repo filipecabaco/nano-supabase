@@ -189,22 +189,8 @@ export async function runServiceMode(opts: {
 	const registryDbUrl =
 		getArgValue(subArgs, "--registry-db-url") ??
 		process.env.NANO_REGISTRY_DB_URL;
-	if (!registryDbUrl) {
-		process.stderr.write(
-			`${JSON.stringify({
-				error: "missing_registry_db_url",
-				message:
-					"--registry-db-url (or NANO_REGISTRY_DB_URL) is required for service mode",
-			})}\n`,
-		);
-		process.exit(1);
-	}
 	await mkdir(serviceBaseDataDir, { recursive: true });
 	await mkdir(coldDir, { recursive: true });
-
-	const { Client } = await import("pg");
-	const pgClient = new Client({ connectionString: registryDbUrl });
-	await pgClient.connect();
 
 	interface RegistryBackend {
 		query<T extends Record<string, unknown>>(
@@ -215,29 +201,78 @@ export async function runServiceMode(opts: {
 		close(): Promise<void>;
 	}
 
-	const registry: RegistryBackend = {
-		query: async <T extends Record<string, unknown>>(
-			sql: string,
-			params?: unknown[],
-		) => {
-			const result = await pgClient.query(sql, params);
-			return { rows: result.rows as T[] };
-		},
-		exec: async (sql: string) => {
-			await pgClient.query(sql);
-		},
-		close: async () => pgClient.end(),
-	};
+	let registry: RegistryBackend;
 
-	const { runner } = await import("node-pg-migrate");
-	await runner({
-		databaseUrl: registryDbUrl,
-		migrationsTable: "service_migrations",
-		dir: join(pgliteDist, "service-migrations"),
-		direction: "up",
-		count: Infinity,
-		log: () => {},
-	});
+	if (registryDbUrl) {
+		const { Client } = await import("pg");
+		const pgClient = new Client({ connectionString: registryDbUrl });
+		await pgClient.connect();
+		registry = {
+			query: async <T extends Record<string, unknown>>(
+				sql: string,
+				params?: unknown[],
+			) => {
+				const result = await pgClient.query(sql, params);
+				return { rows: result.rows as T[] };
+			},
+			exec: async (sql: string) => {
+				await pgClient.query(sql);
+			},
+			close: async () => pgClient.end(),
+		};
+		const { runner } = await import("node-pg-migrate");
+		await runner({
+			databaseUrl: registryDbUrl,
+			migrationsTable: "service_migrations",
+			dir: join(pgliteDist, "service-migrations"),
+			direction: "up",
+			count: Infinity,
+			log: () => {},
+		});
+	} else {
+		const registryDir = join(serviceBaseDataDir, ".registry");
+		await mkdir(registryDir, { recursive: true });
+		const { PGlite } = await import("@electric-sql/pglite");
+		const registryDb = new PGlite(registryDir, {
+			wasmModule,
+			fsBundle,
+		});
+		await registryDb.waitReady;
+		await registryDb.exec(`
+			CREATE TABLE IF NOT EXISTS service_migrations (
+				id SERIAL PRIMARY KEY,
+				name TEXT UNIQUE NOT NULL,
+				run_on TIMESTAMPTZ NOT NULL DEFAULT now()
+			);
+			CREATE TABLE IF NOT EXISTS tenants (
+				id TEXT PRIMARY KEY,
+				slug TEXT UNIQUE NOT NULL,
+				data_dir TEXT NOT NULL,
+				token_hash TEXT NOT NULL,
+				state TEXT NOT NULL DEFAULT 'sleeping',
+				last_active TIMESTAMPTZ NOT NULL DEFAULT now(),
+				tcp_port INTEGER,
+				anon_key TEXT NOT NULL DEFAULT 'local-anon-key',
+				service_role_key TEXT NOT NULL DEFAULT 'local-service-role-key',
+				encrypted_password TEXT
+			);
+		`);
+		registry = {
+			query: async <T extends Record<string, unknown>>(
+				sql: string,
+				params?: unknown[],
+			) => {
+				const result = await registryDb.query<T>(sql, params as unknown[]);
+				return { rows: result.rows };
+			},
+			exec: async (sql: string) => {
+				await registryDb.exec(sql);
+			},
+			close: async () => {
+				await registryDb.close();
+			},
+		};
+	}
 
 	const s3Client = s3Bucket
 		? new S3Client({
@@ -703,7 +738,13 @@ export async function runServiceMode(opts: {
 			}
 
 			if (url.pathname === "/admin/tenants" && req.method === "POST") {
-				const body = (await req.json()) as { slug: string; password?: string };
+				const body = (await req.json()) as {
+					slug: string;
+					token?: string;
+					password?: string;
+					anonKey?: string;
+					serviceRoleKey?: string;
+				};
 				const { slug } = body;
 				if (!slug || !/^[a-z0-9-]+$/.test(slug)) {
 					return new Response(
@@ -724,7 +765,7 @@ export async function runServiceMode(opts: {
 					);
 				}
 				const id = crypto.randomUUID();
-				const plainToken = crypto.randomUUID();
+				const plainToken = body.token ?? crypto.randomUUID();
 				const tokenHash = await hashToken(plainToken);
 				const plainPassword =
 					body.password ??
@@ -752,8 +793,8 @@ export async function runServiceMode(opts: {
 					lastActive: new Date(),
 					nano: null,
 					usage: getUsage(id),
-					anonKey: DEFAULT_ANON_KEY,
-					serviceRoleKey,
+					anonKey: body.anonKey ?? DEFAULT_ANON_KEY,
+					serviceRoleKey: body.serviceRoleKey ?? serviceRoleKey,
 				};
 				nanoInstances.set(id, null);
 				await createTenantRecord(tenant);

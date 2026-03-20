@@ -481,7 +481,7 @@ describe("service with postgres registry", () => {
 			});
 			await client.connect();
 			const result = await client.query("SELECT 1 AS ok");
-			expect(result.rows[0].ok).toBe("1");
+			expect(result.rows[0].ok).toBe(1);
 			await client.end();
 		});
 
@@ -509,7 +509,7 @@ describe("service with postgres registry", () => {
 			});
 			await client.connect();
 			const result = await client.query("SELECT 2 AS ok");
-			expect(result.rows[0].ok).toBe("2");
+			expect(result.rows[0].ok).toBe(2);
 			await client.end();
 		});
 
@@ -573,4 +573,195 @@ describe("service with postgres registry", () => {
 		});
 		expect(check.status).toBe(404);
 	});
+});
+
+describe("ServiceClient", () => {
+	let svcProcess: ChildProcess;
+	let dataDir: string;
+	let coldDir: string;
+	const port = 54480;
+	const base = `http://localhost:${port}`;
+
+	beforeAll(async () => {
+		dataDir = mkdtempSync(join(tmpdir(), "nano-svc-client-data-"));
+		coldDir = mkdtempSync(join(tmpdir(), "nano-svc-client-cold-"));
+		svcProcess = startService(port, dataDir, coldDir);
+		await waitForHealth(base);
+	}, 60_000);
+
+	afterAll(async () => {
+		svcProcess?.kill("SIGTERM");
+		await new Promise((r) => setTimeout(r, 500));
+		rmSync(dataDir, { recursive: true, force: true });
+		rmSync(coldDir, { recursive: true, force: true });
+	});
+
+	test("createTenant with auto-generated values", async () => {
+		const { ServiceClient } = await import("../src/service-client.ts");
+		const client = new ServiceClient({ url: base, adminToken: ADMIN_TOKEN });
+		const result = await client.createTenant("sc-auto");
+		expect(result.token).toBeTruthy();
+		expect(result.password).toBeTruthy();
+		expect(result.tenant.slug).toBe("sc-auto");
+		expect(result.tenant.state).toBe("running");
+		expect(result.tenant.anonKey).toBe("local-anon-key");
+	});
+
+	test("createTenant with custom token, password, anonKey, serviceRoleKey", async () => {
+		const { ServiceClient } = await import("../src/service-client.ts");
+		const client = new ServiceClient({ url: base, adminToken: ADMIN_TOKEN });
+		const result = await client.createTenant("sc-custom", {
+			token: "my-custom-token",
+			password: "my-custom-pass",
+			anonKey: "my-anon",
+			serviceRoleKey: "my-service-role",
+		});
+		expect(result.token).toBe("my-custom-token");
+		expect(result.password).toBe("my-custom-pass");
+		expect(result.tenant.anonKey).toBe("my-anon");
+		expect(result.tenant.serviceRoleKey).toBe("my-service-role");
+	});
+
+	test("listTenants returns created tenants", async () => {
+		const { ServiceClient } = await import("../src/service-client.ts");
+		const client = new ServiceClient({ url: base, adminToken: ADMIN_TOKEN });
+		const tenants = await client.listTenants();
+		const slugs = tenants.map((t) => t.slug);
+		expect(slugs).toContain("sc-auto");
+		expect(slugs).toContain("sc-custom");
+	});
+
+	test("getTenant returns tenant", async () => {
+		const { ServiceClient } = await import("../src/service-client.ts");
+		const client = new ServiceClient({ url: base, adminToken: ADMIN_TOKEN });
+		const tenant = await client.getTenant("sc-auto");
+		expect(tenant.slug).toBe("sc-auto");
+	});
+
+	test("sql executes query on tenant", async () => {
+		const { ServiceClient } = await import("../src/service-client.ts");
+		const client = new ServiceClient({ url: base, adminToken: ADMIN_TOKEN });
+		const result = await client.sql("sc-auto", "SELECT 1 AS n");
+		expect(result.rows[0]).toEqual({ n: 1 });
+	});
+
+	test("pauseTenant and wakeTenant", async () => {
+		const { ServiceClient } = await import("../src/service-client.ts");
+		const client = new ServiceClient({ url: base, adminToken: ADMIN_TOKEN });
+		const paused = await client.pauseTenant("sc-auto");
+		expect(paused.state).toBe("sleeping");
+		const woken = await client.wakeTenant("sc-auto");
+		expect(woken.state).toBe("running");
+	});
+
+	test("resetToken returns new token", async () => {
+		const { ServiceClient } = await import("../src/service-client.ts");
+		const client = new ServiceClient({ url: base, adminToken: ADMIN_TOKEN });
+		const result = await client.resetToken("sc-auto");
+		expect(result.token).toBeTruthy();
+		expect(result.token).not.toBe("my-custom-token");
+	});
+
+	test("resetPassword returns new password", async () => {
+		const { ServiceClient } = await import("../src/service-client.ts");
+		const client = new ServiceClient({ url: base, adminToken: ADMIN_TOKEN });
+		const result = await client.resetPassword("sc-custom");
+		expect(result.password).toBeTruthy();
+	});
+
+	test("deleteTenant removes it", async () => {
+		const { ServiceClient } = await import("../src/service-client.ts");
+		const client = new ServiceClient({ url: base, adminToken: ADMIN_TOKEN });
+		await client.deleteTenant("sc-auto");
+		await expect(client.getTenant("sc-auto")).rejects.toThrow();
+	});
+});
+
+describe("service with local PGlite registry (no --registry-db-url)", () => {
+	let svcProcess: ChildProcess;
+	let dataDir: string;
+	let coldDir: string;
+	const port = 54490;
+	const tcpPort = 54491;
+	const base = `http://localhost:${port}`;
+
+	beforeAll(async () => {
+		dataDir = mkdtempSync(join(tmpdir(), "nano-svc-pglite-data-"));
+		coldDir = mkdtempSync(join(tmpdir(), "nano-svc-pglite-cold-"));
+		svcProcess = spawn(
+			"node",
+			[
+				CLI,
+				"service",
+				`--service-port=${port}`,
+				`--tcp-port=${tcpPort}`,
+				`--admin-token=${ADMIN_TOKEN}`,
+				`--data-dir=${dataDir}`,
+				`--cold-dir=${coldDir}`,
+				`--secret=test-service-secret`,
+			],
+			{ stdio: "ignore", detached: false },
+		);
+		await waitForHealth(base);
+	}, 60_000);
+
+	afterAll(async () => {
+		svcProcess?.kill("SIGTERM");
+		await new Promise((r) => setTimeout(r, 500));
+		rmSync(dataDir, { recursive: true, force: true });
+		rmSync(coldDir, { recursive: true, force: true });
+	});
+
+	test("health check passes", async () => {
+		const res = await fetch(`${base}/health`);
+		expect(res.status).toBe(200);
+	});
+
+	test("can create, use, and delete a tenant", async () => {
+		const { ServiceClient } = await import("../src/service-client.ts");
+		const client = new ServiceClient({ url: base, adminToken: ADMIN_TOKEN });
+
+		const { tenant } = await client.createTenant("local-tenant");
+		expect(tenant.slug).toBe("local-tenant");
+		expect(tenant.state).toBe("running");
+
+		const { rows } = await client.sql("local-tenant", "SELECT 1 AS ok");
+		expect(rows[0]).toEqual({ ok: 1 });
+
+		await client.deleteTenant("local-tenant");
+		await expect(client.getTenant("local-tenant")).rejects.toThrow();
+	});
+
+	test("registry survives service restart", async () => {
+		const { ServiceClient } = await import("../src/service-client.ts");
+		const client = new ServiceClient({ url: base, adminToken: ADMIN_TOKEN });
+		await client.createTenant("persist-test");
+
+		svcProcess.kill("SIGTERM");
+		await new Promise((r) => setTimeout(r, 800));
+
+		const restarted = spawn(
+			"node",
+			[
+				CLI,
+				"service",
+				`--service-port=${port}`,
+				`--tcp-port=${tcpPort}`,
+				`--admin-token=${ADMIN_TOKEN}`,
+				`--data-dir=${dataDir}`,
+				`--cold-dir=${coldDir}`,
+				`--secret=test-service-secret`,
+			],
+			{ stdio: "ignore", detached: false },
+		);
+		try {
+			await waitForHealth(base);
+			const tenants = await client.listTenants();
+			expect(tenants.some((t) => t.slug === "persist-test")).toBe(true);
+			svcProcess = restarted;
+		} catch (e) {
+			restarted.kill("SIGTERM");
+			throw e;
+		}
+	}, 60_000);
 });

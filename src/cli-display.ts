@@ -93,3 +93,38 @@ export function printStartupInfo(opts: {
 		);
 	}
 }
+
+export function printTenantInfo(opts: {
+	slug: string;
+	serviceUrl: string;
+	pgUrl: string;
+	anonKey: string;
+	serviceRoleKey: string;
+	token: string;
+	state: string;
+}): void {
+	const base = `${opts.serviceUrl}/${opts.slug}`;
+	process.stdout.write(
+		`${box(`\ud83c\udf10 API \u2014 ${opts.slug}`, [
+			["URL", base],
+			["REST", `${base}/rest/v1`],
+			["Auth", `${base}/auth/v1`],
+			["Storage", `${base}/storage/v1`],
+		])}\n\n`,
+	);
+	process.stdout.write(
+		`${box("\ud83d\uddc4\ufe0f  Database", [["URL", opts.pgUrl]])}\n\n`,
+	);
+	process.stdout.write(
+		`${box("\ud83d\udd11 Auth Keys", [
+			["Anon key", opts.anonKey],
+			["Service role key", opts.serviceRoleKey],
+		])}\n\n`,
+	);
+	process.stdout.write(
+		`${box("\ud83d\udd12 Tenant", [
+			["Token", opts.token],
+			["State", opts.state],
+		])}\n\n`,
+	);
+}

@@ -13,6 +13,14 @@ import {
 	cmdMigrationList,
 	cmdMigrationNew,
 	cmdMigrationUp,
+	cmdServiceAdd,
+	cmdServiceList,
+	cmdServicePause,
+	cmdServiceRemove,
+	cmdServiceResetPassword,
+	cmdServiceResetToken,
+	cmdServiceSql,
+	cmdServiceWake,
 	cmdStatus,
 	cmdStop,
 	cmdStorageCp,
@@ -102,7 +110,7 @@ Commands:
 Service options:
   --service-port=<port>       HTTP listen port (default: 8080)
   --admin-token=<token>       Admin bearer token (required)
-  --registry-db-url=<url>     Postgres URL for tenant registry (required; or NANO_REGISTRY_DB_URL env)
+  --registry-db-url=<url>     Postgres URL for tenant registry (optional; defaults to local PGlite at <data-dir>/.registry; or NANO_REGISTRY_DB_URL env)
   --routing=<mode>            Routing mode: path (default) or subdomain
   --base-domain=<domain>      Base domain for subdomain routing (e.g. example.com → <slug>.example.com)
   --data-dir=<path>       Base dir for tenant data (default: /tmp/nano-service-data)
@@ -243,6 +251,27 @@ async function runSubCommand(): Promise<void> {
 			);
 			process.exit(1);
 		}
+	} else if (subCommand === "service") {
+		const op = subArgs[0];
+		const opArgs = subArgs.slice(1);
+		if (op === "add") result = await cmdServiceAdd(opArgs);
+		else if (op === "list") result = await cmdServiceList(opArgs);
+		else if (op === "remove") result = await cmdServiceRemove(opArgs);
+		else if (op === "pause") result = await cmdServicePause(opArgs);
+		else if (op === "wake") result = await cmdServiceWake(opArgs);
+		else if (op === "sql") result = await cmdServiceSql(opArgs);
+		else if (op === "reset-token") result = await cmdServiceResetToken(opArgs);
+		else if (op === "reset-password")
+			result = await cmdServiceResetPassword(opArgs);
+		else {
+			process.stderr.write(
+				`${JSON.stringify({
+					error: "unknown_command",
+					message: `Unknown service command: ${op}. Use add, list, remove, pause, wake, sql, reset-token, or reset-password.`,
+				})}\n`,
+			);
+			process.exit(1);
+		}
 	} else {
 		process.stderr.write(
 			`${JSON.stringify({
@@ -261,7 +290,23 @@ async function runSubCommand(): Promise<void> {
 	process.exit(result?.exitCode);
 }
 
+const SERVICE_MGMT_OPS = [
+	"add",
+	"list",
+	"remove",
+	"pause",
+	"wake",
+	"sql",
+	"reset-token",
+	"reset-password",
+];
+
+const isServiceMgmtOp =
+	subCommand === "service" && SERVICE_MGMT_OPS.includes(subArgs[0]);
+
 if (subCommand !== "start" && subCommand !== "service") {
+	await runSubCommand();
+} else if (isServiceMgmtOp) {
 	await runSubCommand();
 }
 
@@ -405,7 +450,7 @@ for (const name of extensionNames) {
 	};
 }
 
-if (subCommand === "service") {
+if (subCommand === "service" && !isServiceMgmtOp) {
 	const { runServiceMode } = await import("./cli-service.ts");
 	await runServiceMode({
 		wasmModule,

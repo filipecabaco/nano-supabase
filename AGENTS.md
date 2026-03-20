@@ -203,12 +203,20 @@ Environment variables: `SUPABASE_DB_URL` (substitutes `--remote-db-url`).
 
 ## Service Mode
 
-Service mode runs nano-supabase as a multi-tenant HTTP gateway. Each tenant gets an isolated PGlite instance, managed by a persistent registry backed by PGlite itself.
+Service mode runs nano-supabase as a multi-tenant HTTP gateway. Each tenant gets an isolated PGlite instance, managed by a persistent registry.
 
 ```bash
+# Local dev — no external Postgres needed (PGlite registry at <data-dir>/.registry)
 npx nano-supabase service \
   --admin-token=<secret> \
   --secret=<encryption-secret> \
+  --data-dir=./service-data
+
+# Multi-node / production — shared external Postgres registry
+npx nano-supabase service \
+  --admin-token=<secret> \
+  --secret=<encryption-secret> \
+  --registry-db-url=<postgres-url> \
   --service-port=8080 \
   --data-dir=./service-data \
   --cold-dir=./service-cold \
@@ -221,7 +229,7 @@ npx nano-supabase service \
 |------|---------|-------------|
 | `--admin-token` | required | Bearer token for admin API |
 | `--secret` | required | Master encryption secret for tenant passwords at rest (AES-256-GCM). Also via `NANO_SECRET` env var. |
-| `--registry-db-url` | required | Postgres connection URL for tenant registry (or `NANO_REGISTRY_DB_URL` env). Must be an external Postgres — decoupled from tenant instances so a fleet of service nodes can share it. |
+| `--registry-db-url` | local PGlite | Postgres connection URL for tenant registry (or `NANO_REGISTRY_DB_URL` env). Omit for local dev — defaults to a PGlite instance at `<data-dir>/.registry`. Use an external Postgres for multi-node deployments. |
 | `--service-port` | `8080` | HTTP port |
 | `--data-dir` | `/tmp/nano-service-data` | Base directory for tenant data directories |
 | `--cold-dir` | `/tmp/nano-service-cold` | Directory for offloaded tenant archives (disk mode) |
@@ -236,24 +244,80 @@ npx nano-supabase service \
 ```
 GET  /health                              # liveness check
 GET  /admin/tenants                       # list all tenants
-POST /admin/tenants                       # create tenant, body: { "slug": "my-tenant" }
+POST /admin/tenants                       # create tenant (see body fields below)
 GET  /admin/tenants/:slug                 # get tenant info
 DELETE /admin/tenants/:slug               # delete tenant (stops instance, removes data)
 POST /admin/tenants/:slug/pause           # pause running tenant (offload to disk/S3)
 POST /admin/tenants/:slug/wake            # wake sleeping tenant (restore from disk/S3)
 POST /admin/tenants/:slug/reset-token     # rotate tenant bearer token
 POST /admin/tenants/:slug/reset-password  # rotate tenant postgres password (body: { "password": "..." } optional, generates random if omitted)
+POST /admin/tenants/:slug/sql             # execute SQL on tenant (body: { "sql": "...", "params": [] })
 ```
+
+`POST /admin/tenants` body fields — all optional except `slug`:
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `slug` | required | Tenant identifier (`[a-z0-9-]+`) |
+| `token` | random UUID | Bearer token for tenant requests |
+| `password` | random hex | Postgres password for TCP connections |
+| `anonKey` | `local-anon-key` | Anon JWT key |
+| `serviceRoleKey` | `local-service-role-key` | Service role JWT key |
+
+**CLI management commands** (all share `--url`, `--admin-token`/`NANO_ADMIN_TOKEN`, and `--json` flags):
+
+```bash
+# Start the service (long-running process)
+# Local dev — PGlite registry (no external Postgres needed)
+npx nano-supabase service --admin-token=<token> --secret=<secret> --data-dir=./data
+
+# Multi-node / production — shared external Postgres registry
+npx nano-supabase service --admin-token=<token> --secret=<secret> --registry-db-url=<url>
+
+# Tenant management (connects to a running service)
+npx nano-supabase service add <slug> [--token=...] [--password=...] [--anon-key=...] [--service-role-key=...]
+npx nano-supabase service list
+npx nano-supabase service remove <slug>
+npx nano-supabase service pause <slug>
+npx nano-supabase service wake <slug>
+npx nano-supabase service sql <slug> "<sql>"
+npx nano-supabase service reset-token <slug>
+npx nano-supabase service reset-password <slug> [--password=...]
+
+# All commands accept --json for machine-readable output
+npx nano-supabase service list --json | jq '.[].slug'
+npx nano-supabase service add acme --json | jq '.token'
+```
+
+Shared flags for all management commands:
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--url` | `http://localhost:8080` | Service base URL |
+| `--admin-token` | `NANO_ADMIN_TOKEN` env | Admin bearer token |
+| `--json` | false | Output JSON instead of human-readable text |
+
+**`service add` output** (human-readable) shows connection info in the same box layout as `nano-supabase start`:
+- API endpoints (URL, REST, Auth, Storage) scoped to `/<slug>/`
+- Database URL for direct Postgres TCP connection
+- Auth keys (anon key, service role key)
+- Tenant token and state
 
 **Examples:**
 
 ```bash
-# Create tenant
+# Create tenant with all defaults (random token + password)
 curl -X POST http://localhost:8080/admin/tenants \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"slug": "acme"}'
-# → { "token": "<tenant-token>", "password": "<postgres-password>", "tenant": { "id": "...", "slug": "acme", "state": "running" } }
+# → { "token": "<tenant-token>", "password": "<postgres-password>", "tenant": { ... } }
+
+# Create tenant with explicit values
+curl -X POST http://localhost:8080/admin/tenants \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"slug": "acme", "token": "my-token", "password": "my-pass", "anonKey": "my-anon", "serviceRoleKey": "my-svc"}'
 
 # Use tenant (supabase-compatible endpoint)
 curl -X POST http://localhost:8080/acme/auth/v1/signup \
@@ -270,11 +334,43 @@ curl -X POST http://localhost:8080/admin/tenants/acme/wake \
   -H "Authorization: Bearer $ADMIN_TOKEN"
 ```
 
+**`ServiceClient` — TypeScript API:**
+
+```typescript
+import { ServiceClient } from 'nano-supabase'
+
+const client = new ServiceClient({ url: 'http://localhost:8080', adminToken: process.env.NANO_ADMIN_TOKEN })
+
+const { token, password, tenant } = await client.createTenant('acme', {
+  token: 'my-token',       // optional — random if omitted
+  password: 'my-pass',     // optional — random if omitted
+  anonKey: 'my-anon',      // optional — 'local-anon-key' if omitted
+  serviceRoleKey: 'my-svc' // optional — 'local-service-role-key' if omitted
+})
+
+await client.sql('acme', 'SELECT count(*) FROM auth.users')
+await client.pauseTenant('acme')
+await client.wakeTenant('acme')
+await client.deleteTenant('acme')
+```
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `createTenant(slug, options?)` | `{ token, password, tenant }` | Create tenant |
+| `deleteTenant(slug)` | `void` | Delete tenant |
+| `listTenants()` | `Tenant[]` | List all tenants |
+| `getTenant(slug)` | `Tenant` | Get tenant info |
+| `pauseTenant(slug)` | `Tenant` | Pause tenant |
+| `wakeTenant(slug)` | `Tenant` | Wake tenant |
+| `resetToken(slug)` | `{ token }` | Rotate bearer token |
+| `resetPassword(slug, password?)` | `{ password }` | Rotate Postgres password |
+| `sql(slug, query, params?)` | `{ rows, rowCount }` | Execute SQL on tenant |
+
 **Offload behavior:**
 - **Disk (default):** paused tenant data is archived as `<cold-dir>/<tenant-id>.tar.gz` using `tar czf`. On wake, the archive is extracted back.
 - **S3:** when `--s3-bucket` is set, archives are uploaded to `tenants/<tenant-id>/data.tar.gz` in the bucket. Credentials read from `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_REGION`.
 
-**Registry persistence:** tenant metadata (slug, token hash, data dir, state) is stored in an external Postgres database (`--registry-db-url`). This decouples the registry from individual service nodes — a fleet of service instances can share the same registry. On restart, all tenants are loaded from the registry as sleeping and auto-wake on first request.
+**Registry persistence:** tenant metadata (slug, token hash, data dir, state) is stored in the registry database. By default this is a local PGlite instance at `<data-dir>/.registry` — no external Postgres needed for local dev. Pass `--registry-db-url` to use a shared external Postgres for multi-node deployments. On restart, all tenants are loaded from the registry as sleeping and auto-wake on first request.
 
 **Memory advantage:** tenants share a single process and wake/sleep on demand, using far less memory than running a separate Node.js process per tenant.
 

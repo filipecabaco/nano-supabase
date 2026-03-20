@@ -1205,3 +1205,265 @@ function pgTypeToTs(pgType: string): string {
 		return "string";
 	return "string";
 }
+
+const DEFAULT_SERVICE_URL = "http://localhost:8080";
+
+function getServiceUrl(args: string[]): string {
+	return getArgValue(args, "--url") ?? DEFAULT_SERVICE_URL;
+}
+
+function getAdminToken(args: string[]): string | undefined {
+	return getArgValue(args, "--admin-token") ?? process.env.NANO_ADMIN_TOKEN;
+}
+
+function serviceAdminHeaders(token: string): Record<string, string> {
+	return {
+		Authorization: `Bearer ${token}`,
+		"Content-Type": "application/json",
+	};
+}
+
+async function serviceRequest<T>(
+	method: string,
+	url: string,
+	token: string,
+	body?: unknown,
+): Promise<{ ok: boolean; status: number; data: T }> {
+	const res = await fetch(url, {
+		method,
+		headers: serviceAdminHeaders(token),
+		body: body !== undefined ? JSON.stringify(body) : undefined,
+	});
+	const data = (await res.json()) as T;
+	return { ok: res.ok, status: res.status, data };
+}
+
+export async function cmdServiceAdd(
+	args: string[],
+): Promise<{ exitCode: number; output: string }> {
+	const json = args.includes("--json");
+	const token = getAdminToken(args);
+	if (!token)
+		return fail(
+			"missing_admin_token",
+			"--admin-token or NANO_ADMIN_TOKEN is required",
+			json,
+		);
+	const slug = args.find((a) => !a.startsWith("--"));
+	if (!slug) return fail("missing_slug", "Usage: service add <slug>", json);
+	const serviceUrl = getServiceUrl(args);
+	const body: Record<string, string> = { slug };
+	const customToken = getArgValue(args, "--token");
+	const password = getArgValue(args, "--password");
+	const anonKey = getArgValue(args, "--anon-key");
+	const serviceRoleKey = getArgValue(args, "--service-role-key");
+	if (customToken) body.token = customToken;
+	if (password) body.password = password;
+	if (anonKey) body.anonKey = anonKey;
+	if (serviceRoleKey) body.serviceRoleKey = serviceRoleKey;
+	const { ok, data } = await serviceRequest<Record<string, unknown>>(
+		"POST",
+		`${serviceUrl}/admin/tenants`,
+		token,
+		body,
+	);
+	if (!ok) return apiError(data, json);
+	const result = data as {
+		token: string;
+		password: string;
+		tenant: Record<string, unknown>;
+	};
+	const tenant = result.tenant as Record<string, unknown>;
+	if (json) return ok(result, json, "");
+	const { printTenantInfo } = await import("./cli-display.ts");
+	printTenantInfo({
+		slug: String(tenant.slug),
+		serviceUrl,
+		pgUrl: String(tenant.pgUrl),
+		anonKey: String(tenant.anonKey),
+		serviceRoleKey: String(tenant.serviceRoleKey),
+		token: result.token,
+		state: String(tenant.state),
+	});
+	return { exitCode: 0, output: "" };
+}
+
+export async function cmdServiceList(
+	args: string[],
+): Promise<{ exitCode: number; output: string }> {
+	const json = args.includes("--json");
+	const token = getAdminToken(args);
+	if (!token)
+		return fail(
+			"missing_admin_token",
+			"--admin-token or NANO_ADMIN_TOKEN is required",
+			json,
+		);
+	const { ok, data } = await serviceRequest<unknown[]>(
+		"GET",
+		`${getServiceUrl(args)}/admin/tenants`,
+		token,
+	);
+	if (!ok) return apiError(data, json);
+	return ok(
+		data,
+		json,
+		renderTable(
+			["slug", "state", "lastActive"],
+			data as Record<string, unknown>[],
+		),
+	);
+}
+
+export async function cmdServiceRemove(
+	args: string[],
+): Promise<{ exitCode: number; output: string }> {
+	const json = args.includes("--json");
+	const token = getAdminToken(args);
+	if (!token)
+		return fail(
+			"missing_admin_token",
+			"--admin-token or NANO_ADMIN_TOKEN is required",
+			json,
+		);
+	const slug = args.find((a) => !a.startsWith("--"));
+	if (!slug) return fail("missing_slug", "Usage: service remove <slug>", json);
+	const { ok, data } = await serviceRequest<unknown>(
+		"DELETE",
+		`${getServiceUrl(args)}/admin/tenants/${slug}`,
+		token,
+	);
+	if (!ok) return apiError(data, json);
+	return ok(data, json, `Tenant "${slug}" deleted.`);
+}
+
+export async function cmdServicePause(
+	args: string[],
+): Promise<{ exitCode: number; output: string }> {
+	const json = args.includes("--json");
+	const token = getAdminToken(args);
+	if (!token)
+		return fail(
+			"missing_admin_token",
+			"--admin-token or NANO_ADMIN_TOKEN is required",
+			json,
+		);
+	const slug = args.find((a) => !a.startsWith("--"));
+	if (!slug) return fail("missing_slug", "Usage: service pause <slug>", json);
+	const { ok, data } = await serviceRequest<unknown>(
+		"POST",
+		`${getServiceUrl(args)}/admin/tenants/${slug}/pause`,
+		token,
+	);
+	if (!ok) return apiError(data, json);
+	return ok(data, json, `Tenant "${slug}" paused.`);
+}
+
+export async function cmdServiceWake(
+	args: string[],
+): Promise<{ exitCode: number; output: string }> {
+	const json = args.includes("--json");
+	const token = getAdminToken(args);
+	if (!token)
+		return fail(
+			"missing_admin_token",
+			"--admin-token or NANO_ADMIN_TOKEN is required",
+			json,
+		);
+	const slug = args.find((a) => !a.startsWith("--"));
+	if (!slug) return fail("missing_slug", "Usage: service wake <slug>", json);
+	const { ok, data } = await serviceRequest<unknown>(
+		"POST",
+		`${getServiceUrl(args)}/admin/tenants/${slug}/wake`,
+		token,
+	);
+	if (!ok) return apiError(data, json);
+	return ok(data, json, `Tenant "${slug}" woken.`);
+}
+
+export async function cmdServiceSql(
+	args: string[],
+): Promise<{ exitCode: number; output: string }> {
+	const json = args.includes("--json");
+	const token = getAdminToken(args);
+	if (!token)
+		return fail(
+			"missing_admin_token",
+			"--admin-token or NANO_ADMIN_TOKEN is required",
+			json,
+		);
+	const positional = args.filter((a) => !a.startsWith("--"));
+	const slug = positional[0];
+	const sql = positional[1];
+	if (!slug || !sql)
+		return fail("missing_args", 'Usage: service sql <slug> "<sql>"', json);
+	const { ok, data } = await serviceRequest<Record<string, unknown>>(
+		"POST",
+		`${getServiceUrl(args)}/admin/tenants/${slug}/sql`,
+		token,
+		{ sql },
+	);
+	if (!ok) return apiError(data, json);
+	const result = data as { rows: Record<string, unknown>[]; rowCount: number };
+	if (json) return ok(result, json, "");
+	if (result.rows.length === 0) return ok(result, json, "(0 rows)");
+	return ok(
+		result,
+		json,
+		renderTable(Object.keys(result.rows[0]), result.rows),
+	);
+}
+
+export async function cmdServiceResetToken(
+	args: string[],
+): Promise<{ exitCode: number; output: string }> {
+	const json = args.includes("--json");
+	const token = getAdminToken(args);
+	if (!token)
+		return fail(
+			"missing_admin_token",
+			"--admin-token or NANO_ADMIN_TOKEN is required",
+			json,
+		);
+	const slug = args.find((a) => !a.startsWith("--"));
+	if (!slug)
+		return fail("missing_slug", "Usage: service reset-token <slug>", json);
+	const { ok, data } = await serviceRequest<{ token: string }>(
+		"POST",
+		`${getServiceUrl(args)}/admin/tenants/${slug}/reset-token`,
+		token,
+	);
+	if (!ok) return apiError(data, json);
+	return ok(data, json, `New token: ${(data as { token: string }).token}`);
+}
+
+export async function cmdServiceResetPassword(
+	args: string[],
+): Promise<{ exitCode: number; output: string }> {
+	const json = args.includes("--json");
+	const token = getAdminToken(args);
+	if (!token)
+		return fail(
+			"missing_admin_token",
+			"--admin-token or NANO_ADMIN_TOKEN is required",
+			json,
+		);
+	const slug = args.find((a) => !a.startsWith("--"));
+	if (!slug)
+		return fail("missing_slug", "Usage: service reset-password <slug>", json);
+	const body: Record<string, string> = {};
+	const newPassword = getArgValue(args, "--password");
+	if (newPassword) body.password = newPassword;
+	const { ok, data } = await serviceRequest<{ password: string }>(
+		"POST",
+		`${getServiceUrl(args)}/admin/tenants/${slug}/reset-password`,
+		token,
+		body,
+	);
+	if (!ok) return apiError(data, json);
+	return ok(
+		data,
+		json,
+		`New password: ${(data as { password: string }).password}`,
+	);
+}

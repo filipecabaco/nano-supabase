@@ -86,6 +86,16 @@ export type { ParsedQuery, QueryExecutor } from "./postgrest-parser.ts";
 export { PostgrestParser } from "./postgrest-parser.ts";
 // Priority queue (internal but exported for advanced use)
 export { PriorityQueue } from "./queue.ts";
+// Service client — admin API wrapper for service mode
+export {
+	type CreateTenantOptions,
+	type CreateTenantResult,
+	ServiceClient,
+	type ServiceClientOptions,
+	type SqlResult,
+	type Tenant,
+	type TenantUsage,
+} from "./service-client.ts";
 // Storage module
 export {
 	type BlobMetadata,
