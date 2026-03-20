@@ -4,7 +4,7 @@ kill_signal = "SIGTERM"
 kill_timeout = "30s"
 
 [build]
-  dockerfile = "Dockerfile"
+  dockerfile = "../Dockerfile"
 
 [env]
   PORT = "8080"
@@ -13,23 +13,42 @@ kill_timeout = "30s"
 [mounts]
   source = "nano_supabase_data"
   destination = "/data"
-  initial_size = "5gb"
+  initial_size = "10gb"
 
 [[vm]]
   size = "shared-cpu-4x"
   memory = "2048mb"
   cpus = 4
 
-[http_service]
+[[services]]
+  protocol = "tcp"
   internal_port = 8080
-  force_https = true
   auto_stop_machines = false
   auto_start_machines = true
   min_machines_running = 1
 
-  [[http_service.checks]]
-    grace_period = "10s"
+  [[services.ports]]
+    port = 80
+    handlers = ["http"]
+    force_https = true
+
+  [[services.ports]]
+    port = 443
+    handlers = ["tls", "http"]
+    [services.ports.tls_options]
+      alpn = ["h2", "http/1.1"]
+
+  [[services.http_checks]]
+    grace_period = "30s"
     interval = "15s"
     method = "GET"
     path = "/health"
     timeout = "5s"
+
+[[services]]
+  protocol = "tcp"
+  internal_port = 5432
+
+  [[services.ports]]
+    port = 5432
+    handlers = []

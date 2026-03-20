@@ -10,4 +10,7 @@ COPY dist ./dist
 COPY package.json ./
 ENV NODE_ENV=production
 EXPOSE 8080
-ENTRYPOINT ["node", "dist/cli.js", "service"]
+COPY .fly/tls.crt /app/tls.crt
+COPY .fly/tls.key /app/tls.key
+RUN chmod 600 /app/tls.key
+CMD ["sh", "-c", "node dist/cli.js service --admin-token=$NANO_ADMIN_TOKEN --secret=$NANO_SECRET --data-dir=${DATA_DIR:-/data} --service-port=${PORT:-8080} --tls-cert=/app/tls.crt --tls-key=/app/tls.key"]

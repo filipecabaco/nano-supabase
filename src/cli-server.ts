@@ -1,7 +1,11 @@
 import { timingSafeEqual } from "node:crypto";
 import { readFile, stat, unlink, writeFile } from "node:fs/promises";
-import { createServer as createHttpServer } from "node:http";
-import { createServer as createHttpsServer } from "node:https";
+import {
+	createServer as createHttp2Server,
+	createSecureServer as createSecureHttp2Server,
+	type Http2ServerRequest,
+	type Http2ServerResponse,
+} from "node:http2";
 import type { Extension } from "@electric-sql/pglite";
 import { pgDump } from "@electric-sql/pglite-tools/pg_dump";
 import { printStartupInfo } from "./cli-display.ts";
@@ -52,7 +56,10 @@ export async function runStartMode(opts: {
 
 	let tlsBufs: { cert: Buffer; key: Buffer } | null = null;
 	if (tlsCert && tlsKey) {
-		const [cert, key] = await Promise.all([readFile(tlsCert), readFile(tlsKey)]);
+		const [cert, key] = await Promise.all([
+			readFile(tlsCert),
+			readFile(tlsKey),
+		]);
 		const keyStat = await stat(tlsKey);
 		if (keyStat.mode & 0o077) {
 			process.stderr.write(
@@ -744,18 +751,22 @@ export async function runStartMode(opts: {
 	}
 
 	function createNodeServer(handler: (req: Request) => Promise<Response>) {
-		const scheme = tlsBufs ? "https" : "http";
-		const nodeHandler = async (
-			nodeReq: import("node:http").IncomingMessage,
-			nodeRes: import("node:http").ServerResponse,
+		const h2cHandler = async (
+			nodeReq: Http2ServerRequest,
+			nodeRes: Http2ServerResponse,
 		) => {
-			const url = `${scheme}://localhost:${httpPort}${nodeReq.url}`;
+			const url = `http://localhost:${httpPort}${nodeReq.url}`;
 			const hasBody = nodeReq.method !== "GET" && nodeReq.method !== "HEAD";
+			const headers = new Headers();
+			for (const [k, v] of Object.entries(nodeReq.headers)) {
+				if (k.startsWith(":") || v === undefined) continue;
+				headers.set(k, Array.isArray(v) ? v.join(", ") : v);
+			}
 			const req = new Request(url, {
 				method: nodeReq.method,
-				headers: nodeReq.headers as HeadersInit,
+				headers,
 				body: hasBody ? (nodeReq as unknown as ReadableStream) : undefined,
-				// @ts-expect-error — Node.js IncomingMessage is a readable stream accepted by Request
+				// @ts-expect-error — Http2ServerRequest is a readable stream accepted by Request
 				duplex: "half",
 			});
 			try {
@@ -774,10 +785,11 @@ export async function runStartMode(opts: {
 			}
 		};
 		if (tlsBufs) {
-			return createHttpsServer(
+			return createSecureHttp2Server(
 				{
 					cert: tlsBufs.cert,
 					key: tlsBufs.key,
+					allowHTTP1: true,
 					minVersion: "TLSv1.2",
 					maxVersion: "TLSv1.3",
 					ciphers: [
@@ -796,34 +808,10 @@ export async function runStartMode(opts: {
 					].join(":"),
 					honorCipherOrder: false,
 				},
-				nodeHandler,
+				h2cHandler,
 			);
 		}
-		return createHttpServer(async (nodeReq, nodeRes) => {
-			const url = `http://localhost:${httpPort}${nodeReq.url}`;
-			const hasBody = nodeReq.method !== "GET" && nodeReq.method !== "HEAD";
-			const req = new Request(url, {
-				method: nodeReq.method,
-				headers: nodeReq.headers as HeadersInit,
-				body: hasBody ? (nodeReq as unknown as ReadableStream) : undefined,
-				// @ts-expect-error — Node.js IncomingMessage is a readable stream accepted by Request
-				duplex: "half",
-			});
-			try {
-				const res = await handler(req);
-				const resHeaders: Record<string, string> = {};
-				res.headers.forEach((v, k) => {
-					resHeaders[k] = v;
-				});
-				nodeRes.writeHead(res.status, resHeaders);
-				nodeRes.end(Buffer.from(await res.arrayBuffer()));
-			} catch (_e) {
-				if (!nodeRes.headersSent) {
-					nodeRes.writeHead(500, { "Content-Type": "application/json" });
-					nodeRes.end(JSON.stringify({ error: "internal_error" }));
-				}
-			}
-		});
+		return createHttp2Server({ allowHTTP1: true }, h2cHandler);
 	}
 
 	const server = createNodeServer(fetchHandler);
