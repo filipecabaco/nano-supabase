@@ -774,19 +774,25 @@ export async function runStartMode(opts: {
 			});
 			const CORS = {
 				"access-control-allow-origin": "*",
-				"access-control-allow-methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
+				"access-control-allow-methods":
+					"GET, POST, PUT, PATCH, DELETE, OPTIONS",
 				"access-control-allow-headers": "*",
 				"access-control-expose-headers": "*",
 			};
 			try {
 				const res = await handler(req);
 				const resHeaders: Record<string, string> = { ...CORS };
-				res.headers.forEach((v, k) => { resHeaders[k] = v; });
+				res.headers.forEach((v, k) => {
+					resHeaders[k] = v;
+				});
 				nodeRes.writeHead(res.status, resHeaders);
 				nodeRes.end(Buffer.from(await res.arrayBuffer()));
 			} catch (_e) {
 				if (!nodeRes.headersSent) {
-					nodeRes.writeHead(500, { "Content-Type": "application/json", ...CORS });
+					nodeRes.writeHead(500, {
+						"Content-Type": "application/json",
+						...CORS,
+					});
 					nodeRes.end(JSON.stringify({ error: "internal_error" }));
 				}
 			}

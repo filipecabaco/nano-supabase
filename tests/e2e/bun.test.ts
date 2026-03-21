@@ -1,6 +1,6 @@
+import { beforeAll, describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
-import { beforeAll, describe, expect, test } from "bun:test";
 import { createClient, nanoSupabase } from "../../src/nano.ts";
 import { PostgrestParser } from "../../src/postgrest-parser.ts";
 
@@ -71,17 +71,18 @@ describe("Bun e2e", () => {
 
 		expect(selectError).toBeNull();
 		expect(data).toHaveLength(1);
-		expect(data![0].name).toBe("bun-item");
+		expect(data?.[0].name).toBe("bun-item");
 	});
 
 	test("auth signup and signin", async () => {
 		const supabase = await createClient();
 
-		const { data: signUpData, error: signUpError } =
-			await supabase.auth.signUp({
+		const { data: signUpData, error: signUpError } = await supabase.auth.signUp(
+			{
 				email: "bun@example.com",
 				password: "password123",
-			});
+			},
+		);
 
 		expect(signUpError).toBeNull();
 		expect(signUpData.user).toBeDefined();

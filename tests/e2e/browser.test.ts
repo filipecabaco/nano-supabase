@@ -59,17 +59,18 @@ describe("Browser e2e", () => {
 
 		expect(selectError).toBeNull();
 		expect(data).toHaveLength(1);
-		expect(data![0].name).toBe("browser-item");
+		expect(data?.[0].name).toBe("browser-item");
 	});
 
 	test("auth signup and signin", async () => {
 		const supabase = await createClient();
 
-		const { data: signUpData, error: signUpError } =
-			await supabase.auth.signUp({
+		const { data: signUpData, error: signUpError } = await supabase.auth.signUp(
+			{
 				email: "browser@example.com",
 				password: "password123",
-			});
+			},
+		);
 
 		expect(signUpError).toBeNull();
 		expect(signUpData.user).toBeDefined();

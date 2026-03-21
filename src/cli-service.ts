@@ -56,7 +56,8 @@ export async function runServiceMode(opts: {
 	const execFileAsync = promisify(execFile);
 
 	function randomBase62(bytes = 18): string {
-		const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+		const chars =
+			"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
 		return Array.from(crypto.getRandomValues(new Uint8Array(bytes)))
 			.map((b) => chars[b % chars.length])
 			.join("");

@@ -43,8 +43,12 @@ async function buildLib() {
 		outdir: join(rootDir, "dist"),
 	});
 	const fs = await import("node:fs");
-	console.log(`  dist/index.js  ${(fs.statSync(join(rootDir, "dist/index.js")).size / 1024) | 0}KB`);
-	console.log(`  dist/tcp.js    ${(fs.statSync(join(rootDir, "dist/tcp.js")).size / 1024) | 0}KB`);
+	console.log(
+		`  dist/index.js  ${(fs.statSync(join(rootDir, "dist/index.js")).size / 1024) | 0}KB`,
+	);
+	console.log(
+		`  dist/tcp.js    ${(fs.statSync(join(rootDir, "dist/tcp.js")).size / 1024) | 0}KB`,
+	);
 }
 
 async function buildCli() {

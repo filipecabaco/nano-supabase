@@ -335,8 +335,7 @@ const tcpPort = parsePort(
 	"--tcp-port",
 );
 const dataDir = getArgValue(subArgs, "--data-dir");
-const tlsCert =
-	getArgValue(subArgs, "--tls-cert") ?? process.env.NANO_TLS_CERT;
+const tlsCert = getArgValue(subArgs, "--tls-cert") ?? process.env.NANO_TLS_CERT;
 const tlsKey = getArgValue(subArgs, "--tls-key") ?? process.env.NANO_TLS_KEY;
 if ((tlsCert && !tlsKey) || (!tlsCert && tlsKey)) {
 	process.stderr.write(

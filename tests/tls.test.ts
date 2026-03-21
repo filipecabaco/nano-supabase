@@ -17,7 +17,6 @@ beforeAll(async () => {
 	);
 });
 
-
 describe("PGliteTCPServer with TLS", () => {
 	test("pg client connects with sslmode=require and queries succeed", async () => {
 		const db = new PGlite();

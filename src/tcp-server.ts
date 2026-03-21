@@ -1,8 +1,8 @@
 import { Buffer } from "node:buffer";
 import { timingSafeEqual } from "node:crypto";
 import { createServer, type Server, type Socket } from "node:net";
-import { TLSSocket } from "node:tls";
 import type { SecureContextOptions } from "node:tls";
+import { TLSSocket } from "node:tls";
 import type { PGlite } from "@electric-sql/pglite";
 import { AuthHandler } from "./auth/handler.ts";
 import { PGlitePooler } from "./pooler.ts";
@@ -160,8 +160,8 @@ export class PGliteTCPServer {
 					const tlsSocket = new TLSSocket(rawSocket, {
 						isServer: true,
 						...TLS_OPTIONS,
-						cert: this.tls!.cert,
-						key: this.tls!.key,
+						cert: this.tls?.cert,
+						key: this.tls?.key,
 					});
 					tlsSocket.once("secure", () => {
 						this.connections.delete(rawSocket);
@@ -385,7 +385,10 @@ export class PGliteTCPMuxServer {
 	>();
 	private readonly tls: TLSConfig | null;
 
-	constructor(private readonly route: MuxRoute, opts?: { tls?: TLSConfig }) {
+	constructor(
+		private readonly route: MuxRoute,
+		opts?: { tls?: TLSConfig },
+	) {
 		this.tls = opts?.tls ?? null;
 	}
 
@@ -428,8 +431,8 @@ export class PGliteTCPMuxServer {
 					const tlsSocket = new TLSSocket(rawSocket, {
 						isServer: true,
 						...TLS_OPTIONS,
-						cert: this.tls!.cert,
-						key: this.tls!.key,
+						cert: this.tls?.cert,
+						key: this.tls?.key,
 					});
 					tlsSocket.once("secure", () => {
 						this.connections.delete(rawSocket);

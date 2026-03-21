@@ -1,4 +1,4 @@
-// @ts-ignore - Vite ?url suffix
+// @ts-expect-error - Vite ?url suffix
 import wasmUrl from "postgrest-parser/pkg/postgrest_parser_bg.wasm?url";
 import { PostgrestParser } from "../../src/postgrest-parser.ts";
 
