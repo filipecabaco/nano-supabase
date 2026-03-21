@@ -59,7 +59,7 @@ import { createLocalFetch } from "./fetch-adapter/index.ts";
 import { createPGlite } from "./pglite-factory.ts";
 import type { PostgrestParser } from "./postgrest-parser.ts";
 import type { StorageBackend } from "./storage/backend.ts";
-import { PGliteTCPServer } from "./tcp-server.ts";
+import type { PGliteTCPServer } from "./tcp-server.ts";
 
 export interface NanoSupabaseOptions {
 	/** Persistence path. Omit for in-memory. `"idb://name"` for browser IndexedDB. */
@@ -265,6 +265,7 @@ export async function nanoSupabase(
 		const port = typeof tcp === "object" ? (tcp.port ?? 5432) : 5432;
 		const host =
 			typeof tcp === "object" ? (tcp.host ?? "127.0.0.1") : "127.0.0.1";
+		const { PGliteTCPServer } = await import("./tcp-server.ts");
 		tcpServer = await PGliteTCPServer.create(db);
 		await tcpServer.start(port, host);
 		connectionString = `postgresql://postgres@${host}:${port}/postgres`;

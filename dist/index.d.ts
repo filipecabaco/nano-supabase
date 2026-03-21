@@ -31,7 +31,7 @@ export { type CreateTenantOptions, type CreateTenantResult, ServiceClient, type 
 export { type BlobMetadata, type CreateBucketOptions, MemoryStorageBackend, type SignedUrlToken, STORAGE_SCHEMA_SQL, type StorageBackend, type StorageBucket, StorageHandler, type StorageObject, } from "./storage/index.ts";
 export type { QueryBuilder } from "./supabase-client.ts";
 export { createSupabaseClient, SupabaseClient } from "./supabase-client.ts";
-export { type MuxRoute, PGliteTCPMuxServer, PGliteTCPServer, type TCPServerOptions, } from "./tcp-server.ts";
+export type { MuxRoute, PGliteTCPMuxServer, PGliteTCPServer, TCPServerOptions, } from "./tcp-server.ts";
 export type { PoolerConfig, QueryResult, QueuedQuery, QueueMetrics, } from "./types.ts";
 export { QueryPriority } from "./types.ts";
 //# sourceMappingURL=index.d.ts.map
