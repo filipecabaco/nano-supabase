@@ -112,11 +112,11 @@ export type { QueryBuilder } from "./supabase-client.ts";
 // Original Supabase-compatible client (for direct usage without supabase-js)
 export { createSupabaseClient, SupabaseClient } from "./supabase-client.ts";
 // TCP server (Postgres wire protocol — exposes PGlite as a real Postgres endpoint)
-export type {
-	MuxRoute,
+export {
+	type MuxRoute,
 	PGliteTCPMuxServer,
 	PGliteTCPServer,
-	TCPServerOptions,
+	type TCPServerOptions,
 } from "./tcp-server.ts";
 export type {
 	PoolerConfig,

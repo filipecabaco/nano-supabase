@@ -131,7 +131,7 @@ async function doInit(): Promise<{
 
 	supabaseInstance = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
 		auth: { autoRefreshToken: false },
-		global: { fetch: localFetch },
+		global: { fetch: localFetch as typeof fetch },
 	});
 
 	if (storageHandler) {

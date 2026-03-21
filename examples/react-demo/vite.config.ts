@@ -26,7 +26,7 @@ export default defineConfig({
 		},
 	},
 	optimizeDeps: {
-		exclude: ["@electric-sql/pglite", "nano-supabase"],
+		exclude: ["@electric-sql/pglite"],
 	},
 	server: {
 		fs: {

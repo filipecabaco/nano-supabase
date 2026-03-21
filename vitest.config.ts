@@ -7,10 +7,6 @@ export default defineConfig({
 		include: ["tests/**/*.test.ts"],
 		exclude: ["tests/cli.test.ts"],
 		pool: "forks",
-		poolOptions: {
-			forks: {
-				maxForks: 1,
-			},
-		},
+		maxForks: 1,
 	},
 });

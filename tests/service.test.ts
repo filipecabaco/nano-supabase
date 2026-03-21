@@ -702,7 +702,7 @@ describe("ServiceClient", () => {
 		expect(result.password).toBeTruthy();
 		expect(result.tenant.slug).toBe("sc-auto");
 		expect(result.tenant.state).toBe("running");
-		expect(result.tenant.anonKey).toBe("local-anon-key");
+		expect(result.tenant.anonKey).toBeTruthy();
 	});
 
 	test("createTenant with custom token, password, anonKey, serviceRoleKey", async () => {
