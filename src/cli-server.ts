@@ -730,6 +730,9 @@ export async function runStartMode(opts: {
 	const KNOWN_PREFIXES = ["/auth/v1/", "/rest/v1/", "/storage/v1/"];
 
 	async function fetchHandler(req: Request): Promise<Response> {
+		if (req.method === "OPTIONS") {
+			return new Response(null, { status: 204 });
+		}
 		const pathname = new URL(req.url).pathname;
 		if (pathname === "/mcp" && mcpHandler) {
 			return mcpHandler.handleRequest(req);
@@ -769,17 +772,21 @@ export async function runStartMode(opts: {
 				// @ts-expect-error — Http2ServerRequest is a readable stream accepted by Request
 				duplex: "half",
 			});
+			const CORS = {
+				"access-control-allow-origin": "*",
+				"access-control-allow-methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
+				"access-control-allow-headers": "*",
+				"access-control-expose-headers": "*",
+			};
 			try {
 				const res = await handler(req);
-				const resHeaders: Record<string, string> = {};
-				res.headers.forEach((v, k) => {
-					resHeaders[k] = v;
-				});
+				const resHeaders: Record<string, string> = { ...CORS };
+				res.headers.forEach((v, k) => { resHeaders[k] = v; });
 				nodeRes.writeHead(res.status, resHeaders);
 				nodeRes.end(Buffer.from(await res.arrayBuffer()));
 			} catch (_e) {
 				if (!nodeRes.headersSent) {
-					nodeRes.writeHead(500, { "Content-Type": "application/json" });
+					nodeRes.writeHead(500, { "Content-Type": "application/json", ...CORS });
 					nodeRes.end(JSON.stringify({ error: "internal_error" }));
 				}
 			}

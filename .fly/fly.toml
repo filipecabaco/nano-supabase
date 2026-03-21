@@ -20,25 +20,14 @@ kill_timeout = "30s"
   memory = "2048mb"
   cpus = 4
 
-[[services]]
-  protocol = "tcp"
+[http_service]
   internal_port = 8080
+  force_https = true
   auto_stop_machines = false
   auto_start_machines = true
   min_machines_running = 1
 
-  [[services.ports]]
-    port = 80
-    handlers = ["http"]
-    force_https = true
-
-  [[services.ports]]
-    port = 443
-    handlers = ["tls", "http"]
-    [services.ports.tls_options]
-      alpn = ["h2", "http/1.1"]
-
-  [[services.http_checks]]
+  [[http_service.checks]]
     grace_period = "30s"
     interval = "15s"
     method = "GET"
@@ -51,4 +40,4 @@ kill_timeout = "30s"
 
   [[services.ports]]
     port = 5432
-    handlers = []
+    handlers = ["pg_tls"]

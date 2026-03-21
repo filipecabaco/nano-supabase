@@ -1,7 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
 import { readFile, stat, writeFile } from "node:fs/promises";
 import { createServer as createHttpServer } from "node:http";
-import { createServer as createHttpsServer } from "node:https";
 import { join } from "node:path";
 import type { Extension } from "@electric-sql/pglite";
 import type { NanoSupabaseInstance } from "./nano.ts";
@@ -55,6 +54,15 @@ export async function runServiceMode(opts: {
 	const { execFile } = await import("node:child_process");
 	const { promisify } = await import("node:util");
 	const execFileAsync = promisify(execFile);
+
+	function randomBase62(bytes = 18): string {
+		const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+		return Array.from(crypto.getRandomValues(new Uint8Array(bytes)))
+			.map((b) => chars[b % chars.length])
+			.join("");
+	}
+	const generatePublishableKey = () => `sb_publishable_${randomBase62()}`;
+	const generateSecretKey = () => `sb_secret_${randomBase62()}`;
 
 	const servicePort = parsePort(
 		getArgValue(subArgs, "--service-port"),
@@ -719,9 +727,20 @@ export async function runServiceMode(opts: {
 		return null;
 	}
 
+	const CORS = {
+		"access-control-allow-origin": "*",
+		"access-control-allow-methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
+		"access-control-allow-headers": "*",
+		"access-control-expose-headers": "*",
+	};
+
 	async function serviceHandler(req: Request): Promise<Response> {
 		const url = new URL(req.url);
 		const json = { "Content-Type": "application/json" };
+
+		if (req.method === "OPTIONS") {
+			return new Response(null, { status: 204 });
+		}
 
 		if (url.pathname === "/health" && req.method === "GET") {
 			return new Response(JSON.stringify({ ok: true }), { headers: json });
@@ -832,8 +851,8 @@ export async function runServiceMode(opts: {
 					lastActive: new Date(),
 					nano: null,
 					usage: getUsage(id),
-					anonKey: body.anonKey ?? DEFAULT_ANON_KEY,
-					serviceRoleKey: body.serviceRoleKey ?? serviceRoleKey,
+					anonKey: body.anonKey ?? generatePublishableKey(),
+					serviceRoleKey: body.serviceRoleKey ?? generateSecretKey(),
 				};
 				nanoInstances.set(id, null);
 				await createTenantRecord(tenant);
@@ -1141,36 +1160,11 @@ export async function runServiceMode(opts: {
 		return new Response(resBody, { status: res.status, headers: res.headers });
 	}
 
-	const tlsServerOptions = tlsBufs
-		? {
-				cert: tlsBufs.cert,
-				key: tlsBufs.key,
-				minVersion: "TLSv1.2" as const,
-				maxVersion: "TLSv1.3" as const,
-				ciphers: [
-					"TLS_AES_128_GCM_SHA256",
-					"TLS_AES_256_GCM_SHA384",
-					"TLS_CHACHA20_POLY1305_SHA256",
-					"ECDHE-ECDSA-AES128-GCM-SHA256",
-					"ECDHE-RSA-AES128-GCM-SHA256",
-					"ECDHE-ECDSA-AES256-GCM-SHA384",
-					"ECDHE-RSA-AES256-GCM-SHA384",
-					"ECDHE-ECDSA-CHACHA20-POLY1305",
-					"ECDHE-RSA-CHACHA20-POLY1305",
-					"DHE-RSA-AES128-GCM-SHA256",
-					"DHE-RSA-AES256-GCM-SHA384",
-					"DHE-RSA-CHACHA20-POLY1305",
-				].join(":"),
-				honorCipherOrder: false,
-			}
-		: null;
-	const scheme = tlsBufs ? "https" : "http";
-
 	const serviceServerHandler = async (
 		nodeReq: import("node:http").IncomingMessage,
 		nodeRes: import("node:http").ServerResponse,
 	) => {
-		const url = `${scheme}://localhost:${servicePort}${nodeReq.url}`;
+		const url = `http://localhost:${servicePort}${nodeReq.url}`;
 		const hasBody = nodeReq.method !== "GET" && nodeReq.method !== "HEAD";
 		const chunks: Buffer[] = [];
 		if (hasBody) {
@@ -1184,7 +1178,7 @@ export async function runServiceMode(opts: {
 		});
 		try {
 			const res = await serviceHandler(req);
-			const resHeaders: Record<string, string> = {};
+			const resHeaders: Record<string, string> = { ...CORS };
 			res.headers.forEach((v, k) => {
 				resHeaders[k] = v;
 			});
@@ -1200,14 +1194,12 @@ export async function runServiceMode(opts: {
 						: undefined,
 			});
 			if (!nodeRes.headersSent) {
-				nodeRes.writeHead(500, { "Content-Type": "application/json" });
+				nodeRes.writeHead(500, { "Content-Type": "application/json", ...CORS });
 				nodeRes.end(JSON.stringify({ error: "internal_error", message: msg }));
 			}
 		}
 	};
-	const serviceServer = tlsServerOptions
-		? createHttpsServer(tlsServerOptions, serviceServerHandler)
-		: createHttpServer(serviceServerHandler);
+	const serviceServer = createHttpServer(serviceServerHandler);
 
 	setInterval(async () => {
 		await flushLastActive().catch((e: unknown) => {
