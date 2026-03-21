@@ -35,12 +35,16 @@ async function buildLib() {
 		...commonOptions,
 		external: ["@electric-sql/pglite", ...NODE_EXTERNALS],
 		platform: "neutral",
-		entryPoints: [join(rootDir, "src/index.ts")],
-		outfile: join(rootDir, "dist/index.js"),
+		splitting: true,
+		entryPoints: [
+			{ in: join(rootDir, "src/index.ts"), out: "index" },
+			{ in: join(rootDir, "src/tcp.ts"), out: "tcp" },
+		],
+		outdir: join(rootDir, "dist"),
 	});
-	console.log(
-		`  dist/index.js  ${((await import("node:fs")).statSync(join(rootDir, "dist/index.js")).size / 1024) | 0}KB`,
-	);
+	const fs = await import("node:fs");
+	console.log(`  dist/index.js  ${(fs.statSync(join(rootDir, "dist/index.js")).size / 1024) | 0}KB`);
+	console.log(`  dist/tcp.js    ${(fs.statSync(join(rootDir, "dist/tcp.js")).size / 1024) | 0}KB`);
 }
 
 async function buildCli() {

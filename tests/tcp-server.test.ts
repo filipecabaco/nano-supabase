@@ -1,11 +1,8 @@
 import { createConnection, type Socket } from "node:net";
 import { PGlite } from "@electric-sql/pglite";
 import pg from "pg";
-import {
-	PGlitePooler,
-	PGliteTCPMuxServer,
-	PGliteTCPServer,
-} from "../src/index.ts";
+import { PGlitePooler } from "../src/index.ts";
+import { PGliteTCPMuxServer, PGliteTCPServer } from "../src/tcp.ts";
 import { assertEquals, assertExists, describe, test } from "./compat.ts";
 
 const TEST_PORT = 54399;

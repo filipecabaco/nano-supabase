@@ -4,11 +4,8 @@ import { PGlite } from "@electric-sql/pglite";
 import pg from "pg";
 import selfsigned from "selfsigned";
 import { afterAll, beforeAll, describe, test } from "vitest";
-import {
-	PGlitePooler,
-	PGliteTCPMuxServer,
-	PGliteTCPServer,
-} from "../src/index.ts";
+import { PGlitePooler } from "../src/index.ts";
+import { PGliteTCPMuxServer, PGliteTCPServer } from "../src/tcp.ts";
 import { assertEquals } from "./compat.ts";
 
 let pems: { private: string; cert: string };
