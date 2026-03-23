@@ -52,7 +52,7 @@ describe("postgres-meta compatibility", () => {
 			const { data, error } = await pgMeta.schemas.list();
 			expect(error).toBeNull();
 			expect(data).toBeDefined();
-			const publicSchema = data!.find((s) => s.name === "public");
+			const publicSchema = data?.find((s) => s.name === "public");
 			expect(publicSchema).toBeDefined();
 			expect(publicSchema).toMatchObject({ name: "public" });
 		});
@@ -60,7 +60,7 @@ describe("postgres-meta compatibility", () => {
 		test("lists auth schema", async () => {
 			const { data, error } = await pgMeta.schemas.list();
 			expect(error).toBeNull();
-			const authSchema = data!.find((s) => s.name === "auth");
+			const authSchema = data?.find((s) => s.name === "auth");
 			expect(authSchema).toBeDefined();
 		});
 	});
@@ -70,7 +70,7 @@ describe("postgres-meta compatibility", () => {
 			const { data, error } = await pgMeta.tables.list();
 			expect(error).toBeNull();
 			expect(data).toBeDefined();
-			const names = data!.map((t) => t.name);
+			const names = data?.map((t) => t.name);
 			expect(names).toContain("products");
 			expect(names).toContain("orders");
 		});
@@ -78,7 +78,7 @@ describe("postgres-meta compatibility", () => {
 		test("products table has expected shape", async () => {
 			const { data, error } = await pgMeta.tables.list();
 			expect(error).toBeNull();
-			const products = data!.find(
+			const products = data?.find(
 				(t) => t.name === "products" && t.schema === "public",
 			);
 			expect(products).toBeDefined();
@@ -86,7 +86,7 @@ describe("postgres-meta compatibility", () => {
 				name: "products",
 				schema: "public",
 			});
-			expect(typeof products!.id).toBe("number");
+			expect(typeof products?.id).toBe("number");
 		});
 
 		test("orders table references products via foreign key", async () => {
@@ -94,11 +94,11 @@ describe("postgres-meta compatibility", () => {
 				includeColumns: true,
 			});
 			expect(error).toBeNull();
-			const orders = data!.find(
+			const orders = data?.find(
 				(t) => t.name === "orders" && t.schema === "public",
 			);
 			expect(orders).toBeDefined();
-			expect(orders!.relationships.length).toBeGreaterThan(0);
+			expect(orders?.relationships.length).toBeGreaterThan(0);
 		});
 	});
 
@@ -106,7 +106,7 @@ describe("postgres-meta compatibility", () => {
 		test("lists columns for products table", async () => {
 			const { data, error } = await pgMeta.columns.list();
 			expect(error).toBeNull();
-			const productCols = data!.filter(
+			const productCols = data?.filter(
 				(c) => c.table === "products" && c.schema === "public",
 			);
 			const colNames = productCols.map((c) => c.name);
@@ -120,34 +120,34 @@ describe("postgres-meta compatibility", () => {
 		test("id column is non-nullable with serial default", async () => {
 			const { data, error } = await pgMeta.columns.list();
 			expect(error).toBeNull();
-			const idCol = data!.find(
+			const idCol = data?.find(
 				(c) => c.table === "products" && c.name === "id",
 			);
 			expect(idCol).toBeDefined();
-			expect(idCol!.is_nullable).toBe(false);
-			expect(idCol!.default_value).toMatch(/nextval/);
+			expect(idCol?.is_nullable).toBe(false);
+			expect(idCol?.default_value).toMatch(/nextval/);
 		});
 
 		test("name column is non-nullable text", async () => {
 			const { data, error } = await pgMeta.columns.list();
 			expect(error).toBeNull();
-			const nameCol = data!.find(
+			const nameCol = data?.find(
 				(c) => c.table === "products" && c.name === "name",
 			);
 			expect(nameCol).toBeDefined();
-			expect(nameCol!.is_nullable).toBe(false);
-			expect(nameCol!.data_type).toBe("text");
+			expect(nameCol?.is_nullable).toBe(false);
+			expect(nameCol?.data_type).toBe("text");
 		});
 
 		test("price column is numeric with default", async () => {
 			const { data, error } = await pgMeta.columns.list();
 			expect(error).toBeNull();
-			const priceCol = data!.find(
+			const priceCol = data?.find(
 				(c) => c.table === "products" && c.name === "price",
 			);
 			expect(priceCol).toBeDefined();
-			expect(priceCol!.data_type).toBe("numeric");
-			expect(priceCol!.default_value).toBe("0.00");
+			expect(priceCol?.data_type).toBe("numeric");
+			expect(priceCol?.default_value).toBe("0.00");
 		});
 	});
 
@@ -156,11 +156,11 @@ describe("postgres-meta compatibility", () => {
 			const { data, error } = await pgMeta.functions.list();
 			expect(error).toBeNull();
 			expect(data).toBeDefined();
-			const addNumbers = data!.find(
+			const addNumbers = data?.find(
 				(f) => f.name === "add_numbers" && f.schema === "public",
 			);
 			expect(addNumbers).toBeDefined();
-			expect(addNumbers!.language).toBe("sql");
+			expect(addNumbers?.language).toBe("sql");
 		});
 	});
 

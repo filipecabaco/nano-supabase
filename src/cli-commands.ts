@@ -259,7 +259,10 @@ export async function cmdMigrationNew(
 		getArgValue(args, "--migrations-dir") ?? DEFAULT_MIGRATIONS_DIR;
 	const version =
 		getArgValue(args, "--version") ??
-		new Date().toISOString().replace(/[-:T.Z]/g, "").slice(0, 14);
+		new Date()
+			.toISOString()
+			.replace(/[-:T.Z]/g, "")
+			.slice(0, 14);
 	const filename = `${version}_${name.replace(/\s+/g, "_")}.sql`;
 	const filePath = join(migrationsDir, filename);
 	try {

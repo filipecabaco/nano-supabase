@@ -67,7 +67,10 @@ async function startServer(
 function tcpProbe(host: string, port: number): Promise<boolean> {
 	return new Promise((resolve) => {
 		const sock = connect({ host, port });
-		sock.once("connect", () => { sock.destroy(); resolve(true); });
+		sock.once("connect", () => {
+			sock.destroy();
+			resolve(true);
+		});
 		sock.once("error", () => resolve(false));
 	});
 }
@@ -245,7 +248,11 @@ describe("migrations", () => {
 		const args = [...serverArgs, `--migrations-dir=${migrationsDir}`];
 
 		const v1 = nextVersion();
-		const create1 = await cmdMigrationNew([...args, `--version=${v1}`, "create_products"]);
+		const create1 = await cmdMigrationNew([
+			...args,
+			`--version=${v1}`,
+			"create_products",
+		]);
 		assertEquals(create1.exitCode, 0);
 		const { file: file1 } = JSON.parse(create1.output);
 		assertExists(file1);
@@ -255,7 +262,11 @@ describe("migrations", () => {
 		);
 
 		const v2 = nextVersion();
-		const create2 = await cmdMigrationNew([...args, `--version=${v2}`, "add_price"]);
+		const create2 = await cmdMigrationNew([
+			...args,
+			`--version=${v2}`,
+			"add_price",
+		]);
 		assertEquals(create2.exitCode, 0);
 		const { file: file2 } = JSON.parse(create2.output);
 		writeFileSync(
@@ -323,7 +334,11 @@ describe("migrations", () => {
 	test("up applies migration with multiple statements", async () => {
 		const args = [...serverArgs, `--migrations-dir=${migrationsDir}`];
 		const v = nextVersion();
-		const create = await cmdMigrationNew([...args, `--version=${v}`, "multi_statement"]);
+		const create = await cmdMigrationNew([
+			...args,
+			`--version=${v}`,
+			"multi_statement",
+		]);
 		assertEquals(create.exitCode, 0);
 		const { file } = JSON.parse(create.output);
 		writeFileSync(

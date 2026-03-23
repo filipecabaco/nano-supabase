@@ -762,8 +762,16 @@ export async function runStartMode(opts: {
 		};
 
 		async function handleRequest(
-			nodeReq: { url?: string; method?: string; headers: Record<string, string | string[] | undefined> },
-			nodeRes: { headersSent: boolean; writeHead: (s: number, h: Record<string, string>) => void; end: (b?: string | Buffer) => void },
+			nodeReq: {
+				url?: string;
+				method?: string;
+				headers: Record<string, string | string[] | undefined>;
+			},
+			nodeRes: {
+				headersSent: boolean;
+				writeHead: (s: number, h: Record<string, string>) => void;
+				end: (b?: string | Buffer) => void;
+			},
 		) {
 			const url = `http://localhost:${httpPort}${nodeReq.url}`;
 			const hasBody = nodeReq.method !== "GET" && nodeReq.method !== "HEAD";
@@ -782,12 +790,17 @@ export async function runStartMode(opts: {
 			try {
 				const res = await handler(req);
 				const resHeaders: Record<string, string> = { ...CORS };
-				res.headers.forEach((v, k) => { resHeaders[k] = v; });
+				res.headers.forEach((v, k) => {
+					resHeaders[k] = v;
+				});
 				nodeRes.writeHead(res.status, resHeaders);
 				nodeRes.end(Buffer.from(await res.arrayBuffer()));
 			} catch (_e) {
 				if (!nodeRes.headersSent) {
-					nodeRes.writeHead(500, { "Content-Type": "application/json", ...CORS });
+					nodeRes.writeHead(500, {
+						"Content-Type": "application/json",
+						...CORS,
+					});
 					nodeRes.end(JSON.stringify({ error: "internal_error" }));
 				}
 			}
@@ -817,7 +830,8 @@ export async function runStartMode(opts: {
 					].join(":"),
 					honorCipherOrder: false,
 				},
-				(req: Http2ServerRequest, res: Http2ServerResponse) => handleRequest(req, res),
+				(req: Http2ServerRequest, res: Http2ServerResponse) =>
+					handleRequest(req, res),
 			);
 		}
 		return createHttpServer((req, res) => handleRequest(req, res));
