@@ -848,7 +848,10 @@ export async function cmdSyncPush(
 					}
 
 					const sql = await readFile(join(migrationsDir, file), "utf8");
-					const statements = sql.split(";").map((s) => s.trim()).filter(Boolean);
+					const statements = sql
+						.split(";")
+						.map((s) => s.trim())
+						.filter(Boolean);
 					if (!dryRun) {
 						for (const stmt of statements) await client.query(stmt);
 						await client.query(
@@ -870,7 +873,10 @@ export async function cmdSyncPush(
 					const version = match[1] ?? "";
 					const name = file.replace(/\.sql$/, "").slice(version.length + 1);
 					const sql = await readFile(join(migrationsDir, file), "utf8");
-					const statements = sql.split(";").map((s) => s.trim()).filter(Boolean);
+					const statements = sql
+						.split(";")
+						.map((s) => s.trim())
+						.filter(Boolean);
 					if (!dryRun) {
 						for (const stmt of statements) await client.query(stmt);
 						await client.query(

@@ -864,7 +864,7 @@ export async function runStartMode(opts: {
 	}
 
 	for (const signal of ["SIGINT", "SIGTERM"] as const) {
-		process.on(signal, async () => {
+		process.once(signal, async () => {
 			server.close();
 			await externalTcpServer?.stop();
 			await nano.stop();

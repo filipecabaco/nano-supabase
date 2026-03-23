@@ -50,6 +50,7 @@ export class PriorityQueue {
 			const head = this.heads[p as 0 | 1 | 2 | 3];
 			if (head < queue.length) {
 				const item = queue[head] ?? null;
+				(queue as (QueuedQuery | null)[])[head] = null;
 				this.heads[p as 0 | 1 | 2 | 3]++;
 				this._size--;
 				if (this.heads[p as 0 | 1 | 2 | 3] > queue.length / 2) {

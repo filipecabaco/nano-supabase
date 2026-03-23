@@ -55,6 +55,7 @@ interface Portal {
 
 interface ConnectionState {
 	buffer: Buffer;
+	pendingChunks: Buffer[];
 	startupDone: boolean;
 	authenticated: boolean;
 	statements: Map<string, PreparedStatement>;
@@ -129,6 +130,7 @@ export class PGliteTCPServer {
 		this.server = createServer((rawSocket: Socket) => {
 			const state: ConnectionState = {
 				buffer: Buffer.alloc(0),
+				pendingChunks: [],
 				startupDone: false,
 				authenticated: this.password === null,
 				statements: new Map(),
@@ -145,7 +147,7 @@ export class PGliteTCPServer {
 				rawSocket.on("data", (data: Buffer) => {
 					const s = this.connections.get(rawSocket);
 					if (!s) return;
-					s.buffer = Buffer.concat([s.buffer, data]);
+					s.pendingChunks.push(data);
 					this.drain(rawSocket, s).catch(() => {});
 				});
 				return;
@@ -174,7 +176,7 @@ export class PGliteTCPServer {
 						eff.on("data", (data: Buffer) => {
 							const s = this.connections.get(eff);
 							if (!s) return;
-							s.buffer = Buffer.concat([s.buffer, data]);
+							s.pendingChunks.push(data);
 							this.drain(eff, s).catch(() => {});
 						});
 						eff.on("close", () => this.connections.delete(eff));
@@ -188,11 +190,11 @@ export class PGliteTCPServer {
 						this.connections.delete(rawSocket);
 					});
 				} else {
-					state.buffer = Buffer.concat([state.buffer, firstChunk]);
+					state.pendingChunks.push(firstChunk);
 					rawSocket.on("data", (data: Buffer) => {
 						const s = this.connections.get(rawSocket);
 						if (!s) return;
-						s.buffer = Buffer.concat([s.buffer, data]);
+						s.pendingChunks.push(data);
 						this.drain(rawSocket, s).catch(() => {});
 					});
 					rawSocket.resume();
@@ -223,6 +225,13 @@ export class PGliteTCPServer {
 
 	private async drain(socket: Socket, state: ConnectionState): Promise<void> {
 		if (state.processing) return;
+		if (state.pendingChunks.length > 0) {
+			state.buffer =
+				state.buffer.length > 0
+					? Buffer.concat([state.buffer, ...state.pendingChunks])
+					: Buffer.concat(state.pendingChunks);
+			state.pendingChunks = [];
+		}
 		state.processing = true;
 		try {
 			while (state.buffer.length > 0) {
@@ -381,7 +390,7 @@ function parseStartupParams(buf: Buffer): Record<string, string> {
 export class PGliteTCPMuxServer {
 	private server: Server | null = null;
 	private readonly connections = new Map<Socket, MuxConnectionState>();
-	private readonly probeCaches = new Map<
+	private readonly probeCaches = new WeakMap<
 		PGlitePooler,
 		Map<string, { name: string; dataTypeID: number }[]>
 	>();
@@ -398,6 +407,7 @@ export class PGliteTCPMuxServer {
 		this.server = createServer((rawSocket: Socket) => {
 			const state: MuxConnectionState = {
 				buffer: Buffer.alloc(0),
+				pendingChunks: [],
 				startupDone: false,
 				authenticated: false,
 				statements: new Map(),
@@ -416,7 +426,7 @@ export class PGliteTCPMuxServer {
 				rawSocket.on("data", (data: Buffer) => {
 					const s = this.connections.get(rawSocket);
 					if (!s) return;
-					s.buffer = Buffer.concat([s.buffer, data]);
+					s.pendingChunks.push(data);
 					this.drainMux(rawSocket, s).catch(() => {});
 				});
 				return;
@@ -445,7 +455,7 @@ export class PGliteTCPMuxServer {
 						eff.on("data", (data: Buffer) => {
 							const s = this.connections.get(eff);
 							if (!s) return;
-							s.buffer = Buffer.concat([s.buffer, data]);
+							s.pendingChunks.push(data);
 							this.drainMux(eff, s).catch(() => {});
 						});
 						eff.on("close", () => this.connections.delete(eff));
@@ -459,11 +469,11 @@ export class PGliteTCPMuxServer {
 						this.connections.delete(rawSocket);
 					});
 				} else {
-					state.buffer = Buffer.concat([state.buffer, firstChunk]);
+					state.pendingChunks.push(firstChunk);
 					rawSocket.on("data", (data: Buffer) => {
 						const s = this.connections.get(rawSocket);
 						if (!s) return;
-						s.buffer = Buffer.concat([s.buffer, data]);
+						s.pendingChunks.push(data);
 						this.drainMux(rawSocket, s).catch(() => {});
 					});
 					rawSocket.resume();
@@ -496,6 +506,13 @@ export class PGliteTCPMuxServer {
 		state: MuxConnectionState,
 	): Promise<void> {
 		if (state.processing) return;
+		if (state.pendingChunks.length > 0) {
+			state.buffer =
+				state.buffer.length > 0
+					? Buffer.concat([state.buffer, ...state.pendingChunks])
+					: Buffer.concat(state.pendingChunks);
+			state.pendingChunks = [];
+		}
 		state.processing = true;
 		try {
 			while (state.buffer.length > 0) {
@@ -983,6 +1000,7 @@ async function onParse(
 			} catch {
 				fields = [];
 			}
+			if (probeCache.size >= 1000) probeCache.clear();
 			probeCache.set(probeQuery, fields);
 		}
 	}

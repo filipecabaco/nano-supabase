@@ -557,7 +557,7 @@ export async function runServiceMode(opts: {
 		const ids = Array.from(dirtyLastActive);
 		dirtyLastActive.clear();
 		await registry.query(
-			`UPDATE tenants SET last_active = now() WHERE id = ANY($1::uuid[])`,
+			`UPDATE tenants SET last_active = now() WHERE id = ANY($1::text[])`,
 			[ids],
 		);
 	}
@@ -923,6 +923,8 @@ export async function runServiceMode(opts: {
 					}
 					nanoInstances.delete(tenant.id);
 					consecutiveErrors.delete(tenant.id);
+					usageMap.delete(tenant.id);
+					tenantCache.delete(tenant.id);
 					try {
 						await rm(tenant.dataDir, { recursive: true, force: true });
 					} catch {}
@@ -1255,7 +1257,7 @@ export async function runServiceMode(opts: {
 	};
 	const serviceServer = createHttpServer(serviceServerHandler);
 
-	setInterval(async () => {
+	const idleCheckInterval = setInterval(async () => {
 		await flushLastActive().catch((e: unknown) => {
 			log("error", {
 				event: "flush_last_active_failed",
@@ -1359,7 +1361,8 @@ export async function runServiceMode(opts: {
 	});
 
 	for (const signal of ["SIGINT", "SIGTERM"] as const) {
-		process.on(signal, async () => {
+		process.once(signal, async () => {
+			clearInterval(idleCheckInterval);
 			serviceServer.close();
 			await muxServer.stop().catch(() => {});
 			for (const [id, pooler] of tenantPoolers) {
