@@ -80,7 +80,7 @@ export async function runStartMode(opts: {
 	try {
 		nano = await nanoSupabase({
 			dataDir,
-			tcp: tlsBufs ? false : { port: tcpPort },
+			tcp: tlsBufs ? false : { port: tcpPort, host: "0.0.0.0" },
 			debug,
 			wasmModule,
 			fsBundle,
