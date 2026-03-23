@@ -666,6 +666,374 @@ describe("PGliteTCPServer", () => {
 			await teardown();
 		}
 	});
+
+	test("JSON type stores and retrieves text representation", async () => {
+		const { teardown } = await startServer();
+		const client = await makeClient();
+		try {
+			await client.simpleQuery("CREATE TABLE json_docs (data JSON)");
+			await client.simpleQuery(
+				`INSERT INTO json_docs VALUES ('{"name":"alice","score":99}')`,
+			);
+			const res = await client.simpleQuery("SELECT data FROM json_docs");
+			assertEquals(JSON.parse(res.rows[0][0]?.toString() ?? ""), {
+				name: "alice",
+				score: 99,
+			});
+		} finally {
+			client.terminate();
+			await teardown();
+		}
+	});
+
+	test("JSON type OID is 114, JSONB type OID is 3802", async () => {
+		const { teardown } = await startServer();
+		const client = await makeClient();
+		try {
+			await client.simpleQuery(
+				"CREATE TABLE json_oid_test (j JSON, jb JSONB)",
+			);
+			await client.simpleQuery(
+				`INSERT INTO json_oid_test VALUES ('{}', '{}')`,
+			);
+			const res = await client.simpleQuery(
+				"SELECT j, jb FROM json_oid_test",
+			);
+			const byName = Object.fromEntries(
+				res.fields.map((f) => [f.name, f.typeOid]),
+			);
+			assertEquals(byName.j, 114);
+			assertEquals(byName.jb, 3802);
+		} finally {
+			client.terminate();
+			await teardown();
+		}
+	});
+
+	test("JSONB ->> operator extracts text field", async () => {
+		const { teardown } = await startServer();
+		const client = await makeClient();
+		try {
+			await client.simpleQuery("CREATE TABLE events (payload JSONB)");
+			await client.simpleQuery(
+				`INSERT INTO events VALUES ('{"type":"click","user":"bob"}')`,
+			);
+			const res = await client.simpleQuery(
+				"SELECT payload->>'type' AS event_type FROM events",
+			);
+			assertEquals(res.rows[0][0]?.toString(), "click");
+		} finally {
+			client.terminate();
+			await teardown();
+		}
+	});
+
+	test("JSONB -> operator extracts nested object", async () => {
+		const { teardown } = await startServer();
+		const client = await makeClient();
+		try {
+			await client.simpleQuery("CREATE TABLE nested (data JSONB)");
+			await client.simpleQuery(
+				`INSERT INTO nested VALUES ('{"meta":{"version":2}}')`,
+			);
+			const res = await client.simpleQuery(
+				"SELECT data->'meta' AS meta FROM nested",
+			);
+			assertEquals(JSON.parse(res.rows[0][0]?.toString() ?? ""), {
+				version: 2,
+			});
+		} finally {
+			client.terminate();
+			await teardown();
+		}
+	});
+
+	test("JSONB @> containment operator filters rows", async () => {
+		const { teardown } = await startServer();
+		const client = await makeClient();
+		try {
+			await client.simpleQuery("CREATE TABLE tags (data JSONB)");
+			await client.simpleQuery(
+				`INSERT INTO tags VALUES ('{"role":"admin","active":true}'), ('{"role":"user","active":true}'), ('{"role":"admin","active":false}')`,
+			);
+			const res = await client.simpleQuery(
+				`SELECT data->>'role' AS role FROM tags WHERE data @> '{"role":"admin","active":true}'`,
+			);
+			assertEquals(res.rows.length, 1);
+			assertEquals(res.rows[0][0]?.toString(), "admin");
+		} finally {
+			client.terminate();
+			await teardown();
+		}
+	});
+
+	test("JSONB array elements: ->> returns text, -> returns JSON-encoded value", async () => {
+		const { teardown } = await startServer();
+		const client = await makeClient();
+		try {
+			await client.simpleQuery("CREATE TABLE lists (items JSONB)");
+			await client.simpleQuery(
+				`INSERT INTO lists VALUES ('["a","b","c"]')`,
+			);
+			const res = await client.simpleQuery(
+				"SELECT items->>0 AS text_val, items->>1 AS text_val2 FROM lists",
+			);
+			assertEquals(res.rows[0][0]?.toString(), "a");
+			assertEquals(res.rows[0][1]?.toString(), "b");
+		} finally {
+			client.terminate();
+			await teardown();
+		}
+	});
+
+	test("jsonb_set updates a nested field", async () => {
+		const { teardown } = await startServer();
+		const client = await makeClient();
+		try {
+			await client.simpleQuery("CREATE TABLE settings (cfg JSONB)");
+			await client.simpleQuery(
+				`INSERT INTO settings VALUES ('{"theme":"light","lang":"en"}')`,
+			);
+			const res = await client.simpleQuery(
+				`SELECT jsonb_set(cfg, '{theme}', '"dark"')::text AS updated FROM settings`,
+			);
+			assertEquals(
+				JSON.parse(res.rows[0][0]?.toString() ?? "").theme,
+				"dark",
+			);
+		} finally {
+			client.terminate();
+			await teardown();
+		}
+	});
+
+	test("json_build_object constructs JSON from arguments", async () => {
+		const { teardown } = await startServer();
+		const client = await makeClient();
+		try {
+			const res = await client.simpleQuery(
+				`SELECT json_build_object('id', 1, 'name', 'alice')::text AS obj`,
+			);
+			assertEquals(JSON.parse(res.rows[0][0]?.toString() ?? ""), {
+				id: 1,
+				name: "alice",
+			});
+		} finally {
+			client.terminate();
+			await teardown();
+		}
+	});
+
+	test("JSONB NULL value is stored and returned as SQL NULL", async () => {
+		const { teardown } = await startServer();
+		const client = await makeClient();
+		try {
+			await client.simpleQuery("CREATE TABLE nullable_json (data JSONB)");
+			await client.simpleQuery("INSERT INTO nullable_json VALUES (NULL)");
+			const res = await client.simpleQuery(
+				"SELECT data FROM nullable_json",
+			);
+			assertEquals(res.rows[0][0], null);
+		} finally {
+			client.terminate();
+			await teardown();
+		}
+	});
+
+	test("JSONB parameterized insert and retrieval via extended protocol", async () => {
+		const { teardown } = await startServer();
+		const client = await makeClient();
+		try {
+			await client.simpleQuery("CREATE TABLE param_json (data JSONB)");
+			const payload = JSON.stringify({ action: "login", uid: 42 });
+			await client.extendedQuery("INSERT INTO param_json VALUES ($1)", [
+				Buffer.from(payload),
+			]);
+			const res = await client.simpleQuery(
+				"SELECT data->>'action' AS action FROM param_json",
+			);
+			assertEquals(res.rows[0][0]?.toString(), "login");
+		} finally {
+			client.terminate();
+			await teardown();
+		}
+	});
+
+	test("json_agg returns JSON array not Postgres text array format", async () => {
+		const { teardown } = await startServer();
+		const client = await makeClient();
+		try {
+			await client.simpleQuery(
+				"CREATE TABLE scores (name TEXT, pts INT)",
+			);
+			await client.simpleQuery(
+				"INSERT INTO scores VALUES ('alice',10),('bob',20)",
+			);
+			const res = await client.simpleQuery(
+				"SELECT json_agg(scores ORDER BY pts) AS arr FROM scores",
+			);
+			const raw = res.rows[0][0]?.toString() ?? "";
+			assertExists(raw.startsWith("["), `expected JSON array, got: ${raw}`);
+			const arr = JSON.parse(raw);
+			assertEquals(arr.length, 2);
+			assertEquals(arr[0].name, "alice");
+			assertEquals(arr[1].name, "bob");
+		} finally {
+			client.terminate();
+			await teardown();
+		}
+	});
+
+	test("jsonb_agg returns valid JSON array not Postgres text array format", async () => {
+		const { teardown } = await startServer();
+		const client = await makeClient();
+		try {
+			await client.simpleQuery(
+				"CREATE TABLE items (label TEXT, val INT)",
+			);
+			await client.simpleQuery(
+				"INSERT INTO items VALUES ('x',1),('y',2)",
+			);
+			const res = await client.simpleQuery(
+				"SELECT jsonb_agg(items ORDER BY val) AS agg FROM items",
+			);
+			const raw = res.rows[0][0]?.toString() ?? "";
+			assertExists(raw.startsWith("["), `expected JSON array, got: ${raw}`);
+			const arr = JSON.parse(raw);
+			assertEquals(arr.length, 2);
+			assertEquals(arr[0].label, "x");
+		} finally {
+			client.terminate();
+			await teardown();
+		}
+	});
+});
+
+const PG_CLIENT_PORT = 54397;
+
+async function startClientServer() {
+	const db = new PGlite();
+	const pooler = await PGlitePooler.create(db);
+	const server = new PGliteTCPServer(pooler);
+	await server.start(PG_CLIENT_PORT);
+	return {
+		db,
+		server,
+		async teardown() {
+			await server.stop();
+		},
+	};
+}
+
+describe("JSON/JSONB via pg.Client (ORM-level compatibility)", () => {
+	test("pg.Client parses JSONB column as JavaScript object", async () => {
+		const { teardown } = await startClientServer();
+		const client = new pg.Client({
+			connectionString: `postgresql://postgres@127.0.0.1:${PG_CLIENT_PORT}/postgres`,
+		});
+		await client.connect();
+		try {
+			await client.query("CREATE TABLE pg_jsonb (data JSONB)");
+			await client.query(
+				"INSERT INTO pg_jsonb VALUES ($1)",
+				['{"name":"alice","score":42}'],
+			);
+			const res = await client.query("SELECT data FROM pg_jsonb");
+			assertEquals(res.rows[0].data.name, "alice");
+			assertEquals(res.rows[0].data.score, 42);
+		} finally {
+			await client.end();
+			await teardown();
+		}
+	});
+
+	test("pg.Client parses JSON column as JavaScript object", async () => {
+		const { teardown } = await startClientServer();
+		const client = new pg.Client({
+			connectionString: `postgresql://postgres@127.0.0.1:${PG_CLIENT_PORT}/postgres`,
+		});
+		await client.connect();
+		try {
+			await client.query("CREATE TABLE pg_json (data JSON)");
+			await client.query("INSERT INTO pg_json VALUES ($1)", [
+				'{"active":true,"count":7}',
+			]);
+			const res = await client.query("SELECT data FROM pg_json");
+			assertEquals(res.rows[0].data.active, true);
+			assertEquals(res.rows[0].data.count, 7);
+		} finally {
+			await client.end();
+			await teardown();
+		}
+	});
+
+	test("pg.Client handles jsonb_agg result as parsed array", async () => {
+		const { teardown } = await startClientServer();
+		const client = new pg.Client({
+			connectionString: `postgresql://postgres@127.0.0.1:${PG_CLIENT_PORT}/postgres`,
+		});
+		await client.connect();
+		try {
+			await client.query("CREATE TABLE pg_agg_test (label TEXT, val INT)");
+			await client.query(
+				"INSERT INTO pg_agg_test VALUES ('x',1),('y',2)",
+			);
+			const res = await client.query(
+				"SELECT jsonb_agg(pg_agg_test ORDER BY val) AS agg FROM pg_agg_test",
+			);
+			const agg = res.rows[0].agg;
+			assertEquals(Array.isArray(agg), true);
+			assertEquals(agg.length, 2);
+			assertEquals(agg[0].label, "x");
+			assertEquals(agg[1].label, "y");
+		} finally {
+			await client.end();
+			await teardown();
+		}
+	});
+
+	test("pg.Client handles NULL JSONB column as null", async () => {
+		const { teardown } = await startClientServer();
+		const client = new pg.Client({
+			connectionString: `postgresql://postgres@127.0.0.1:${PG_CLIENT_PORT}/postgres`,
+		});
+		await client.connect();
+		try {
+			await client.query(
+				"CREATE TABLE pg_null_json (id INT, data JSONB)",
+			);
+			await client.query(
+				"INSERT INTO pg_null_json VALUES (1, NULL)",
+			);
+			const res = await client.query("SELECT data FROM pg_null_json");
+			assertEquals(res.rows[0].data, null);
+		} finally {
+			await client.end();
+			await teardown();
+		}
+	});
+
+	test("pg.Client JSONB parameterized insert and round-trip", async () => {
+		const { teardown } = await startClientServer();
+		const client = new pg.Client({
+			connectionString: `postgresql://postgres@127.0.0.1:${PG_CLIENT_PORT}/postgres`,
+		});
+		await client.connect();
+		try {
+			await client.query("CREATE TABLE pg_param_json (data JSONB)");
+			await client.query("INSERT INTO pg_param_json VALUES ($1)", [
+				JSON.stringify({ action: "login", uid: 99 }),
+			]);
+			const res = await client.query(
+				"SELECT data->>'action' AS action, (data->>'uid')::int AS uid FROM pg_param_json",
+			);
+			assertEquals(res.rows[0].action, "login");
+			assertEquals(res.rows[0].uid, 99);
+		} finally {
+			await client.end();
+			await teardown();
+		}
+	});
 });
 
 const MUX_PORT = 54398;

@@ -40,4 +40,4 @@ kill_timeout = "30s"
 
   [[services.ports]]
     port = 5432
-    handlers = ["pg_tls"]
+    handlers = []
