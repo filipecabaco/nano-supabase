@@ -1,7 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import { readFile, stat, unlink, writeFile } from "node:fs/promises";
+import { createServer as createHttpServer } from "node:http";
 import {
-	createServer as createHttp2Server,
 	createSecureServer as createSecureHttp2Server,
 	type Http2ServerRequest,
 	type Http2ServerResponse,
@@ -754,10 +754,17 @@ export async function runStartMode(opts: {
 	}
 
 	function createNodeServer(handler: (req: Request) => Promise<Response>) {
-		const h2cHandler = async (
-			nodeReq: Http2ServerRequest,
-			nodeRes: Http2ServerResponse,
-		) => {
+		const CORS = {
+			"access-control-allow-origin": "*",
+			"access-control-allow-methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
+			"access-control-allow-headers": "*",
+			"access-control-expose-headers": "*",
+		};
+
+		async function handleRequest(
+			nodeReq: { url?: string; method?: string; headers: Record<string, string | string[] | undefined> },
+			nodeRes: { headersSent: boolean; writeHead: (s: number, h: Record<string, string>) => void; end: (b?: string | Buffer) => void },
+		) {
 			const url = `http://localhost:${httpPort}${nodeReq.url}`;
 			const hasBody = nodeReq.method !== "GET" && nodeReq.method !== "HEAD";
 			const headers = new Headers();
@@ -769,34 +776,23 @@ export async function runStartMode(opts: {
 				method: nodeReq.method,
 				headers,
 				body: hasBody ? (nodeReq as unknown as ReadableStream) : undefined,
-				// @ts-expect-error — Http2ServerRequest is a readable stream accepted by Request
+				// @ts-expect-error — IncomingMessage is a readable stream accepted by Request
 				duplex: "half",
 			});
-			const CORS = {
-				"access-control-allow-origin": "*",
-				"access-control-allow-methods":
-					"GET, POST, PUT, PATCH, DELETE, OPTIONS",
-				"access-control-allow-headers": "*",
-				"access-control-expose-headers": "*",
-			};
 			try {
 				const res = await handler(req);
 				const resHeaders: Record<string, string> = { ...CORS };
-				res.headers.forEach((v, k) => {
-					resHeaders[k] = v;
-				});
+				res.headers.forEach((v, k) => { resHeaders[k] = v; });
 				nodeRes.writeHead(res.status, resHeaders);
 				nodeRes.end(Buffer.from(await res.arrayBuffer()));
 			} catch (_e) {
 				if (!nodeRes.headersSent) {
-					nodeRes.writeHead(500, {
-						"Content-Type": "application/json",
-						...CORS,
-					});
+					nodeRes.writeHead(500, { "Content-Type": "application/json", ...CORS });
 					nodeRes.end(JSON.stringify({ error: "internal_error" }));
 				}
 			}
-		};
+		}
+
 		if (tlsBufs) {
 			return createSecureHttp2Server(
 				{
@@ -821,10 +817,10 @@ export async function runStartMode(opts: {
 					].join(":"),
 					honorCipherOrder: false,
 				},
-				h2cHandler,
+				(req: Http2ServerRequest, res: Http2ServerResponse) => handleRequest(req, res),
 			);
 		}
-		return createHttp2Server({ allowHTTP1: true }, h2cHandler);
+		return createHttpServer((req, res) => handleRequest(req, res));
 	}
 
 	const server = createNodeServer(fetchHandler);
