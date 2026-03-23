@@ -1099,12 +1099,14 @@ export async function runServiceMode(opts: {
 			);
 		}
 
-		if (tenant.state === "sleeping") {
-			log("tenant.auto_waking", {
-				tenant_id: tenant.id,
-				slug: tenant.slug,
-				trigger: "http",
-			});
+		if (tenant.state === "sleeping" || tenant.state === "waking") {
+			if (tenant.state === "sleeping") {
+				log("tenant.auto_waking", {
+					tenant_id: tenant.id,
+					slug: tenant.slug,
+					trigger: "http",
+				});
+			}
 			if (!wakingPromises.has(tenant.id)) {
 				const p = wakeTenant(tenant).finally(() =>
 					wakingPromises.delete(tenant.id),
@@ -1112,7 +1114,7 @@ export async function runServiceMode(opts: {
 				wakingPromises.set(tenant.id, p);
 			}
 			await wakingPromises.get(tenant.id);
-		} else if (tenant.state === "waking" || tenant.state === "pausing") {
+		} else if (tenant.state === "pausing") {
 			log("tenant.busy", {
 				tenant_id: tenant.id,
 				slug: tenant.slug,
