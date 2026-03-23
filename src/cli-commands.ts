@@ -257,11 +257,13 @@ export async function cmdMigrationNew(
 	if (!name) return fail("missing_name", "Provide a migration name", json);
 	const migrationsDir =
 		getArgValue(args, "--migrations-dir") ?? DEFAULT_MIGRATIONS_DIR;
-	const timestamp = new Date()
-		.toISOString()
-		.replace(/[-:T.Z]/g, "")
-		.slice(0, 14);
-	const filename = `${timestamp}_${name.replace(/\s+/g, "_")}.sql`;
+	const version =
+		getArgValue(args, "--version") ??
+		new Date()
+			.toISOString()
+			.replace(/[-:T.Z]/g, "")
+			.slice(0, 14);
+	const filename = `${version}_${name.replace(/\s+/g, "_")}.sql`;
 	const filePath = join(migrationsDir, filename);
 	try {
 		await writeFile(filePath, `-- Migration: ${name}\n`);
@@ -816,6 +818,7 @@ export async function cmdSyncPush(
 	try {
 		if (!skipMigrations || !skipStorage) {
 			client = await connectPg(remoteDbUrl ?? "");
+			await client.query(`ROLLBACK`).catch(() => {});
 			await client.query(`SET search_path = "$user", public`);
 		}
 

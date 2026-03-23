@@ -600,6 +600,10 @@ export async function runServiceMode(opts: {
 	}
 
 	async function startTenantNano(tenant: TenantEntry): Promise<void> {
+		log("tenant.nano_initializing", {
+			tenant_id: tenant.id,
+			slug: tenant.slug,
+		});
 		const nanoInstance = await nanoSupabase({
 			dataDir: tenant.dataDir,
 			wasmModule,
@@ -610,6 +614,7 @@ export async function runServiceMode(opts: {
 				uuid_ossp: uuidOsspExt,
 			},
 		});
+		log("tenant.pooler_creating", { tenant_id: tenant.id, slug: tenant.slug });
 		nanoInstances.set(tenant.id, nanoInstance);
 		tenant.nano = nanoInstance;
 		const pooler = await PGlitePooler.create(nanoInstance.db);
@@ -659,18 +664,32 @@ export async function runServiceMode(opts: {
 		const hasLocalData = await statAccess(tenant.dataDir)
 			.then(() => true)
 			.catch(() => false);
+		const offloader = hasLocalData ? "none (local)" : s3Bucket ? "s3" : "disk";
 		log("tenant.waking", {
 			tenant_id: tenant.id,
 			slug: tenant.slug,
 			data_dir: tenant.dataDir,
-			offloader: hasLocalData ? "none (local)" : s3Bucket ? "s3" : "disk",
+			offloader,
 		});
 		await updateTenantState(tenant.id, "waking");
 		tenant.state = "waking";
 		try {
-			if (!hasLocalData) await pullTenant(tenant.dataDir, tenant.id);
+			if (!hasLocalData) {
+				log("tenant.pull_started", {
+					tenant_id: tenant.id,
+					slug: tenant.slug,
+					offloader,
+				});
+				await pullTenant(tenant.dataDir, tenant.id);
+				log("tenant.pull_done", { tenant_id: tenant.id, slug: tenant.slug });
+			}
 			await startTenantNano(tenant);
 		} catch (e) {
+			log("tenant.wake_failed", {
+				tenant_id: tenant.id,
+				slug: tenant.slug,
+				error: e instanceof Error ? e.message : String(e),
+			});
 			await updateTenantState(tenant.id, "sleeping");
 			tenant.state = "sleeping";
 			throw e;
@@ -1080,7 +1099,14 @@ export async function runServiceMode(opts: {
 			);
 		}
 
-		if (tenant.state === "sleeping") {
+		if (tenant.state === "sleeping" || tenant.state === "waking") {
+			if (tenant.state === "sleeping") {
+				log("tenant.auto_waking", {
+					tenant_id: tenant.id,
+					slug: tenant.slug,
+					trigger: "http",
+				});
+			}
 			if (!wakingPromises.has(tenant.id)) {
 				const p = wakeTenant(tenant).finally(() =>
 					wakingPromises.delete(tenant.id),
@@ -1088,7 +1114,12 @@ export async function runServiceMode(opts: {
 				wakingPromises.set(tenant.id, p);
 			}
 			await wakingPromises.get(tenant.id);
-		} else if (tenant.state === "waking" || tenant.state === "pausing") {
+		} else if (tenant.state === "pausing") {
+			log("tenant.busy", {
+				tenant_id: tenant.id,
+				slug: tenant.slug,
+				state: tenant.state,
+			});
 			return new Response(
 				JSON.stringify({
 					error: "tenant_busy",
@@ -1150,11 +1181,23 @@ export async function runServiceMode(opts: {
 		} else {
 			consecutiveErrors.delete(tenant.id);
 		}
+		const routeType = restPath.startsWith("/auth/v1/")
+			? "auth"
+			: restPath.startsWith("/rest/v1/")
+				? "rest"
+				: restPath.startsWith("/storage/v1/")
+					? "storage"
+					: "other";
+		const authAction =
+			routeType === "auth"
+				? (restPath.replace("/auth/v1/", "").split("/")[0] ?? "unknown")
+				: undefined;
 		log("request", {
 			tenant_id: tenant.id,
 			slug: tenant.slug,
 			method: req.method,
-			path: restPath,
+			route: routeType,
+			...(authAction ? { auth_action: authAction } : {}),
 			status: res.status,
 			latency_ms: latency,
 		});
@@ -1234,8 +1277,21 @@ export async function runServiceMode(opts: {
 	const muxServer = new PGliteTCPMuxServer(
 		async (user) => {
 			const tenant = await getTenant(user);
-			if (!tenant) return null;
+			if (!tenant) {
+				log("tcp.connection.unknown_tenant", { user });
+				return null;
+			}
+			log("tcp.connection", {
+				tenant_id: tenant.id,
+				slug: tenant.slug,
+				state: tenant.state,
+			});
 			if (tenant.state === "sleeping") {
+				log("tenant.auto_waking", {
+					tenant_id: tenant.id,
+					slug: tenant.slug,
+					trigger: "tcp",
+				});
 				if (!wakingPromises.has(tenant.id)) {
 					const p = wakeTenant(tenant).finally(() =>
 						wakingPromises.delete(tenant.id),
@@ -1244,12 +1300,26 @@ export async function runServiceMode(opts: {
 				}
 				await wakingPromises.get(tenant.id);
 			}
-			if (tenant.state !== "running") return null;
+			if (tenant.state !== "running") {
+				log("tcp.connection.rejected", {
+					tenant_id: tenant.id,
+					slug: tenant.slug,
+					state: tenant.state,
+				});
+				return null;
+			}
 			const pooler = tenantPoolers.get(tenant.id);
-			if (!pooler) return null;
+			if (!pooler) {
+				log("tcp.connection.no_pooler", {
+					tenant_id: tenant.id,
+					slug: tenant.slug,
+				});
+				return null;
+			}
 			const password = tenant.encryptedPassword
 				? await decryptPassword(tenant.encryptedPassword)
 				: "";
+			log("tcp.connection.ready", { tenant_id: tenant.id, slug: tenant.slug });
 			return { pooler, password };
 		},
 		tlsBufs ? { tls: tlsBufs } : undefined,

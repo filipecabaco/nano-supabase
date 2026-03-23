@@ -27,10 +27,12 @@ const OID_INT8 = 20;
 const OID_FLOAT4 = 700;
 const OID_FLOAT8 = 701;
 const OID_JSON = 114;
+const OID_JSON_ARRAY = 199;
 const OID_TEXT = 25;
 const OID_BPCHAR = 1042;
 const OID_VARCHAR = 1043;
 const OID_JSONB = 3802;
+const OID_JSONB_ARRAY = 3807;
 const OID_BYTEA = 17;
 const OID_UUID = 2950;
 const OID_DATE = 1082;
@@ -766,8 +768,15 @@ function buildRowDescriptionBuf(
 	return buildMsg(0x54, Buffer.concat(parts));
 }
 
-function pgText(val: unknown): string {
+function pgText(val: unknown, oid?: number): string {
 	if (Array.isArray(val)) {
+		if (
+			oid === OID_JSON ||
+			oid === OID_JSONB ||
+			oid === OID_JSON_ARRAY ||
+			oid === OID_JSONB_ARRAY
+		)
+			return JSON.stringify(val);
 		if (val.length === 0) return "{}";
 		return (
 			"{" +
@@ -880,7 +889,7 @@ function buildDataRowBuf(
 			const bytes =
 				fmt === 1
 					? encodeBinaryVal(val, f.dataTypeID)
-					: Buffer.from(pgText(val), "utf8");
+					: Buffer.from(pgText(val, f.dataTypeID), "utf8");
 			parts.push(int32(bytes.length), bytes);
 		}
 	}

@@ -13,6 +13,7 @@ import {
 	rmSync,
 	writeFileSync,
 } from "node:fs";
+import { connect, createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -40,66 +41,98 @@ import { assertEquals, assertExists } from "./compat.ts";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CLI = join(__dirname, "../dist/cli.js");
-const HTTP_PORT = 54388;
-const TCP_PORT = 54389;
-const REMOTE_HTTP_PORT = 54390;
-const REMOTE_TCP_PORT = 54391;
-const URL = `http://localhost:${HTTP_PORT}`;
-const REMOTE_URL = `http://localhost:${REMOTE_HTTP_PORT}`;
-const REMOTE_DB_URL = `postgresql://postgres@127.0.0.1:${REMOTE_TCP_PORT}/postgres`;
 const KEY = "local-service-role-key";
-const ARGS = [`--url=${URL}`, `--service-role-key=${KEY}`, "--json"];
-const SYNC_ARGS = [
-	`--url=${URL}`,
-	`--service-role-key=${KEY}`,
-	`--remote-url=${REMOTE_URL}`,
-	`--remote-service-role-key=${KEY}`,
-	`--remote-db-url=${REMOTE_DB_URL}`,
-	"--json",
-];
 
-let server: ChildProcess;
-let remoteServer: ChildProcess;
-let migrationsDir: string;
+function freePort(): Promise<number> {
+	return new Promise((resolve, reject) => {
+		const srv = createServer();
+		srv.listen(0, () => {
+			const { port } = srv.address() as { port: number };
+			srv.close((err) => (err ? reject(err) : resolve(port)));
+		});
+	});
+}
+
+async function startServer(
+	httpPort: number,
+	tcpPort: number,
+): Promise<ChildProcess> {
+	return spawn(
+		"node",
+		[CLI, "start", `--http-port=${httpPort}`, `--tcp-port=${tcpPort}`],
+		{ stdio: "ignore", detached: false },
+	);
+}
+
+function tcpProbe(host: string, port: number): Promise<boolean> {
+	return new Promise((resolve) => {
+		const sock = connect({ host, port });
+		sock.once("connect", () => {
+			sock.destroy();
+			resolve(true);
+		});
+		sock.once("error", () => resolve(false));
+	});
+}
 
 async function waitForHealth(url: string, timeout = 30_000): Promise<void> {
+	const { hostname, port } = new URL(url);
 	const deadline = Date.now() + timeout;
+	let delay = 100;
 	while (Date.now() < deadline) {
-		try {
-			const res = await fetch(`${url}/health`);
-			if (res.ok) return;
-		} catch {
-			// not ready yet
-		}
-		await new Promise((r) => setTimeout(r, 200));
+		if (await tcpProbe(hostname, Number(port))) return;
+		await new Promise((r) => setTimeout(r, delay));
+		delay = Math.min(delay * 1.5, 1000);
 	}
 	throw new Error(`Server at ${url} did not become healthy within timeout`);
 }
 
+let server: ChildProcess;
+let serverUrl: string;
+let serverArgs: string[];
+
+let remoteServer: ChildProcess;
+let remoteUrl: string;
+let remoteDbUrl: string;
+let syncArgs: string[];
+
+let migrationsDir: string;
+let migrationCounter = 0;
+
+function nextVersion(): string {
+	migrationCounter += 1;
+	return String(migrationCounter).padStart(6, "0");
+}
+
 beforeAll(async () => {
+	const [httpPort, tcpPort, remoteHttpPort, remoteTcpPort] = await Promise.all([
+		freePort(),
+		freePort(),
+		freePort(),
+		freePort(),
+	]);
+
+	serverUrl = `http://localhost:${httpPort}`;
+	remoteUrl = `http://localhost:${remoteHttpPort}`;
+	remoteDbUrl = `postgresql://postgres@127.0.0.1:${remoteTcpPort}/postgres`;
+	serverArgs = [`--url=${serverUrl}`, `--service-role-key=${KEY}`, "--json"];
+	syncArgs = [
+		`--url=${serverUrl}`,
+		`--service-role-key=${KEY}`,
+		`--remote-url=${remoteUrl}`,
+		`--remote-service-role-key=${KEY}`,
+		`--remote-db-url=${remoteDbUrl}`,
+		"--json",
+	];
+
 	migrationsDir = mkdtempSync(join(tmpdir(), "nano-cli-test-migrations-"));
-	server = spawn(
-		"node",
-		[CLI, "start", `--http-port=${HTTP_PORT}`, `--tcp-port=${TCP_PORT}`],
-		{
-			stdio: "ignore",
-			detached: false,
-		},
-	);
-	remoteServer = spawn(
-		"node",
-		[
-			CLI,
-			"start",
-			`--http-port=${REMOTE_HTTP_PORT}`,
-			`--tcp-port=${REMOTE_TCP_PORT}`,
-		],
-		{
-			stdio: "ignore",
-			detached: false,
-		},
-	);
-	await Promise.all([waitForHealth(URL), waitForHealth(REMOTE_URL)]);
+
+	[server, remoteServer] = await Promise.all([
+		startServer(httpPort, tcpPort),
+		startServer(remoteHttpPort, remoteTcpPort),
+	]);
+
+	await Promise.all([waitForHealth(serverUrl), waitForHealth(remoteUrl)]);
 });
 
 afterAll(() => {
@@ -110,11 +143,11 @@ afterAll(() => {
 
 describe("status", () => {
 	test("reports server as running when it is up", async () => {
-		const result = await cmdStatus(ARGS);
+		const result = await cmdStatus(serverArgs);
 		assertEquals(result.exitCode, 0);
 		const data = JSON.parse(result.output);
 		assertEquals(data.running, true);
-		assertEquals(data.url, URL);
+		assertEquals(data.url, serverUrl);
 	});
 
 	test("reports server as not running when nothing is listening", async () => {
@@ -128,21 +161,21 @@ describe("status", () => {
 describe("db exec", () => {
 	test("creates a table and inserts a row", async () => {
 		const create = await cmdDbExec([
-			...ARGS,
+			...serverArgs,
 			"--sql",
 			"CREATE TABLE cli_test (id SERIAL PRIMARY KEY, label TEXT)",
 		]);
 		assertEquals(create.exitCode, 0);
 
 		const insert = await cmdDbExec([
-			...ARGS,
+			...serverArgs,
 			"--sql",
 			"INSERT INTO cli_test (label) VALUES ('hello')",
 		]);
 		assertEquals(insert.exitCode, 0);
 
 		const select = await cmdDbExec([
-			...ARGS,
+			...serverArgs,
 			"--sql",
 			"SELECT label FROM cli_test WHERE id = 1",
 		]);
@@ -152,21 +185,21 @@ describe("db exec", () => {
 	});
 
 	test("returns error on invalid SQL", async () => {
-		const result = await cmdDbExec([...ARGS, "--sql", "NOT VALID SQL"]);
+		const result = await cmdDbExec([...serverArgs, "--sql", "NOT VALID SQL"]);
 		assertEquals(result.exitCode, 1);
 	});
 
 	test("executes SQL from a file", async () => {
 		const sqlFile = join(tmpdir(), "nano-cli-test-from-file.sql");
 		writeFileSync(sqlFile, "SELECT 1 + 1 AS sum");
-		const result = await cmdDbExec([...ARGS, "--file", sqlFile]);
+		const result = await cmdDbExec([...serverArgs, "--file", sqlFile]);
 		assertEquals(result.exitCode, 0);
 		const data = JSON.parse(result.output);
 		assertEquals(data.rows[0].sum, 2);
 	});
 
 	test("fails when neither --sql nor --file provided", async () => {
-		const result = await cmdDbExec(ARGS);
+		const result = await cmdDbExec(serverArgs);
 		assertEquals(result.exitCode, 1);
 		const data = JSON.parse(result.output);
 		assertEquals(data.error, "missing_sql");
@@ -175,7 +208,7 @@ describe("db exec", () => {
 
 describe("db dump", () => {
 	test("returns DDL for existing tables", async () => {
-		const result = await cmdDbDump(ARGS);
+		const result = await cmdDbDump(serverArgs);
 		assertEquals(result.exitCode, 0);
 		assertExists(result.output);
 	});
@@ -183,15 +216,19 @@ describe("db dump", () => {
 
 describe("db reset", () => {
 	test("drops all public tables when --confirm is passed", async () => {
-		await cmdDbExec([...ARGS, "--sql", "CREATE TABLE to_be_dropped (id INT)"]);
+		await cmdDbExec([
+			...serverArgs,
+			"--sql",
+			"CREATE TABLE to_be_dropped (id INT)",
+		]);
 
-		const result = await cmdDbReset([...ARGS, "--confirm"]);
+		const result = await cmdDbReset([...serverArgs, "--confirm"]);
 		assertEquals(result.exitCode, 0);
 		const data = JSON.parse(result.output);
 		assertExists(data.dropped_tables);
 
 		const check = await cmdDbExec([
-			...ARGS,
+			...serverArgs,
 			"--sql",
 			"SELECT count(*) FROM to_be_dropped",
 		]);
@@ -199,7 +236,7 @@ describe("db reset", () => {
 	});
 
 	test("refuses to reset without --confirm", async () => {
-		const result = await cmdDbReset(ARGS);
+		const result = await cmdDbReset(serverArgs);
 		assertEquals(result.exitCode, 1);
 		const data = JSON.parse(result.output);
 		assertEquals(data.error, "confirmation_required");
@@ -208,9 +245,14 @@ describe("db reset", () => {
 
 describe("migrations", () => {
 	test("full workflow: new → list pending → up → list applied", async () => {
-		const args = [...ARGS, `--migrations-dir=${migrationsDir}`];
+		const args = [...serverArgs, `--migrations-dir=${migrationsDir}`];
 
-		const create1 = await cmdMigrationNew([...args, "create_products"]);
+		const v1 = nextVersion();
+		const create1 = await cmdMigrationNew([
+			...args,
+			`--version=${v1}`,
+			"create_products",
+		]);
 		assertEquals(create1.exitCode, 0);
 		const { file: file1 } = JSON.parse(create1.output);
 		assertExists(file1);
@@ -219,10 +261,12 @@ describe("migrations", () => {
 			"CREATE TABLE products (id SERIAL PRIMARY KEY, name TEXT NOT NULL)",
 		);
 
-		// Wait 1s so the second migration gets a later timestamp and sorts after the first
-		await new Promise((r) => setTimeout(r, 1000));
-
-		const create2 = await cmdMigrationNew([...args, "add_price"]);
+		const v2 = nextVersion();
+		const create2 = await cmdMigrationNew([
+			...args,
+			`--version=${v2}`,
+			"add_price",
+		]);
 		assertEquals(create2.exitCode, 0);
 		const { file: file2 } = JSON.parse(create2.output);
 		writeFileSync(
@@ -249,14 +293,14 @@ describe("migrations", () => {
 		assertEquals(after.pending.length, 0);
 
 		const verify = await cmdDbExec([
-			...ARGS,
+			...serverArgs,
 			"--sql",
 			"SELECT name, price FROM products LIMIT 0",
 		]);
 		assertEquals(verify.exitCode, 0);
 
 		const tracked = await cmdDbExec([
-			...ARGS,
+			...serverArgs,
 			"--sql",
 			"SELECT version, name FROM supabase_migrations.schema_migrations ORDER BY version",
 		]);
@@ -269,7 +313,7 @@ describe("migrations", () => {
 
 	test("migration new fails without a name", async () => {
 		const result = await cmdMigrationNew([
-			...ARGS,
+			...serverArgs,
 			`--migrations-dir=${migrationsDir}`,
 		]);
 		assertEquals(result.exitCode, 1);
@@ -279,7 +323,7 @@ describe("migrations", () => {
 
 	test("up is a no-op when migrations dir does not exist", async () => {
 		const result = await cmdMigrationUp([
-			...ARGS,
+			...serverArgs,
 			"--migrations-dir=/nonexistent/path",
 		]);
 		assertEquals(result.exitCode, 0);
@@ -288,8 +332,13 @@ describe("migrations", () => {
 	});
 
 	test("up applies migration with multiple statements", async () => {
-		const args = [...ARGS, `--migrations-dir=${migrationsDir}`];
-		const create = await cmdMigrationNew([...args, "multi_statement"]);
+		const args = [...serverArgs, `--migrations-dir=${migrationsDir}`];
+		const v = nextVersion();
+		const create = await cmdMigrationNew([
+			...args,
+			`--version=${v}`,
+			"multi_statement",
+		]);
 		assertEquals(create.exitCode, 0);
 		const { file } = JSON.parse(create.output);
 		writeFileSync(
@@ -309,7 +358,7 @@ describe("migrations", () => {
 		assertEquals(result.status, "applied");
 
 		const verify = await cmdDbExec([
-			...ARGS,
+			...serverArgs,
 			"--sql",
 			"SELECT id FROM categories LIMIT 0",
 		]);
@@ -318,56 +367,55 @@ describe("migrations", () => {
 });
 
 describe("users", () => {
-	let userId: string;
-
-	test("creates a user", async () => {
-		const result = await cmdUsersCreate([
-			...ARGS,
+	test("full workflow: create → list → get → delete", async () => {
+		const createResult = await cmdUsersCreate([
+			...serverArgs,
 			"--email=cli-test@example.com",
 			"--password=secret123",
 		]);
-		assertEquals(result.exitCode, 0);
-		const user = JSON.parse(result.output);
+		assertEquals(createResult.exitCode, 0);
+		const user = JSON.parse(createResult.output);
 		assertExists(user.id);
 		assertEquals(user.email, "cli-test@example.com");
-		userId = user.id;
-	});
+		const userId = user.id;
 
-	test("lists users and finds the created user", async () => {
-		const result = await cmdUsersList(ARGS);
-		assertEquals(result.exitCode, 0);
-		const data = JSON.parse(result.output);
-		const users: Array<{ id: string; email: string }> = Array.isArray(data)
-			? data
-			: (data.users ?? []);
+		const listResult = await cmdUsersList(serverArgs);
+		assertEquals(listResult.exitCode, 0);
+		const listData = JSON.parse(listResult.output);
+		const users: Array<{ id: string; email: string }> = Array.isArray(listData)
+			? listData
+			: (listData.users ?? []);
 		assertExists(users.find((u) => u.email === "cli-test@example.com"));
-	});
 
-	test("gets a user by ID", async () => {
-		const result = await cmdUsersGet([...ARGS, userId]);
-		assertEquals(result.exitCode, 0);
-		const user = JSON.parse(result.output);
-		assertEquals(user.id, userId);
-		assertEquals(user.email, "cli-test@example.com");
-	});
+		const getResult = await cmdUsersGet([...serverArgs, userId]);
+		assertEquals(getResult.exitCode, 0);
+		const fetched = JSON.parse(getResult.output);
+		assertEquals(fetched.id, userId);
+		assertEquals(fetched.email, "cli-test@example.com");
 
-	test("deletes the user when --confirm is passed", async () => {
-		const result = await cmdUsersDelete([...ARGS, userId, "--confirm"]);
-		assertEquals(result.exitCode, 0);
+		const deleteResult = await cmdUsersDelete([
+			...serverArgs,
+			userId,
+			"--confirm",
+		]);
+		assertEquals(deleteResult.exitCode, 0);
 
-		const check = await cmdUsersGet([...ARGS, userId]);
-		assertEquals(check.exitCode, 1);
+		const checkResult = await cmdUsersGet([...serverArgs, userId]);
+		assertEquals(checkResult.exitCode, 1);
 	});
 
 	test("refuses to delete without --confirm", async () => {
-		const result = await cmdUsersDelete([...ARGS, "some-id"]);
+		const result = await cmdUsersDelete([...serverArgs, "some-id"]);
 		assertEquals(result.exitCode, 1);
 		const data = JSON.parse(result.output);
 		assertEquals(data.error, "confirmation_required");
 	});
 
 	test("create fails without email", async () => {
-		const result = await cmdUsersCreate([...ARGS, "--password=secret123"]);
+		const result = await cmdUsersCreate([
+			...serverArgs,
+			"--password=secret123",
+		]);
 		assertEquals(result.exitCode, 1);
 		const data = JSON.parse(result.output);
 		assertEquals(data.error, "missing_email");
@@ -376,26 +424,29 @@ describe("users", () => {
 
 describe("storage", () => {
 	test("creates a bucket", async () => {
-		const result = await cmdStorageCreateBucket([...ARGS, "cli-test-bucket"]);
+		const result = await cmdStorageCreateBucket([
+			...serverArgs,
+			"cli-test-bucket",
+		]);
 		assertEquals(result.exitCode, 0);
 		const data = JSON.parse(result.output);
 		assertExists(data);
 	});
 
 	test("lists buckets and includes the created bucket", async () => {
-		const result = await cmdStorageListBuckets(ARGS);
+		const result = await cmdStorageListBuckets(serverArgs);
 		assertEquals(result.exitCode, 0);
 		const buckets: Array<{ name: string }> = JSON.parse(result.output);
 		assertExists(buckets.find((b) => b.name === "cli-test-bucket"));
 	});
 
 	test("lists objects in a bucket", async () => {
-		const result = await cmdStorageLs([...ARGS, "cli-test-bucket"]);
+		const result = await cmdStorageLs([...serverArgs, "cli-test-bucket"]);
 		assertEquals(result.exitCode, 0);
 	});
 
 	test("create bucket fails without a name", async () => {
-		const result = await cmdStorageCreateBucket(ARGS);
+		const result = await cmdStorageCreateBucket(serverArgs);
 		assertEquals(result.exitCode, 1);
 		const data = JSON.parse(result.output);
 		assertEquals(data.error, "missing_name");
@@ -405,12 +456,12 @@ describe("storage", () => {
 describe("gen types", () => {
 	test("generates TypeScript types for existing tables", async () => {
 		await cmdDbExec([
-			...ARGS,
+			...serverArgs,
 			"--sql",
 			"CREATE TABLE IF NOT EXISTS typed_items (id SERIAL PRIMARY KEY, label TEXT, active BOOLEAN, score NUMERIC)",
 		]);
 
-		const result = await cmdGenTypes(ARGS);
+		const result = await cmdGenTypes(serverArgs);
 		assertEquals(result.exitCode, 0);
 		assertExists(result.output.includes("typed_items"));
 		assertExists(result.output.includes("export interface Database"));
@@ -419,7 +470,7 @@ describe("gen types", () => {
 
 	test("writes types to a file when --output is given", async () => {
 		const outFile = join(migrationsDir, "database.types.ts");
-		const result = await cmdGenTypes([...ARGS, `--output=${outFile}`]);
+		const result = await cmdGenTypes([...serverArgs, `--output=${outFile}`]);
 		assertEquals(result.exitCode, 0);
 		const data = JSON.parse(result.output);
 		assertEquals(data.file, outFile);
@@ -443,9 +494,13 @@ describe("sync", () => {
 	});
 
 	test("push applies local migrations to remote", async () => {
-		const migArgs = [...ARGS, `--migrations-dir=${syncMigrationsDir}`];
-
-		const newResult = await cmdMigrationNew([...migArgs, "sync_push_table"]);
+		const migArgs = [...serverArgs, `--migrations-dir=${syncMigrationsDir}`];
+		const v = nextVersion();
+		const newResult = await cmdMigrationNew([
+			...migArgs,
+			`--version=${v}`,
+			"sync_push_table",
+		]);
 		assertEquals(newResult.exitCode, 0);
 		const { file } = JSON.parse(newResult.output);
 		writeFileSync(
@@ -457,7 +512,7 @@ describe("sync", () => {
 		assertEquals(localUp.exitCode, 0);
 
 		const pushResult = await cmdSyncPush([
-			...SYNC_ARGS,
+			...syncArgs,
 			`--migrations-dir=${syncMigrationsDir}`,
 			"--no-storage",
 		]);
@@ -466,7 +521,7 @@ describe("sync", () => {
 		assertEquals(pushData.migrations.applied, 1);
 
 		const remoteCheck = await cmdDbExec([
-			`--url=${REMOTE_URL}`,
+			`--url=${remoteUrl}`,
 			`--service-role-key=${KEY}`,
 			"--json",
 			"--sql",
@@ -479,7 +534,7 @@ describe("sync", () => {
 
 	test("push skips already-applied migrations", async () => {
 		const pushResult = await cmdSyncPush([
-			...SYNC_ARGS,
+			...syncArgs,
 			`--migrations-dir=${syncMigrationsDir}`,
 			"--no-storage",
 		]);
@@ -490,10 +545,10 @@ describe("sync", () => {
 	});
 
 	test("push creates missing buckets on remote", async () => {
-		await cmdStorageCreateBucket([...ARGS, "sync-push-bucket"]);
+		await cmdStorageCreateBucket([...serverArgs, "sync-push-bucket"]);
 
 		const pushResult = await cmdSyncPush([
-			...SYNC_ARGS,
+			...syncArgs,
 			`--migrations-dir=${syncMigrationsDir}`,
 			"--no-migrations",
 		]);
@@ -501,7 +556,7 @@ describe("sync", () => {
 		const pushData = JSON.parse(pushResult.output);
 		assertExists(pushData.buckets.upserted >= 1);
 
-		const remoteBuckets = await fetch(`${REMOTE_URL}/storage/v1/bucket`, {
+		const remoteBuckets = await fetch(`${remoteUrl}/storage/v1/bucket`, {
 			headers: { Authorization: `Bearer ${KEY}` },
 		});
 		const bucketsData = (await remoteBuckets.json()) as Array<{ name: string }>;
@@ -509,7 +564,7 @@ describe("sync", () => {
 	});
 
 	test("pull creates missing buckets on local", async () => {
-		await fetch(`${REMOTE_URL}/storage/v1/bucket`, {
+		await fetch(`${remoteUrl}/storage/v1/bucket`, {
 			method: "POST",
 			headers: {
 				Authorization: `Bearer ${KEY}`,
@@ -523,7 +578,7 @@ describe("sync", () => {
 		});
 
 		const pullResult = await cmdSyncPull([
-			...SYNC_ARGS,
+			...syncArgs,
 			`--migrations-dir=${syncMigrationsDir}`,
 			"--no-migrations",
 		]);
@@ -531,7 +586,7 @@ describe("sync", () => {
 		const pullData = JSON.parse(pullResult.output);
 		assertExists(pullData.buckets.upserted >= 1);
 
-		const localBuckets = await fetch(`${URL}/storage/v1/bucket`, {
+		const localBuckets = await fetch(`${serverUrl}/storage/v1/bucket`, {
 			headers: { Authorization: `Bearer ${KEY}` },
 		});
 		const bucketsData = (await localBuckets.json()) as Array<{ name: string }>;
@@ -539,20 +594,21 @@ describe("sync", () => {
 	});
 
 	test("dry-run does not apply changes", async () => {
-		const newMigrationsDir = mkdtempSync(join(tmpdir(), "nano-sync-dryrun-"));
+		const dryRunDir = mkdtempSync(join(tmpdir(), "nano-sync-dryrun-"));
 		try {
-			await new Promise((r) => setTimeout(r, 1100));
+			const v = nextVersion();
 			const newResult = await cmdMigrationNew([
-				...ARGS,
-				`--migrations-dir=${newMigrationsDir}`,
+				...serverArgs,
+				`--migrations-dir=${dryRunDir}`,
+				`--version=${v}`,
 				"dryrun_table",
 			]);
 			const { file } = JSON.parse(newResult.output);
 			writeFileSync(file, "CREATE TABLE dryrun_items (id SERIAL PRIMARY KEY)");
 
 			const pushResult = await cmdSyncPush([
-				...SYNC_ARGS,
-				`--migrations-dir=${newMigrationsDir}`,
+				...syncArgs,
+				`--migrations-dir=${dryRunDir}`,
 				"--no-storage",
 				"--dry-run",
 			]);
@@ -561,7 +617,7 @@ describe("sync", () => {
 			assertEquals(pushData.migrations.applied, 1);
 
 			const remoteCheck = await cmdDbExec([
-				`--url=${REMOTE_URL}`,
+				`--url=${remoteUrl}`,
 				`--service-role-key=${KEY}`,
 				"--json",
 				"--sql",
@@ -570,7 +626,7 @@ describe("sync", () => {
 			assertEquals(remoteCheck.exitCode, 0);
 			assertEquals(Number(JSON.parse(remoteCheck.output).rows[0].c), 0);
 		} finally {
-			rmSync(newMigrationsDir, { recursive: true, force: true });
+			rmSync(dryRunDir, { recursive: true, force: true });
 		}
 	});
 
@@ -578,7 +634,7 @@ describe("sync", () => {
 		const emptyPullDir = mkdtempSync(join(tmpdir(), "nano-sync-empty-pull-"));
 		try {
 			const remoteReset = await cmdDbReset([
-				`--url=${REMOTE_URL}`,
+				`--url=${remoteUrl}`,
 				`--service-role-key=${KEY}`,
 				"--json",
 				"--confirm",
@@ -586,7 +642,7 @@ describe("sync", () => {
 			assertEquals(remoteReset.exitCode, 0);
 
 			await cmdDbExec([
-				`--url=${REMOTE_URL}`,
+				`--url=${remoteUrl}`,
 				`--service-role-key=${KEY}`,
 				"--json",
 				"--sql",
@@ -594,7 +650,7 @@ describe("sync", () => {
 			]);
 
 			const pullResult = await cmdSyncPull([
-				...SYNC_ARGS,
+				...syncArgs,
 				`--migrations-dir=${emptyPullDir}`,
 				"--no-storage",
 			]);
@@ -617,16 +673,18 @@ describe("sync", () => {
 		const noTableDir = mkdtempSync(join(tmpdir(), "nano-sync-notable-"));
 		try {
 			await cmdDbExec([
-				`--url=${REMOTE_URL}`,
+				`--url=${remoteUrl}`,
 				`--service-role-key=${KEY}`,
 				"--json",
 				"--sql",
 				"DROP SCHEMA IF EXISTS supabase_migrations CASCADE",
 			]);
 
+			const v = nextVersion();
 			const newResult = await cmdMigrationNew([
-				...ARGS,
+				...serverArgs,
 				`--migrations-dir=${noTableDir}`,
+				`--version=${v}`,
 				"notable_items",
 			]);
 			assertEquals(newResult.exitCode, 0);
@@ -637,7 +695,7 @@ describe("sync", () => {
 			);
 
 			const pushResult = await cmdSyncPush([
-				...SYNC_ARGS,
+				...syncArgs,
 				`--migrations-dir=${noTableDir}`,
 				"--no-storage",
 			]);
@@ -646,7 +704,7 @@ describe("sync", () => {
 			assertEquals(pushData.migrations.applied, 1);
 
 			const tracked = await cmdDbExec([
-				`--url=${REMOTE_URL}`,
+				`--url=${remoteUrl}`,
 				`--service-role-key=${KEY}`,
 				"--json",
 				"--sql",
@@ -662,9 +720,9 @@ describe("sync", () => {
 
 	test("push fails when --remote-db-url is missing and migrations not skipped", async () => {
 		const result = await cmdSyncPush([
-			`--url=${URL}`,
+			`--url=${serverUrl}`,
 			`--service-role-key=${KEY}`,
-			`--remote-url=${REMOTE_URL}`,
+			`--remote-url=${remoteUrl}`,
 			`--remote-service-role-key=${KEY}`,
 			"--json",
 		]);
