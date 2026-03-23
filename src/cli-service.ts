@@ -5,6 +5,7 @@ import { join } from "node:path";
 import type { Extension } from "@electric-sql/pglite";
 import type { NanoSupabaseInstance } from "./nano.ts";
 import { nanoSupabase } from "./nano.ts";
+import { PostgrestParser } from "./postgrest-parser.ts";
 
 export async function runServiceMode(opts: {
 	wasmModule: WebAssembly.Module;
@@ -453,6 +454,8 @@ export async function runServiceMode(opts: {
 	}
 
 	const consecutiveErrors = new Map<string, number>();
+	await PostgrestParser.init(postgrestWasm);
+	const sharedParser = new PostgrestParser();
 	const nanoInstances = new Map<string, NanoSupabaseInstance | null>();
 	const tenantPoolers = new Map<string, import("./pooler.ts").PGlitePooler>();
 	const wakingPromises = new Map<string, Promise<void>>();
@@ -608,6 +611,7 @@ export async function runServiceMode(opts: {
 			wasmModule,
 			fsBundle,
 			postgrestWasmBytes: postgrestWasm,
+			parser: sharedParser,
 			extensions: {
 				pgcrypto: pgcryptoExt,
 				uuid_ossp: uuidOsspExt,
