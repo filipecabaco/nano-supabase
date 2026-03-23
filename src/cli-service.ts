@@ -619,6 +619,8 @@ export async function runServiceMode(opts: {
 		tenant.nano = nanoInstance;
 		const pooler = await PGlitePooler.create(nanoInstance.db);
 		tenantPoolers.set(tenant.id, pooler);
+		tenant.lastActive = new Date();
+		markLastActive(tenant.id);
 		await updateTenantState(tenant.id, "running");
 		tenant.state = "running";
 		log("tenant.started", {
@@ -999,12 +1001,21 @@ export async function runServiceMode(opts: {
 				}
 
 				if (subpath === "/sql" && req.method === "POST") {
+					if (tenant.state === "sleeping" || tenant.state === "waking") {
+						if (!wakingPromises.has(tenant.id)) {
+							const p = wakeTenant(tenant).finally(() =>
+								wakingPromises.delete(tenant.id),
+							);
+							wakingPromises.set(tenant.id, p);
+						}
+						await wakingPromises.get(tenant.id);
+					}
 					const nano = nanoInstances.get(tenant.id);
 					if (!nano)
-						return new Response(
-							JSON.stringify({ error: "tenant_not_running" }),
-							{ status: 409, headers: json },
-						);
+						return new Response(JSON.stringify({ error: "nano_unavailable" }), {
+							status: 503,
+							headers: json,
+						});
 					const { sql, params = [] } = (await req.json()) as {
 						sql: string;
 						params?: unknown[];

@@ -421,6 +421,24 @@ describe("service with postgres registry", () => {
 			expect(res.status).toBe(200);
 			expect((await res.json()).access_token).toBeTruthy();
 		}, 30_000);
+
+		test("sleeping tenant auto-wakes on admin /sql request", async () => {
+			await fetch(`${base}/admin/tenants/alice/pause`, {
+				method: "POST",
+				headers: { Authorization: `Bearer ${ADMIN_TOKEN}` },
+			});
+
+			const res = await fetch(`${base}/admin/tenants/alice/sql`, {
+				method: "POST",
+				headers: {
+					Authorization: `Bearer ${ADMIN_TOKEN}`,
+					"Content-Type": "application/json",
+				},
+				body: JSON.stringify({ sql: "SELECT 1 AS ok" }),
+			});
+			expect(res.status).toBe(200);
+			expect((await res.json()).rows[0].ok).toBe(1);
+		}, 30_000);
 	});
 
 	describe("token rotation", () => {
