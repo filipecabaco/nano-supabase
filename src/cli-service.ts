@@ -644,6 +644,10 @@ export async function runServiceMode(opts: {
 			await pooler.stop();
 			tenantPoolers.delete(tenant.id);
 		}
+		const inst = nanoInstances.get(tenant.id);
+		if (inst && typeof inst[Symbol.asyncDispose] === "function") {
+			await inst[Symbol.asyncDispose]().catch(() => {});
+		}
 		nanoInstances.set(tenant.id, null);
 		tenant.nano = null;
 		try {
