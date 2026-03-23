@@ -690,15 +690,9 @@ describe("PGliteTCPServer", () => {
 		const { teardown } = await startServer();
 		const client = await makeClient();
 		try {
-			await client.simpleQuery(
-				"CREATE TABLE json_oid_test (j JSON, jb JSONB)",
-			);
-			await client.simpleQuery(
-				`INSERT INTO json_oid_test VALUES ('{}', '{}')`,
-			);
-			const res = await client.simpleQuery(
-				"SELECT j, jb FROM json_oid_test",
-			);
+			await client.simpleQuery("CREATE TABLE json_oid_test (j JSON, jb JSONB)");
+			await client.simpleQuery(`INSERT INTO json_oid_test VALUES ('{}', '{}')`);
+			const res = await client.simpleQuery("SELECT j, jb FROM json_oid_test");
 			const byName = Object.fromEntries(
 				res.fields.map((f) => [f.name, f.typeOid]),
 			);
@@ -772,9 +766,7 @@ describe("PGliteTCPServer", () => {
 		const client = await makeClient();
 		try {
 			await client.simpleQuery("CREATE TABLE lists (items JSONB)");
-			await client.simpleQuery(
-				`INSERT INTO lists VALUES ('["a","b","c"]')`,
-			);
+			await client.simpleQuery(`INSERT INTO lists VALUES ('["a","b","c"]')`);
 			const res = await client.simpleQuery(
 				"SELECT items->>0 AS text_val, items->>1 AS text_val2 FROM lists",
 			);
@@ -797,10 +789,7 @@ describe("PGliteTCPServer", () => {
 			const res = await client.simpleQuery(
 				`SELECT jsonb_set(cfg, '{theme}', '"dark"')::text AS updated FROM settings`,
 			);
-			assertEquals(
-				JSON.parse(res.rows[0][0]?.toString() ?? "").theme,
-				"dark",
-			);
+			assertEquals(JSON.parse(res.rows[0][0]?.toString() ?? "").theme, "dark");
 		} finally {
 			client.terminate();
 			await teardown();
@@ -830,9 +819,7 @@ describe("PGliteTCPServer", () => {
 		try {
 			await client.simpleQuery("CREATE TABLE nullable_json (data JSONB)");
 			await client.simpleQuery("INSERT INTO nullable_json VALUES (NULL)");
-			const res = await client.simpleQuery(
-				"SELECT data FROM nullable_json",
-			);
+			const res = await client.simpleQuery("SELECT data FROM nullable_json");
 			assertEquals(res.rows[0][0], null);
 		} finally {
 			client.terminate();
@@ -863,9 +850,7 @@ describe("PGliteTCPServer", () => {
 		const { teardown } = await startServer();
 		const client = await makeClient();
 		try {
-			await client.simpleQuery(
-				"CREATE TABLE scores (name TEXT, pts INT)",
-			);
+			await client.simpleQuery("CREATE TABLE scores (name TEXT, pts INT)");
 			await client.simpleQuery(
 				"INSERT INTO scores VALUES ('alice',10),('bob',20)",
 			);
@@ -888,12 +873,8 @@ describe("PGliteTCPServer", () => {
 		const { teardown } = await startServer();
 		const client = await makeClient();
 		try {
-			await client.simpleQuery(
-				"CREATE TABLE items (label TEXT, val INT)",
-			);
-			await client.simpleQuery(
-				"INSERT INTO items VALUES ('x',1),('y',2)",
-			);
+			await client.simpleQuery("CREATE TABLE items (label TEXT, val INT)");
+			await client.simpleQuery("INSERT INTO items VALUES ('x',1),('y',2)");
 			const res = await client.simpleQuery(
 				"SELECT jsonb_agg(items ORDER BY val) AS agg FROM items",
 			);
@@ -934,10 +915,9 @@ describe("JSON/JSONB via pg.Client (ORM-level compatibility)", () => {
 		await client.connect();
 		try {
 			await client.query("CREATE TABLE pg_jsonb (data JSONB)");
-			await client.query(
-				"INSERT INTO pg_jsonb VALUES ($1)",
-				['{"name":"alice","score":42}'],
-			);
+			await client.query("INSERT INTO pg_jsonb VALUES ($1)", [
+				'{"name":"alice","score":42}',
+			]);
 			const res = await client.query("SELECT data FROM pg_jsonb");
 			assertEquals(res.rows[0].data.name, "alice");
 			assertEquals(res.rows[0].data.score, 42);
@@ -975,9 +955,7 @@ describe("JSON/JSONB via pg.Client (ORM-level compatibility)", () => {
 		await client.connect();
 		try {
 			await client.query("CREATE TABLE pg_agg_test (label TEXT, val INT)");
-			await client.query(
-				"INSERT INTO pg_agg_test VALUES ('x',1),('y',2)",
-			);
+			await client.query("INSERT INTO pg_agg_test VALUES ('x',1),('y',2)");
 			const res = await client.query(
 				"SELECT jsonb_agg(pg_agg_test ORDER BY val) AS agg FROM pg_agg_test",
 			);
@@ -999,12 +977,8 @@ describe("JSON/JSONB via pg.Client (ORM-level compatibility)", () => {
 		});
 		await client.connect();
 		try {
-			await client.query(
-				"CREATE TABLE pg_null_json (id INT, data JSONB)",
-			);
-			await client.query(
-				"INSERT INTO pg_null_json VALUES (1, NULL)",
-			);
+			await client.query("CREATE TABLE pg_null_json (id INT, data JSONB)");
+			await client.query("INSERT INTO pg_null_json VALUES (1, NULL)");
 			const res = await client.query("SELECT data FROM pg_null_json");
 			assertEquals(res.rows[0].data, null);
 		} finally {

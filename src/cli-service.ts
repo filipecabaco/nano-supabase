@@ -600,7 +600,10 @@ export async function runServiceMode(opts: {
 	}
 
 	async function startTenantNano(tenant: TenantEntry): Promise<void> {
-		log("tenant.nano_initializing", { tenant_id: tenant.id, slug: tenant.slug });
+		log("tenant.nano_initializing", {
+			tenant_id: tenant.id,
+			slug: tenant.slug,
+		});
 		const nanoInstance = await nanoSupabase({
 			dataDir: tenant.dataDir,
 			wasmModule,
@@ -672,7 +675,11 @@ export async function runServiceMode(opts: {
 		tenant.state = "waking";
 		try {
 			if (!hasLocalData) {
-				log("tenant.pull_started", { tenant_id: tenant.id, slug: tenant.slug, offloader });
+				log("tenant.pull_started", {
+					tenant_id: tenant.id,
+					slug: tenant.slug,
+					offloader,
+				});
 				await pullTenant(tenant.dataDir, tenant.id);
 				log("tenant.pull_done", { tenant_id: tenant.id, slug: tenant.slug });
 			}
@@ -1093,7 +1100,11 @@ export async function runServiceMode(opts: {
 		}
 
 		if (tenant.state === "sleeping") {
-			log("tenant.auto_waking", { tenant_id: tenant.id, slug: tenant.slug, trigger: "http" });
+			log("tenant.auto_waking", {
+				tenant_id: tenant.id,
+				slug: tenant.slug,
+				trigger: "http",
+			});
 			if (!wakingPromises.has(tenant.id)) {
 				const p = wakeTenant(tenant).finally(() =>
 					wakingPromises.delete(tenant.id),
@@ -1102,7 +1113,11 @@ export async function runServiceMode(opts: {
 			}
 			await wakingPromises.get(tenant.id);
 		} else if (tenant.state === "waking" || tenant.state === "pausing") {
-			log("tenant.busy", { tenant_id: tenant.id, slug: tenant.slug, state: tenant.state });
+			log("tenant.busy", {
+				tenant_id: tenant.id,
+				slug: tenant.slug,
+				state: tenant.state,
+			});
 			return new Response(
 				JSON.stringify({
 					error: "tenant_busy",
@@ -1171,9 +1186,10 @@ export async function runServiceMode(opts: {
 				: restPath.startsWith("/storage/v1/")
 					? "storage"
 					: "other";
-		const authAction = routeType === "auth"
-			? restPath.replace("/auth/v1/", "").split("/")[0] ?? "unknown"
-			: undefined;
+		const authAction =
+			routeType === "auth"
+				? (restPath.replace("/auth/v1/", "").split("/")[0] ?? "unknown")
+				: undefined;
 		log("request", {
 			tenant_id: tenant.id,
 			slug: tenant.slug,
@@ -1263,9 +1279,17 @@ export async function runServiceMode(opts: {
 				log("tcp.connection.unknown_tenant", { user });
 				return null;
 			}
-			log("tcp.connection", { tenant_id: tenant.id, slug: tenant.slug, state: tenant.state });
+			log("tcp.connection", {
+				tenant_id: tenant.id,
+				slug: tenant.slug,
+				state: tenant.state,
+			});
 			if (tenant.state === "sleeping") {
-				log("tenant.auto_waking", { tenant_id: tenant.id, slug: tenant.slug, trigger: "tcp" });
+				log("tenant.auto_waking", {
+					tenant_id: tenant.id,
+					slug: tenant.slug,
+					trigger: "tcp",
+				});
 				if (!wakingPromises.has(tenant.id)) {
 					const p = wakeTenant(tenant).finally(() =>
 						wakingPromises.delete(tenant.id),
@@ -1275,12 +1299,19 @@ export async function runServiceMode(opts: {
 				await wakingPromises.get(tenant.id);
 			}
 			if (tenant.state !== "running") {
-				log("tcp.connection.rejected", { tenant_id: tenant.id, slug: tenant.slug, state: tenant.state });
+				log("tcp.connection.rejected", {
+					tenant_id: tenant.id,
+					slug: tenant.slug,
+					state: tenant.state,
+				});
 				return null;
 			}
 			const pooler = tenantPoolers.get(tenant.id);
 			if (!pooler) {
-				log("tcp.connection.no_pooler", { tenant_id: tenant.id, slug: tenant.slug });
+				log("tcp.connection.no_pooler", {
+					tenant_id: tenant.id,
+					slug: tenant.slug,
+				});
 				return null;
 			}
 			const password = tenant.encryptedPassword

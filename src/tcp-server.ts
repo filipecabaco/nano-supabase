@@ -770,7 +770,13 @@ function buildRowDescriptionBuf(
 
 function pgText(val: unknown, oid?: number): string {
 	if (Array.isArray(val)) {
-		if (oid === OID_JSON || oid === OID_JSONB || oid === OID_JSON_ARRAY || oid === OID_JSONB_ARRAY) return JSON.stringify(val);
+		if (
+			oid === OID_JSON ||
+			oid === OID_JSONB ||
+			oid === OID_JSON_ARRAY ||
+			oid === OID_JSONB_ARRAY
+		)
+			return JSON.stringify(val);
 		if (val.length === 0) return "{}";
 		return (
 			"{" +

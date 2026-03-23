@@ -1,7 +1,7 @@
 import { PostgresMeta } from "@supabase/postgres-meta";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
-import { nanoSupabase } from "../src/nano.ts";
 import { PGlitePooler } from "../src/index.ts";
+import { nanoSupabase } from "../src/nano.ts";
 import { PGliteTCPServer } from "../src/tcp.ts";
 
 const TEST_PORT = 54445;
@@ -35,7 +35,10 @@ beforeAll(async () => {
 		RETURNS INTEGER LANGUAGE sql AS $$ SELECT a + b $$;
 	`);
 
-	pgMeta = new PostgresMeta({ connectionString: CONNECTION_STRING, maxConnections: 1 });
+	pgMeta = new PostgresMeta({
+		connectionString: CONNECTION_STRING,
+		maxConnections: 1,
+	});
 }, 30_000);
 
 afterAll(async () => {
@@ -75,7 +78,9 @@ describe("postgres-meta compatibility", () => {
 		test("products table has expected shape", async () => {
 			const { data, error } = await pgMeta.tables.list();
 			expect(error).toBeNull();
-			const products = data!.find((t) => t.name === "products" && t.schema === "public");
+			const products = data!.find(
+				(t) => t.name === "products" && t.schema === "public",
+			);
 			expect(products).toBeDefined();
 			expect(products).toMatchObject({
 				name: "products",
@@ -85,9 +90,13 @@ describe("postgres-meta compatibility", () => {
 		});
 
 		test("orders table references products via foreign key", async () => {
-			const { data, error } = await pgMeta.tables.list({ includeColumns: true });
+			const { data, error } = await pgMeta.tables.list({
+				includeColumns: true,
+			});
 			expect(error).toBeNull();
-			const orders = data!.find((t) => t.name === "orders" && t.schema === "public");
+			const orders = data!.find(
+				(t) => t.name === "orders" && t.schema === "public",
+			);
 			expect(orders).toBeDefined();
 			expect(orders!.relationships.length).toBeGreaterThan(0);
 		});
@@ -97,7 +106,9 @@ describe("postgres-meta compatibility", () => {
 		test("lists columns for products table", async () => {
 			const { data, error } = await pgMeta.columns.list();
 			expect(error).toBeNull();
-			const productCols = data!.filter((c) => c.table === "products" && c.schema === "public");
+			const productCols = data!.filter(
+				(c) => c.table === "products" && c.schema === "public",
+			);
 			const colNames = productCols.map((c) => c.name);
 			expect(colNames).toContain("id");
 			expect(colNames).toContain("name");
@@ -109,7 +120,9 @@ describe("postgres-meta compatibility", () => {
 		test("id column is non-nullable with serial default", async () => {
 			const { data, error } = await pgMeta.columns.list();
 			expect(error).toBeNull();
-			const idCol = data!.find((c) => c.table === "products" && c.name === "id");
+			const idCol = data!.find(
+				(c) => c.table === "products" && c.name === "id",
+			);
 			expect(idCol).toBeDefined();
 			expect(idCol!.is_nullable).toBe(false);
 			expect(idCol!.default_value).toMatch(/nextval/);
@@ -118,7 +131,9 @@ describe("postgres-meta compatibility", () => {
 		test("name column is non-nullable text", async () => {
 			const { data, error } = await pgMeta.columns.list();
 			expect(error).toBeNull();
-			const nameCol = data!.find((c) => c.table === "products" && c.name === "name");
+			const nameCol = data!.find(
+				(c) => c.table === "products" && c.name === "name",
+			);
 			expect(nameCol).toBeDefined();
 			expect(nameCol!.is_nullable).toBe(false);
 			expect(nameCol!.data_type).toBe("text");
@@ -127,7 +142,9 @@ describe("postgres-meta compatibility", () => {
 		test("price column is numeric with default", async () => {
 			const { data, error } = await pgMeta.columns.list();
 			expect(error).toBeNull();
-			const priceCol = data!.find((c) => c.table === "products" && c.name === "price");
+			const priceCol = data!.find(
+				(c) => c.table === "products" && c.name === "price",
+			);
 			expect(priceCol).toBeDefined();
 			expect(priceCol!.data_type).toBe("numeric");
 			expect(priceCol!.default_value).toBe("0.00");
@@ -139,7 +156,9 @@ describe("postgres-meta compatibility", () => {
 			const { data, error } = await pgMeta.functions.list();
 			expect(error).toBeNull();
 			expect(data).toBeDefined();
-			const addNumbers = data!.find((f) => f.name === "add_numbers" && f.schema === "public");
+			const addNumbers = data!.find(
+				(f) => f.name === "add_numbers" && f.schema === "public",
+			);
 			expect(addNumbers).toBeDefined();
 			expect(addNumbers!.language).toBe("sql");
 		});
@@ -166,7 +185,9 @@ describe("postgres-meta compatibility", () => {
 		});
 
 		test("returns structured error for invalid SQL", async () => {
-			const { data, error } = await pgMeta.query("SELECT * FROM nonexistent_table_xyz");
+			const { data, error } = await pgMeta.query(
+				"SELECT * FROM nonexistent_table_xyz",
+			);
 			expect(data).toBeNull();
 			expect(error).toBeDefined();
 		});
