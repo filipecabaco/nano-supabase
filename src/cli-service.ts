@@ -249,21 +249,20 @@ export async function runServiceMode(opts: {
 	let registry: RegistryBackend;
 
 	if (registryDbUrl) {
-		const { Client } = await import("pg");
-		const pgClient = new Client({ connectionString: registryDbUrl });
-		await pgClient.connect();
+		const { Pool } = await import("pg");
+		const pgPool = new Pool({ connectionString: registryDbUrl });
 		registry = {
 			query: async <T extends Record<string, unknown>>(
 				sql: string,
 				params?: unknown[],
 			) => {
-				const result = await pgClient.query(sql, params);
+				const result = await pgPool.query(sql, params);
 				return { rows: result.rows as T[] };
 			},
 			exec: async (sql: string) => {
-				await pgClient.query(sql);
+				await pgPool.query(sql);
 			},
-			close: async () => pgClient.end(),
+			close: async () => pgPool.end(),
 		};
 		const { runner } = await import("node-pg-migrate");
 		await runner({

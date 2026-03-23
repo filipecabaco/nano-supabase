@@ -848,18 +848,12 @@ export async function cmdSyncPush(
 					}
 
 					const sql = await readFile(join(migrationsDir, file), "utf8");
+					const statements = sql.split(";").map((s) => s.trim()).filter(Boolean);
 					if (!dryRun) {
-						await client.query(sql);
+						for (const stmt of statements) await client.query(stmt);
 						await client.query(
 							`INSERT INTO supabase_migrations.schema_migrations(version, name, statements) VALUES($1, $2, $3)`,
-							[
-								version,
-								name,
-								sql
-									.split(";")
-									.map((s) => s.trim())
-									.filter(Boolean),
-							],
+							[version, name, statements],
 						);
 					}
 					result.migrations.applied++;
@@ -876,18 +870,12 @@ export async function cmdSyncPush(
 					const version = match[1] ?? "";
 					const name = file.replace(/\.sql$/, "").slice(version.length + 1);
 					const sql = await readFile(join(migrationsDir, file), "utf8");
+					const statements = sql.split(";").map((s) => s.trim()).filter(Boolean);
 					if (!dryRun) {
-						await client.query(sql);
+						for (const stmt of statements) await client.query(stmt);
 						await client.query(
 							`INSERT INTO supabase_migrations.schema_migrations(version, name, statements) VALUES($1, $2, $3)`,
-							[
-								version,
-								name,
-								sql
-									.split(";")
-									.map((s) => s.trim())
-									.filter(Boolean),
-							],
+							[version, name, statements],
 						);
 					}
 					result.migrations.applied++;
