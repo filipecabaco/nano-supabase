@@ -7,6 +7,7 @@ export interface McpServerConfig {
 	httpPort: number;
 	serviceRoleKey: string;
 	anonKey: string;
+	projectUrl?: string;
 }
 
 function pgTypeToTs(pgType: string): string {
@@ -129,7 +130,7 @@ function buildPlatform(
 
 		development: {
 			async getProjectUrl(_projectId: string): Promise<string> {
-				return `http://localhost:${config.httpPort}`;
+				return config.projectUrl ?? `http://localhost:${config.httpPort}`;
 			},
 
 			async getPublishableKeys(_projectId: string) {

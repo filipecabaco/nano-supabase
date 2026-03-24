@@ -4,17 +4,18 @@ import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import pg from "pg";
 
-const DEFAULT_URL = "http://localhost:54321";
-const DEFAULT_HTTP_PORT = 54321;
-const DEFAULT_SERVICE_ROLE_KEY = "local-service-role-key";
-const DEFAULT_ANON_KEY = "local-anon-key";
+export const DEFAULT_URL = "http://localhost:54321";
+export const DEFAULT_HTTP_PORT = 54321;
+export const DEFAULT_TCP_PORT = 5432;
+export const DEFAULT_SERVICE_ROLE_KEY = "local-service-role-key";
+export const DEFAULT_ANON_KEY = "local-anon-key";
 const DEFAULT_MIGRATIONS_DIR = "./supabase/migrations";
 
 function defaultPidFile(port: number): string {
 	return `/tmp/nano-supabase-${port}.pid`;
 }
 
-function getArgValue(args: string[], flag: string): string | undefined {
+export function getArgValue(args: string[], flag: string): string | undefined {
 	const withEq = args.find((a) => a.startsWith(`${flag}=`));
 	if (withEq) return withEq.slice(flag.length + 1);
 	const idx = args.indexOf(flag);
@@ -37,6 +38,25 @@ function getServiceRoleKey(args: string[]): string {
 
 function adminHeaders(key: string): Record<string, string> {
 	return { Authorization: `Bearer ${key}`, "Content-Type": "application/json" };
+}
+
+function toErrorMessage(e: unknown): string {
+	return e instanceof Error ? e.message : String(e);
+}
+
+async function adminRequest<T>(
+	url: string,
+	key: string,
+	options?: { method?: string; body?: unknown },
+): Promise<{ ok: boolean; data: T }> {
+	const res = await fetch(url, {
+		method: options?.method ?? "GET",
+		headers: adminHeaders(key),
+		body:
+			options?.body !== undefined ? JSON.stringify(options.body) : undefined,
+	});
+	const data = (await res.json()) as T;
+	return { ok: res.ok, data };
 }
 
 function ok(
@@ -141,11 +161,7 @@ export async function cmdStop(
 		}
 		return fail("timeout", "Process did not stop within 5s", json);
 	} catch (e: unknown) {
-		return fail(
-			"stop_failed",
-			e instanceof Error ? e.message : String(e),
-			json,
-		);
+		return fail("stop_failed", toErrorMessage(e), json);
 	}
 }
 
@@ -172,24 +188,15 @@ export async function cmdDbExec(
 	}
 
 	try {
-		const res = await fetch(`${url}/admin/v1/sql`, {
-			method: "POST",
-			headers: adminHeaders(key),
-			body: JSON.stringify({ sql }),
-		});
-		const data = (await res.json()) as {
+		const { ok: success, data } = await adminRequest<{
 			rows: Record<string, unknown>[];
 			fields: string[];
-		};
-		if (!res.ok) return apiError(data, json);
+		}>(`${url}/admin/v1/sql`, key, { method: "POST", body: { sql } });
+		if (!success) return apiError(data, json);
 		const text = renderTable(data.fields ?? [], data.rows ?? []);
 		return ok(data, json, text);
 	} catch (e: unknown) {
-		return fail(
-			"request_failed",
-			e instanceof Error ? e.message : String(e),
-			json,
-		);
+		return fail("request_failed", toErrorMessage(e), json);
 	}
 }
 
@@ -203,15 +210,9 @@ export async function cmdDbDump(
 			headers: adminHeaders(key),
 		});
 		const text = await res.text();
-		return res.ok
-			? { exitCode: 0, output: text }
-			: { exitCode: 1, output: text };
+		return { exitCode: res.ok ? 0 : 1, output: text };
 	} catch (e: unknown) {
-		return fail(
-			"request_failed",
-			e instanceof Error ? e.message : String(e),
-			args.includes("--json"),
-		);
+		return fail("request_failed", toErrorMessage(e), args.includes("--json"));
 	}
 }
 
@@ -228,24 +229,15 @@ export async function cmdDbReset(
 			json,
 		);
 	try {
-		const res = await fetch(`${url}/admin/v1/reset`, {
-			method: "POST",
-			headers: adminHeaders(key),
-			body: JSON.stringify({}),
-		});
-		const data = (await res.json()) as {
+		const { ok: success, data } = await adminRequest<{
 			dropped_tables: string[];
 			migrations_applied: number;
-		};
-		if (!res.ok) return apiError(data, json);
+		}>(`${url}/admin/v1/reset`, key, { method: "POST", body: {} });
+		if (!success) return apiError(data, json);
 		const text = `Reset complete: dropped ${data.dropped_tables.length} table(s), cleared ${data.migrations_applied} migration(s)`;
 		return ok(data, json, text);
 	} catch (e: unknown) {
-		return fail(
-			"request_failed",
-			e instanceof Error ? e.message : String(e),
-			json,
-		);
+		return fail("request_failed", toErrorMessage(e), json);
 	}
 }
 
@@ -269,11 +261,7 @@ export async function cmdMigrationNew(
 		await writeFile(filePath, `-- Migration: ${name}\n`);
 		return ok({ file: filePath }, json, `Created: ${filePath}`);
 	} catch (e: unknown) {
-		return fail(
-			"write_failed",
-			e instanceof Error ? e.message : String(e),
-			json,
-		);
+		return fail("write_failed", toErrorMessage(e), json);
 	}
 }
 
@@ -312,11 +300,7 @@ export async function cmdMigrationList(
 		const text = `Applied:\n${appliedLines}\n\nPending:\n${pendingLines}`;
 		return ok(result, json, text);
 	} catch (e: unknown) {
-		return fail(
-			"request_failed",
-			e instanceof Error ? e.message : String(e),
-			json,
-		);
+		return fail("request_failed", toErrorMessage(e), json);
 	}
 }
 
@@ -385,11 +369,7 @@ export async function cmdMigrationUp(
 		);
 		return ok({ results }, json, lines.join("\n"));
 	} catch (e: unknown) {
-		return fail(
-			"request_failed",
-			e instanceof Error ? e.message : String(e),
-			json,
-		);
+		return fail("request_failed", toErrorMessage(e), json);
 	}
 }
 
@@ -400,13 +380,10 @@ export async function cmdUsersList(
 	const url = getUrl(args);
 	const key = getServiceRoleKey(args);
 	try {
-		const res = await fetch(`${url}/auth/v1/admin/users`, {
-			headers: adminHeaders(key),
-		});
-		const data = (await res.json()) as {
+		const { ok: success, data } = await adminRequest<{
 			users?: Array<{ id: string; email?: string; created_at?: string }>;
-		};
-		if (!res.ok) return apiError(data, json);
+		}>(`${url}/auth/v1/admin/users`, key);
+		if (!success) return apiError(data, json);
 		const users = data.users ?? [];
 		const text =
 			users.length === 0
@@ -421,11 +398,7 @@ export async function cmdUsersList(
 					);
 		return ok(data, json, text);
 	} catch (e: unknown) {
-		return fail(
-			"request_failed",
-			e instanceof Error ? e.message : String(e),
-			json,
-		);
+		return fail("request_failed", toErrorMessage(e), json);
 	}
 }
 
@@ -440,21 +413,18 @@ export async function cmdUsersCreate(
 	if (!email) return fail("missing_email", "Provide --email", json);
 	if (!password) return fail("missing_password", "Provide --password", json);
 	try {
-		const res = await fetch(`${url}/auth/v1/admin/users`, {
+		const { ok: success, data } = await adminRequest<{
+			id?: string;
+			email?: string;
+		}>(`${url}/auth/v1/admin/users`, key, {
 			method: "POST",
-			headers: adminHeaders(key),
-			body: JSON.stringify({ email, password }),
+			body: { email, password },
 		});
-		const data = (await res.json()) as { id?: string; email?: string };
-		if (!res.ok) return apiError(data, json);
+		if (!success) return apiError(data, json);
 		const text = `Created user\n  ID:    ${data.id}\n  Email: ${data.email}`;
 		return ok(data, json, text);
 	} catch (e: unknown) {
-		return fail(
-			"request_failed",
-			e instanceof Error ? e.message : String(e),
-			json,
-		);
+		return fail("request_failed", toErrorMessage(e), json);
 	}
 }
 
@@ -467,23 +437,16 @@ export async function cmdUsersGet(
 	const id = args.find((a) => !a.startsWith("--"));
 	if (!id) return fail("missing_id", "Provide a user ID", json);
 	try {
-		const res = await fetch(`${url}/auth/v1/admin/users/${id}`, {
-			headers: adminHeaders(key),
-		});
-		const data = (await res.json()) as {
+		const { ok: success, data } = await adminRequest<{
 			id?: string;
 			email?: string;
 			created_at?: string;
-		};
-		if (!res.ok) return apiError(data, json);
+		}>(`${url}/auth/v1/admin/users/${id}`, key);
+		if (!success) return apiError(data, json);
 		const text = `ID:      ${data.id}\n  Email:   ${data.email}\n  Created: ${data.created_at}`;
 		return ok(data, json, text);
 	} catch (e: unknown) {
-		return fail(
-			"request_failed",
-			e instanceof Error ? e.message : String(e),
-			json,
-		);
+		return fail("request_failed", toErrorMessage(e), json);
 	}
 }
 
@@ -502,19 +465,15 @@ export async function cmdUsersDelete(
 			json,
 		);
 	try {
-		const res = await fetch(`${url}/auth/v1/admin/users/${id}`, {
-			method: "DELETE",
-			headers: adminHeaders(key),
-		});
-		const data = await res.json();
-		if (!res.ok) return apiError(data, json);
+		const { ok: success, data } = await adminRequest<unknown>(
+			`${url}/auth/v1/admin/users/${id}`,
+			key,
+			{ method: "DELETE" },
+		);
+		if (!success) return apiError(data, json);
 		return ok(data, json, `Deleted user ${id}`);
 	} catch (e: unknown) {
-		return fail(
-			"request_failed",
-			e instanceof Error ? e.message : String(e),
-			json,
-		);
+		return fail("request_failed", toErrorMessage(e), json);
 	}
 }
 
@@ -525,15 +484,14 @@ export async function cmdStorageListBuckets(
 	const url = getUrl(args);
 	const key = getServiceRoleKey(args);
 	try {
-		const res = await fetch(`${url}/storage/v1/bucket`, {
-			headers: adminHeaders(key),
-		});
-		const data = (await res.json()) as Array<{
-			id: string;
-			name: string;
-			public: boolean;
-		}>;
-		if (!res.ok) return apiError(data, json);
+		const { ok: success, data } = await adminRequest<
+			Array<{
+				id: string;
+				name: string;
+				public: boolean;
+			}>
+		>(`${url}/storage/v1/bucket`, key);
+		if (!success) return apiError(data, json);
 		const text =
 			data.length === 0
 				? "(no buckets)"
@@ -543,11 +501,7 @@ export async function cmdStorageListBuckets(
 					);
 		return ok(data, json, text);
 	} catch (e: unknown) {
-		return fail(
-			"request_failed",
-			e instanceof Error ? e.message : String(e),
-			json,
-		);
+		return fail("request_failed", toErrorMessage(e), json);
 	}
 }
 
@@ -561,20 +515,15 @@ export async function cmdStorageCreateBucket(
 	if (!name) return fail("missing_name", "Provide a bucket name", json);
 	const isPublic = args.includes("--public");
 	try {
-		const res = await fetch(`${url}/storage/v1/bucket`, {
-			method: "POST",
-			headers: adminHeaders(key),
-			body: JSON.stringify({ id: name, name, public: isPublic }),
-		});
-		const data = await res.json();
-		if (!res.ok) return apiError(data, json);
+		const { ok: success, data } = await adminRequest<unknown>(
+			`${url}/storage/v1/bucket`,
+			key,
+			{ method: "POST", body: { id: name, name, public: isPublic } },
+		);
+		if (!success) return apiError(data, json);
 		return ok(data, json, `Created bucket: ${name}`);
 	} catch (e: unknown) {
-		return fail(
-			"request_failed",
-			e instanceof Error ? e.message : String(e),
-			json,
-		);
+		return fail("request_failed", toErrorMessage(e), json);
 	}
 }
 
@@ -589,16 +538,16 @@ export async function cmdStorageLs(
 	const prefix = rest.join("/");
 	if (!bucket) return fail("missing_bucket", "Provide a bucket name", json);
 	try {
-		const res = await fetch(`${url}/storage/v1/object/list/${bucket}`, {
+		const { ok: success, data } = await adminRequest<
+			Array<{
+				name: string;
+				metadata?: { size?: number };
+			}>
+		>(`${url}/storage/v1/object/list/${bucket}`, key, {
 			method: "POST",
-			headers: adminHeaders(key),
-			body: JSON.stringify({ prefix, limit: 100, offset: 0 }),
+			body: { prefix, limit: 100, offset: 0 },
 		});
-		const data = (await res.json()) as Array<{
-			name: string;
-			metadata?: { size?: number };
-		}>;
-		if (!res.ok) return apiError(data, json);
+		if (!success) return apiError(data, json);
 		const text =
 			data.length === 0
 				? "(empty)"
@@ -610,11 +559,7 @@ export async function cmdStorageLs(
 						.join("\n");
 		return ok(data, json, text);
 	} catch (e: unknown) {
-		return fail(
-			"request_failed",
-			e instanceof Error ? e.message : String(e),
-			json,
-		);
+		return fail("request_failed", toErrorMessage(e), json);
 	}
 }
 
@@ -674,11 +619,7 @@ export async function cmdStorageCp(
 			);
 		}
 	} catch (e: unknown) {
-		return fail(
-			"request_failed",
-			e instanceof Error ? e.message : String(e),
-			json,
-		);
+		return fail("request_failed", toErrorMessage(e), json);
 	}
 }
 
@@ -691,16 +632,15 @@ export async function cmdGenTypes(
 	const outputFile = getArgValue(args, "--output");
 
 	try {
-		const res = await fetch(`${url}/admin/v1/schema?format=json`, {
-			headers: adminHeaders(key),
-		});
-		const data = (await res.json()) as Array<{
-			table_name: string;
-			column_name: string;
-			data_type: string;
-			is_nullable: string;
-		}>;
-		if (!res.ok) return apiError(data, json);
+		const { ok: success, data } = await adminRequest<
+			Array<{
+				table_name: string;
+				column_name: string;
+				data_type: string;
+				is_nullable: string;
+			}>
+		>(`${url}/admin/v1/schema?format=json`, key);
+		if (!success) return apiError(data, json);
 
 		const tables: Record<
 			string,
@@ -763,11 +703,7 @@ export async function cmdGenTypes(
 		}
 		return { exitCode: 0, output: types };
 	} catch (e: unknown) {
-		return fail(
-			"request_failed",
-			e instanceof Error ? e.message : String(e),
-			json,
-		);
+		return fail("request_failed", toErrorMessage(e), json);
 	}
 }
 
@@ -925,11 +861,7 @@ export async function cmdSyncPush(
 		}
 	} catch (e: unknown) {
 		if (client) await client.end().catch(() => {});
-		return fail(
-			"sync_failed",
-			e instanceof Error ? e.message : String(e),
-			json,
-		);
+		return fail("sync_failed", toErrorMessage(e), json);
 	}
 	if (client) await client.end().catch(() => {});
 
@@ -1165,11 +1097,7 @@ export async function cmdSyncPull(
 		}
 	} catch (e: unknown) {
 		if (client) await client.end().catch(() => {});
-		return fail(
-			"sync_failed",
-			e instanceof Error ? e.message : String(e),
-			json,
-		);
+		return fail("sync_failed", toErrorMessage(e), json);
 	}
 	await client.end().catch(() => {});
 
@@ -1213,13 +1141,6 @@ function getAdminToken(args: string[]): string | undefined {
 	return getArgValue(args, "--admin-token") ?? process.env.NANO_ADMIN_TOKEN;
 }
 
-function serviceAdminHeaders(token: string): Record<string, string> {
-	return {
-		Authorization: `Bearer ${token}`,
-		"Content-Type": "application/json",
-	};
-}
-
 async function serviceRequest<T>(
 	method: string,
 	url: string,
@@ -1228,7 +1149,7 @@ async function serviceRequest<T>(
 ): Promise<{ ok: boolean; status: number; data: T }> {
 	const res = await fetch(url, {
 		method,
-		headers: serviceAdminHeaders(token),
+		headers: adminHeaders(token),
 		body: body !== undefined ? JSON.stringify(body) : undefined,
 	});
 	const data = (await res.json()) as T;

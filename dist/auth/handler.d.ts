@@ -21,6 +21,7 @@ export declare class AuthHandler {
      * Subscribe to auth state changes
      */
     onAuthStateChange(callback: AuthStateChangeCallback): AuthSubscription;
+    private signInAndCreateSession;
     /**
      * Sign up a new user
      */

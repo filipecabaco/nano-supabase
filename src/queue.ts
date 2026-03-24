@@ -1,14 +1,20 @@
 import type { QueuedQuery } from "./types.ts";
 import { QueryPriority } from "./types.ts";
 
-const PROMOTION: Readonly<Record<1 | 2 | 3, QueryPriority>> = {
+type PromotablePriority = 1 | 2 | 3;
+
+const PROMOTION: Readonly<Record<PromotablePriority, QueryPriority>> = {
 	1: QueryPriority.CRITICAL,
 	2: QueryPriority.HIGH,
 	3: QueryPriority.MEDIUM,
 };
 
+const PRIORITY_COUNT = 4;
+const AGING_CHECK_INTERVAL_MS = 1000;
+
 type Queues = [QueuedQuery[], QueuedQuery[], QueuedQuery[], QueuedQuery[]];
 type Heads = [number, number, number, number];
+type PriorityIndex = 0 | 1 | 2 | 3;
 
 export class PriorityQueue {
 	private readonly queues: Queues;
@@ -40,24 +46,23 @@ export class PriorityQueue {
 
 	dequeue(): QueuedQuery | null {
 		const now = Date.now();
-		if (now - this.lastAgingRun > 1000) {
+		if (now - this.lastAgingRun > AGING_CHECK_INTERVAL_MS) {
 			this.applyAging(now);
 			this.lastAgingRun = now;
 		}
 
-		for (let p = 0; p < 4; p++) {
-			const queue = this.queues[p as 0 | 1 | 2 | 3];
-			const head = this.heads[p as 0 | 1 | 2 | 3];
+		for (let p = 0; p < PRIORITY_COUNT; p++) {
+			const pi = p as PriorityIndex;
+			const queue = this.queues[pi];
+			const head = this.heads[pi];
 			if (head < queue.length) {
 				const item = queue[head] ?? null;
 				(queue as (QueuedQuery | null)[])[head] = null;
-				this.heads[p as 0 | 1 | 2 | 3]++;
+				this.heads[pi]++;
 				this._size--;
-				if (this.heads[p as 0 | 1 | 2 | 3] > queue.length / 2) {
-					this.queues[p as 0 | 1 | 2 | 3] = queue.slice(
-						this.heads[p as 0 | 1 | 2 | 3],
-					);
-					this.heads[p as 0 | 1 | 2 | 3] = 0;
+				if (this.heads[pi] > queue.length / 2) {
+					this.queues[pi] = queue.slice(this.heads[pi]);
+					this.heads[pi] = 0;
 				}
 				return item;
 			}
@@ -105,15 +110,16 @@ export class PriorityQueue {
 
 	clear(): QueuedQuery[] {
 		const all: QueuedQuery[] = [];
-		for (let p = 0; p < 4; p++) {
-			const queue = this.queues[p as 0 | 1 | 2 | 3];
-			const head = this.heads[p as 0 | 1 | 2 | 3];
+		for (let p = 0; p < PRIORITY_COUNT; p++) {
+			const pi = p as PriorityIndex;
+			const queue = this.queues[pi];
+			const head = this.heads[pi];
 			for (let i = head; i < queue.length; i++) {
 				const item = queue[i];
 				if (item !== undefined) all.push(item);
 			}
-			this.queues[p as 0 | 1 | 2 | 3] = [];
-			this.heads[p as 0 | 1 | 2 | 3] = 0;
+			this.queues[pi] = [];
+			this.heads[pi] = 0;
 		}
 		this._size = 0;
 		return all;

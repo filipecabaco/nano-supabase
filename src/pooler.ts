@@ -10,6 +10,14 @@ import type {
 } from "./types.ts";
 import { QueryPriority } from "./types.ts";
 
+const DEFAULT_MAX_QUEUE_SIZE = 1000;
+const DEFAULT_TIMEOUT_MS = 5000;
+const DEFAULT_AGING_THRESHOLD_MS = 5000;
+
+function toError(error: unknown): Error {
+	return error instanceof Error ? error : new Error(String(error));
+}
+
 export class PGlitePooler {
 	private readonly db: PGlite;
 	private readonly queue: PriorityQueue;
@@ -33,12 +41,13 @@ export class PGlitePooler {
 
 	constructor(db: PGlite, config: Partial<PoolerConfig> = {}) {
 		this.db = db;
-		const maxQueueSize = config.maxQueueSize ?? 1000;
-		const agingThresholdMs = config.agingThresholdMs ?? 5000;
+		const maxQueueSize = config.maxQueueSize ?? DEFAULT_MAX_QUEUE_SIZE;
+		const agingThresholdMs =
+			config.agingThresholdMs ?? DEFAULT_AGING_THRESHOLD_MS;
 		this.queue = new PriorityQueue(maxQueueSize, agingThresholdMs);
 		this.config = {
 			maxQueueSize,
-			defaultTimeout: config.defaultTimeout ?? 5000,
+			defaultTimeout: config.defaultTimeout ?? DEFAULT_TIMEOUT_MS,
 			agingThresholdMs,
 		};
 	}
@@ -114,7 +123,7 @@ export class PGlitePooler {
 				this.totalEnqueued++;
 				this.wakeUp?.();
 			} catch (error) {
-				reject(error instanceof Error ? error : new Error(String(error)));
+				reject(toError(error));
 			}
 		});
 	}
@@ -144,7 +153,7 @@ export class PGlitePooler {
 				this.totalEnqueued++;
 				this.wakeUp?.();
 			} catch (error) {
-				reject(error instanceof Error ? error : new Error(String(error)));
+				reject(toError(error));
 			}
 		}) as Promise<T>;
 	}
@@ -195,7 +204,7 @@ export class PGlitePooler {
 				}
 			} catch (error) {
 				this.totalErrors++;
-				const err = error instanceof Error ? error : new Error(String(error));
+				const err = toError(error);
 				if (err.message === "Query timeout") {
 					this.totalTimedOut++;
 				}
