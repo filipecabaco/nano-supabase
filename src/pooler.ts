@@ -42,7 +42,8 @@ export class PGlitePooler {
 	constructor(db: PGlite, config: Partial<PoolerConfig> = {}) {
 		this.db = db;
 		const maxQueueSize = config.maxQueueSize ?? DEFAULT_MAX_QUEUE_SIZE;
-		const agingThresholdMs = config.agingThresholdMs ?? DEFAULT_AGING_THRESHOLD_MS;
+		const agingThresholdMs =
+			config.agingThresholdMs ?? DEFAULT_AGING_THRESHOLD_MS;
 		this.queue = new PriorityQueue(maxQueueSize, agingThresholdMs);
 		this.config = {
 			maxQueueSize,

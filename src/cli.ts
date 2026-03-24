@@ -43,7 +43,6 @@ import {
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const pgliteDist = __dirname;
 
-
 const argv = process.argv.slice(2);
 
 const SUB_COMMANDS = [

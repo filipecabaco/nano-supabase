@@ -52,7 +52,8 @@ async function adminRequest<T>(
 	const res = await fetch(url, {
 		method: options?.method ?? "GET",
 		headers: adminHeaders(key),
-		body: options?.body !== undefined ? JSON.stringify(options.body) : undefined,
+		body:
+			options?.body !== undefined ? JSON.stringify(options.body) : undefined,
 	});
 	const data = (await res.json()) as T;
 	return { ok: res.ok, data };
@@ -160,11 +161,7 @@ export async function cmdStop(
 		}
 		return fail("timeout", "Process did not stop within 5s", json);
 	} catch (e: unknown) {
-		return fail(
-			"stop_failed",
-			toErrorMessage(e),
-			json,
-		);
+		return fail("stop_failed", toErrorMessage(e), json);
 	}
 }
 
@@ -194,11 +191,7 @@ export async function cmdDbExec(
 		const { ok: success, data } = await adminRequest<{
 			rows: Record<string, unknown>[];
 			fields: string[];
-		}>(
-			`${url}/admin/v1/sql`,
-			key,
-			{ method: "POST", body: { sql } },
-		);
+		}>(`${url}/admin/v1/sql`, key, { method: "POST", body: { sql } });
 		if (!success) return apiError(data, json);
 		const text = renderTable(data.fields ?? [], data.rows ?? []);
 		return ok(data, json, text);
@@ -268,11 +261,7 @@ export async function cmdMigrationNew(
 		await writeFile(filePath, `-- Migration: ${name}\n`);
 		return ok({ file: filePath }, json, `Created: ${filePath}`);
 	} catch (e: unknown) {
-		return fail(
-			"write_failed",
-			toErrorMessage(e),
-			json,
-		);
+		return fail("write_failed", toErrorMessage(e), json);
 	}
 }
 
@@ -311,11 +300,7 @@ export async function cmdMigrationList(
 		const text = `Applied:\n${appliedLines}\n\nPending:\n${pendingLines}`;
 		return ok(result, json, text);
 	} catch (e: unknown) {
-		return fail(
-			"request_failed",
-			toErrorMessage(e),
-			json,
-		);
+		return fail("request_failed", toErrorMessage(e), json);
 	}
 }
 
@@ -384,11 +369,7 @@ export async function cmdMigrationUp(
 		);
 		return ok({ results }, json, lines.join("\n"));
 	} catch (e: unknown) {
-		return fail(
-			"request_failed",
-			toErrorMessage(e),
-			json,
-		);
+		return fail("request_failed", toErrorMessage(e), json);
 	}
 }
 
@@ -432,10 +413,13 @@ export async function cmdUsersCreate(
 	if (!email) return fail("missing_email", "Provide --email", json);
 	if (!password) return fail("missing_password", "Provide --password", json);
 	try {
-		const { ok: success, data } = await adminRequest<{ id?: string; email?: string }>(
-			`${url}/auth/v1/admin/users`, key,
-			{ method: "POST", body: { email, password } },
-		);
+		const { ok: success, data } = await adminRequest<{
+			id?: string;
+			email?: string;
+		}>(`${url}/auth/v1/admin/users`, key, {
+			method: "POST",
+			body: { email, password },
+		});
 		if (!success) return apiError(data, json);
 		const text = `Created user\n  ID:    ${data.id}\n  Email: ${data.email}`;
 		return ok(data, json, text);
@@ -482,7 +466,9 @@ export async function cmdUsersDelete(
 		);
 	try {
 		const { ok: success, data } = await adminRequest<unknown>(
-			`${url}/auth/v1/admin/users/${id}`, key, { method: "DELETE" },
+			`${url}/auth/v1/admin/users/${id}`,
+			key,
+			{ method: "DELETE" },
 		);
 		if (!success) return apiError(data, json);
 		return ok(data, json, `Deleted user ${id}`);
@@ -498,11 +484,13 @@ export async function cmdStorageListBuckets(
 	const url = getUrl(args);
 	const key = getServiceRoleKey(args);
 	try {
-		const { ok: success, data } = await adminRequest<Array<{
-			id: string;
-			name: string;
-			public: boolean;
-		}>>(`${url}/storage/v1/bucket`, key);
+		const { ok: success, data } = await adminRequest<
+			Array<{
+				id: string;
+				name: string;
+				public: boolean;
+			}>
+		>(`${url}/storage/v1/bucket`, key);
 		if (!success) return apiError(data, json);
 		const text =
 			data.length === 0
@@ -528,7 +516,8 @@ export async function cmdStorageCreateBucket(
 	const isPublic = args.includes("--public");
 	try {
 		const { ok: success, data } = await adminRequest<unknown>(
-			`${url}/storage/v1/bucket`, key,
+			`${url}/storage/v1/bucket`,
+			key,
 			{ method: "POST", body: { id: name, name, public: isPublic } },
 		);
 		if (!success) return apiError(data, json);
@@ -549,13 +538,15 @@ export async function cmdStorageLs(
 	const prefix = rest.join("/");
 	if (!bucket) return fail("missing_bucket", "Provide a bucket name", json);
 	try {
-		const { ok: success, data } = await adminRequest<Array<{
-			name: string;
-			metadata?: { size?: number };
-		}>>(
-			`${url}/storage/v1/object/list/${bucket}`, key,
-			{ method: "POST", body: { prefix, limit: 100, offset: 0 } },
-		);
+		const { ok: success, data } = await adminRequest<
+			Array<{
+				name: string;
+				metadata?: { size?: number };
+			}>
+		>(`${url}/storage/v1/object/list/${bucket}`, key, {
+			method: "POST",
+			body: { prefix, limit: 100, offset: 0 },
+		});
 		if (!success) return apiError(data, json);
 		const text =
 			data.length === 0
@@ -568,11 +559,7 @@ export async function cmdStorageLs(
 						.join("\n");
 		return ok(data, json, text);
 	} catch (e: unknown) {
-		return fail(
-			"request_failed",
-			toErrorMessage(e),
-			json,
-		);
+		return fail("request_failed", toErrorMessage(e), json);
 	}
 }
 
@@ -632,11 +619,7 @@ export async function cmdStorageCp(
 			);
 		}
 	} catch (e: unknown) {
-		return fail(
-			"request_failed",
-			toErrorMessage(e),
-			json,
-		);
+		return fail("request_failed", toErrorMessage(e), json);
 	}
 }
 
@@ -649,12 +632,14 @@ export async function cmdGenTypes(
 	const outputFile = getArgValue(args, "--output");
 
 	try {
-		const { ok: success, data } = await adminRequest<Array<{
-			table_name: string;
-			column_name: string;
-			data_type: string;
-			is_nullable: string;
-		}>>(`${url}/admin/v1/schema?format=json`, key);
+		const { ok: success, data } = await adminRequest<
+			Array<{
+				table_name: string;
+				column_name: string;
+				data_type: string;
+				is_nullable: string;
+			}>
+		>(`${url}/admin/v1/schema?format=json`, key);
 		if (!success) return apiError(data, json);
 
 		const tables: Record<
@@ -718,11 +703,7 @@ export async function cmdGenTypes(
 		}
 		return { exitCode: 0, output: types };
 	} catch (e: unknown) {
-		return fail(
-			"request_failed",
-			toErrorMessage(e),
-			json,
-		);
+		return fail("request_failed", toErrorMessage(e), json);
 	}
 }
 
@@ -880,11 +861,7 @@ export async function cmdSyncPush(
 		}
 	} catch (e: unknown) {
 		if (client) await client.end().catch(() => {});
-		return fail(
-			"sync_failed",
-			toErrorMessage(e),
-			json,
-		);
+		return fail("sync_failed", toErrorMessage(e), json);
 	}
 	if (client) await client.end().catch(() => {});
 
@@ -1120,11 +1097,7 @@ export async function cmdSyncPull(
 		}
 	} catch (e: unknown) {
 		if (client) await client.end().catch(() => {});
-		return fail(
-			"sync_failed",
-			toErrorMessage(e),
-			json,
-		);
+		return fail("sync_failed", toErrorMessage(e), json);
 	}
 	await client.end().catch(() => {});
 

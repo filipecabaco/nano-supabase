@@ -264,8 +264,14 @@ export async function nanoSupabase(
 	if (tcp) {
 		const DEFAULT_TCP_PORT = 5432;
 		const DEFAULT_TCP_HOST = "127.0.0.1";
-		const port = typeof tcp === "object" ? (tcp.port ?? DEFAULT_TCP_PORT) : DEFAULT_TCP_PORT;
-		const host = typeof tcp === "object" ? (tcp.host ?? DEFAULT_TCP_HOST) : DEFAULT_TCP_HOST;
+		const port =
+			typeof tcp === "object"
+				? (tcp.port ?? DEFAULT_TCP_PORT)
+				: DEFAULT_TCP_PORT;
+		const host =
+			typeof tcp === "object"
+				? (tcp.host ?? DEFAULT_TCP_HOST)
+				: DEFAULT_TCP_HOST;
 		const { PGliteTCPServer } = await import("./tcp-server.ts");
 		tcpServer = await PGliteTCPServer.create(db);
 		await tcpServer.start(port, host);
