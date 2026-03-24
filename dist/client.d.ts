@@ -161,6 +161,7 @@ export declare function initializeAuth(db: PGlite): Promise<AuthHandler>;
 export declare function createFetchAdapter(config: {
     db: PGlite;
     supabaseUrl?: string;
+    serviceRoleKey?: string;
     debug?: boolean;
     originalFetch?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
     storageBackend?: StorageBackend | false;

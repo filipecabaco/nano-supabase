@@ -477,6 +477,175 @@ export async function cmdUsersDelete(
 	}
 }
 
+export async function cmdAuthGenerateLink(
+	args: string[],
+): Promise<{ exitCode: number; output: string }> {
+	const json = args.includes("--json");
+	const url = getUrl(args);
+	const key = getServiceRoleKey(args);
+	const email = getArgValue(args, "--email");
+	const type = getArgValue(args, "--type") ?? "magiclink";
+	if (!email) return fail("missing_email", "Provide --email", json);
+	const validTypes = ["magiclink", "recovery", "signup", "invite"];
+	if (!validTypes.includes(type))
+		return fail(
+			"invalid_type",
+			`--type must be one of: ${validTypes.join(", ")}`,
+			json,
+		);
+	try {
+		const { ok: success, data } = await adminRequest<{
+			action_link?: string;
+			email_otp?: string;
+			hashed_token?: string;
+			email?: string;
+		}>(`${url}/auth/v1/admin/generate_link`, key, {
+			method: "POST",
+			body: { type, email },
+		});
+		if (!success) return apiError(data, json);
+		const text = [
+			`Type:         ${type}`,
+			`Email:        ${data.email}`,
+			`Token (OTP):  ${data.email_otp}`,
+			`Action link:  ${data.action_link}`,
+		].join("\n");
+		return ok(data, json, text);
+	} catch (e: unknown) {
+		return fail("request_failed", toErrorMessage(e), json);
+	}
+}
+
+export async function cmdAuthAuditLog(
+	args: string[],
+): Promise<{ exitCode: number; output: string }> {
+	const json = args.includes("--json");
+	const url = getUrl(args);
+	const key = getServiceRoleKey(args);
+	const perPage = getArgValue(args, "--per-page") ?? "50";
+	const page = getArgValue(args, "--page") ?? "1";
+	try {
+		const { ok: success, data } = await adminRequest<{
+			entries?: Array<{
+				id?: string;
+				created_at?: string;
+				ip_address?: string;
+				payload?: {
+					action?: string;
+					actor_username?: string;
+					log_type?: string;
+				};
+			}>;
+		}>(`${url}/auth/v1/admin/audit?page=${page}&per_page=${perPage}`, key);
+		if (!success) return apiError(data, json);
+		const entries = data.entries ?? [];
+		const text =
+			entries.length === 0
+				? "(no audit log entries)"
+				: renderTable(
+						["created_at", "action", "actor", "ip"],
+						entries.map((e) => ({
+							created_at: e.created_at?.slice(0, 19) ?? "",
+							action: e.payload?.action ?? "",
+							actor: e.payload?.actor_username ?? "",
+							ip: e.ip_address ?? "",
+						})),
+					);
+		return ok(data, json, text);
+	} catch (e: unknown) {
+		return fail("request_failed", toErrorMessage(e), json);
+	}
+}
+
+export async function cmdAuthListFactors(
+	args: string[],
+): Promise<{ exitCode: number; output: string }> {
+	const json = args.includes("--json");
+	const url = getUrl(args);
+	const key = getServiceRoleKey(args);
+	const userId = args.find((a) => !a.startsWith("--"));
+	if (!userId) return fail("missing_id", "Provide a user ID", json);
+	try {
+		const { ok: success, data } = await adminRequest<{
+			factors?: Array<{
+				id: string;
+				factor_type: string;
+				friendly_name?: string;
+				status: string;
+				created_at?: string;
+			}>;
+		}>(`${url}/auth/v1/admin/users/${userId}/factors`, key);
+		if (!success) return apiError(data, json);
+		const factors = data.factors ?? [];
+		const text =
+			factors.length === 0
+				? "(no MFA factors enrolled)"
+				: renderTable(
+						["id", "type", "friendly_name", "status"],
+						factors.map((f) => ({
+							id: `${f.id.slice(0, 8)}…`,
+							type: f.factor_type,
+							friendly_name: f.friendly_name ?? "",
+							status: f.status,
+						})),
+					);
+		return ok(data, json, text);
+	} catch (e: unknown) {
+		return fail("request_failed", toErrorMessage(e), json);
+	}
+}
+
+export async function cmdAuthDeleteFactor(
+	args: string[],
+): Promise<{ exitCode: number; output: string }> {
+	const json = args.includes("--json");
+	const url = getUrl(args);
+	const key = getServiceRoleKey(args);
+	const positional = args.filter((a) => !a.startsWith("--"));
+	const [userId, factorId] = positional;
+	if (!userId) return fail("missing_user_id", "Provide a user ID", json);
+	if (!factorId) return fail("missing_factor_id", "Provide a factor ID", json);
+	try {
+		const { ok: success, data } = await adminRequest<unknown>(
+			`${url}/auth/v1/admin/users/${userId}/factors/${factorId}`,
+			key,
+			{ method: "DELETE" },
+		);
+		if (!success) return apiError(data, json);
+		return ok(data, json, `Deleted factor ${factorId} from user ${userId}`);
+	} catch (e: unknown) {
+		return fail("request_failed", toErrorMessage(e), json);
+	}
+}
+
+export async function cmdAuthBan(
+	args: string[],
+): Promise<{ exitCode: number; output: string }> {
+	const json = args.includes("--json");
+	const url = getUrl(args);
+	const key = getServiceRoleKey(args);
+	const userId = args.find((a) => !a.startsWith("--"));
+	if (!userId) return fail("missing_id", "Provide a user ID", json);
+	const duration = getArgValue(args, "--duration") ?? "876000h";
+	try {
+		const { ok: success, data } = await adminRequest<{
+			id?: string;
+			banned_until?: string;
+		}>(`${url}/auth/v1/admin/users/${userId}`, key, {
+			method: "PUT",
+			body: { ban_duration: duration },
+		});
+		if (!success) return apiError(data, json);
+		const text =
+			duration === "none"
+				? `Unbanned user ${userId}`
+				: `Banned user ${userId} until ${data.banned_until ?? "indefinitely"}`;
+		return ok(data, json, text);
+	} catch (e: unknown) {
+		return fail("request_failed", toErrorMessage(e), json);
+	}
+}
+
 export async function cmdStorageListBuckets(
 	args: string[],
 ): Promise<{ exitCode: number; output: string }> {

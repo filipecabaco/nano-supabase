@@ -8,9 +8,18 @@ importers:
 
   .:
     dependencies:
+      '@oslojs/otp':
+        specifier: ^1.1.0
+        version: 1.1.0
+      '@scure/base':
+        specifier: ^2.0.0
+        version: 2.0.0
       '@supabase/supabase-js':
         specifier: ^2.99.2
         version: 2.99.3
+      jose:
+        specifier: ^6.2.2
+        version: 6.2.2
       postgrest-parser:
         specifier: ^0.1.2
         version: 0.1.2
@@ -762,6 +771,21 @@ packages:
     peerDependencies:
       '@opentelemetry/api': ^1.1.0
 
+  '@oslojs/asn1@1.0.0':
+    resolution: {integrity: sha512-zw/wn0sj0j0QKbIXfIlnEcTviaCzYOY3V5rAyjR6YtOByFtJiT574+8p9Wlach0lZH9fddD4yb9laEAIl4vXQA==}
+
+  '@oslojs/binary@1.0.0':
+    resolution: {integrity: sha512-9RCU6OwXU6p67H4NODbuxv2S3eenuQ4/WFLrsq+K/k682xrznH5EVWA7N4VFk9VYVcbFtKqur5YQQZc0ySGhsQ==}
+
+  '@oslojs/crypto@1.0.0':
+    resolution: {integrity: sha512-dVz8TkkgYdr3tlwxHd7SCYGxoN7ynwHLA0nei/Aq9C+ERU0BK+U8+/3soEzBUxUNKYBf42351DyJUZ2REla50w==}
+
+  '@oslojs/encoding@1.0.0':
+    resolution: {integrity: sha512-dyIB0SdZgMm5BhGwdSp8rMxEFIopLKxDG1vxIBaiogyom6ZqH2aXPb6DEC2WzOOWKdPSq1cxdNeRx2wAn1Z+ZQ==}
+
+  '@oslojs/otp@1.1.0':
+    resolution: {integrity: sha512-tpdxlnCLcY6IZLLqH8kGD8PSvIVyev/+Gbglgvrk9e4YzgKO7+7FL8NWBofL7LZI6MgQ1HnNUuotRG6t1JJ0dg==}
+
   '@oxc-project/types@0.120.0':
     resolution: {integrity: sha512-k1YNu55DuvAip/MGE1FTsIuU3FUCn6v/ujG9V7Nq5Df/kX2CWb13hhwD0lmJGMGqE+bE1MXvv9SZVnMzEXlWcg==}
 
@@ -971,6 +995,9 @@ packages:
 
   '@rolldown/pluginutils@1.0.0-rc.10':
     resolution: {integrity: sha512-UkVDEFk1w3mveXeKgaTuYfKWtPbvgck1dT8TUG3bnccrH0XtLTuAyfCoks4Q/M5ZGToSVJTIQYCzy2g/atAOeg==}
+
+  '@scure/base@2.0.0':
+    resolution: {integrity: sha512-3E1kpuZginKkek01ovG8krQ0Z44E3DHPjc5S2rjJw9lZn3KSQOs8S7wqikF/AH7iRanHypj85uGyxk0XAyC37w==}
 
   '@sentry-internal/node-cpu-profiler@2.2.0':
     resolution: {integrity: sha512-oLHVYurqZfADPh5hvmQYS5qx8t0UZzT2u6+/68VXsFruQEOnYJTODKgU3BVLmemRs3WE6kCJjPeFdHVYOQGSzQ==}
@@ -4060,6 +4087,25 @@ snapshots:
       '@opentelemetry/api': 1.9.0
       '@opentelemetry/core': 1.30.1(@opentelemetry/api@1.9.0)
 
+  '@oslojs/asn1@1.0.0':
+    dependencies:
+      '@oslojs/binary': 1.0.0
+
+  '@oslojs/binary@1.0.0': {}
+
+  '@oslojs/crypto@1.0.0':
+    dependencies:
+      '@oslojs/asn1': 1.0.0
+      '@oslojs/binary': 1.0.0
+
+  '@oslojs/encoding@1.0.0': {}
+
+  '@oslojs/otp@1.1.0':
+    dependencies:
+      '@oslojs/binary': 1.0.0
+      '@oslojs/crypto': 1.0.0
+      '@oslojs/encoding': 1.0.0
+
   '@oxc-project/types@0.120.0': {}
 
   '@peculiar/asn1-cms@2.6.1':
@@ -4276,6 +4322,8 @@ snapshots:
     optional: true
 
   '@rolldown/pluginutils@1.0.0-rc.10': {}
+
+  '@scure/base@2.0.0': {}
 
   '@sentry-internal/node-cpu-profiler@2.2.0':
     dependencies:
@@ -5777,8 +5825,7 @@ snapshots:
 
   jiti@2.6.1: {}
 
-  jose@6.2.2:
-    optional: true
+  jose@6.2.2: {}
 
   json-schema-ref-resolver@1.0.1:
     dependencies:

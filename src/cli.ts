@@ -6,6 +6,11 @@ import { fileURLToPath } from "node:url";
 import type { Extension } from "@electric-sql/pglite";
 
 import {
+	cmdAuthAuditLog,
+	cmdAuthBan,
+	cmdAuthDeleteFactor,
+	cmdAuthGenerateLink,
+	cmdAuthListFactors,
 	cmdDbDump,
 	cmdDbExec,
 	cmdDbReset,
@@ -52,6 +57,7 @@ const SUB_COMMANDS = [
 	"db",
 	"migration",
 	"users",
+	"auth",
 	"storage",
 	"gen",
 	"sync",
@@ -85,6 +91,12 @@ Commands:
   users create          Create a user
   users get <id>        Get a user by ID
   users delete <id>     Delete a user
+
+  auth generate-link    Generate a magic link / recovery / signup / invite token
+  auth audit-log        Show recent auth audit log entries
+  auth list-factors     List MFA factors for a user
+  auth delete-factor    Remove an MFA factor from a user
+  auth ban <id>         Ban a user (--duration=<e.g. 24h>, use 'none' to unban)
 
   storage list-buckets       List storage buckets
   storage create-bucket <n>  Create a storage bucket
@@ -161,6 +173,13 @@ const SUBCOMMAND_OPS: Record<string, Record<string, CmdHandler>> = {
 		create: cmdUsersCreate,
 		get: cmdUsersGet,
 		delete: cmdUsersDelete,
+	},
+	auth: {
+		"generate-link": cmdAuthGenerateLink,
+		"audit-log": cmdAuthAuditLog,
+		"list-factors": cmdAuthListFactors,
+		"delete-factor": cmdAuthDeleteFactor,
+		ban: cmdAuthBan,
 	},
 	storage: {
 		"list-buckets": cmdStorageListBuckets,
