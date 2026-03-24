@@ -33,26 +33,18 @@ import {
 	cmdUsersDelete,
 	cmdUsersGet,
 	cmdUsersList,
+	DEFAULT_ANON_KEY,
+	DEFAULT_HTTP_PORT,
+	DEFAULT_SERVICE_ROLE_KEY,
+	DEFAULT_TCP_PORT,
+	getArgValue,
 } from "./cli-commands.ts";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const pgliteDist = __dirname;
 
-const DEFAULT_HTTP_PORT = 54321;
-const DEFAULT_TCP_PORT = 5432;
-const DEFAULT_ANON_KEY = "local-anon-key";
-const DEFAULT_SERVICE_ROLE_KEY = "local-service-role-key";
 
 const argv = process.argv.slice(2);
-
-function getArgValue(args: string[], flag: string): string | undefined {
-	const withEq = args.find((a) => a.startsWith(`${flag}=`));
-	if (withEq) return withEq.slice(flag.length + 1);
-	const idx = args.indexOf(flag);
-	if (idx !== -1 && idx + 1 < args.length && !args[idx + 1].startsWith("--"))
-		return args[idx + 1];
-	return undefined;
-}
 
 const SUB_COMMANDS = [
 	"start",
@@ -154,140 +146,78 @@ if (argv.includes("--version")) {
 	process.exit(0);
 }
 
+type CmdResult = Promise<{ exitCode: number; output: string }>;
+type CmdHandler = (args: string[]) => CmdResult;
+
+const SUBCOMMAND_OPS: Record<string, Record<string, CmdHandler>> = {
+	db: { exec: cmdDbExec, dump: cmdDbDump, reset: cmdDbReset },
+	migration: {
+		new: cmdMigrationNew,
+		list: cmdMigrationList,
+		up: cmdMigrationUp,
+	},
+	users: {
+		list: cmdUsersList,
+		create: cmdUsersCreate,
+		get: cmdUsersGet,
+		delete: cmdUsersDelete,
+	},
+	storage: {
+		"list-buckets": cmdStorageListBuckets,
+		"create-bucket": cmdStorageCreateBucket,
+		ls: cmdStorageLs,
+		cp: cmdStorageCp,
+	},
+	gen: { types: cmdGenTypes },
+	sync: { push: cmdSyncPush, pull: cmdSyncPull },
+	service: {
+		add: cmdServiceAdd,
+		list: cmdServiceList,
+		remove: cmdServiceRemove,
+		pause: cmdServicePause,
+		wake: cmdServiceWake,
+		sql: cmdServiceSql,
+		"reset-token": cmdServiceResetToken,
+		"reset-password": cmdServiceResetPassword,
+	},
+};
+
+const TOP_LEVEL_CMDS: Record<string, CmdHandler> = {
+	status: cmdStatus,
+	stop: cmdStop,
+};
+
+function unknownCommandError(context: string, op: string | undefined): never {
+	process.stderr.write(
+		`${JSON.stringify({
+			error: "unknown_command",
+			message: `Unknown ${context} command: ${op}`,
+		})}\n`,
+	);
+	process.exit(1);
+}
+
 async function runSubCommand(): Promise<void> {
 	let result: { exitCode: number; output: string };
 
-	if (subCommand === "status") {
-		result = await cmdStatus(subArgs);
-	} else if (subCommand === "stop") {
-		result = await cmdStop(subArgs);
-	} else if (subCommand === "db") {
-		const op = subArgs[0];
-		const opArgs = subArgs.slice(1);
-		if (op === "exec") result = await cmdDbExec(opArgs);
-		else if (op === "dump") result = await cmdDbDump(opArgs);
-		else if (op === "reset") result = await cmdDbReset(opArgs);
-		else {
-			process.stderr.write(
-				`${JSON.stringify({
-					error: "unknown_command",
-					message: `Unknown db command: ${op}`,
-				})}\n`,
-			);
-			process.exit(1);
-		}
-	} else if (subCommand === "migration") {
-		const op = subArgs[0];
-		const opArgs = subArgs.slice(1);
-		if (op === "new") result = await cmdMigrationNew(opArgs);
-		else if (op === "list") result = await cmdMigrationList(opArgs);
-		else if (op === "up") result = await cmdMigrationUp(opArgs);
-		else {
-			process.stderr.write(
-				`${JSON.stringify({
-					error: "unknown_command",
-					message: `Unknown migration command: ${op}`,
-				})}\n`,
-			);
-			process.exit(1);
-		}
-	} else if (subCommand === "users") {
-		const op = subArgs[0];
-		const opArgs = subArgs.slice(1);
-		if (op === "list") result = await cmdUsersList(opArgs);
-		else if (op === "create") result = await cmdUsersCreate(opArgs);
-		else if (op === "get") result = await cmdUsersGet(opArgs);
-		else if (op === "delete") result = await cmdUsersDelete(opArgs);
-		else {
-			process.stderr.write(
-				`${JSON.stringify({
-					error: "unknown_command",
-					message: `Unknown users command: ${op}`,
-				})}\n`,
-			);
-			process.exit(1);
-		}
-	} else if (subCommand === "storage") {
-		const op = subArgs[0];
-		const opArgs = subArgs.slice(1);
-		if (op === "list-buckets") result = await cmdStorageListBuckets(opArgs);
-		else if (op === "create-bucket")
-			result = await cmdStorageCreateBucket(opArgs);
-		else if (op === "ls") result = await cmdStorageLs(opArgs);
-		else if (op === "cp") result = await cmdStorageCp(opArgs);
-		else {
-			process.stderr.write(
-				`${JSON.stringify({
-					error: "unknown_command",
-					message: `Unknown storage command: ${op}`,
-				})}\n`,
-			);
-			process.exit(1);
-		}
-	} else if (subCommand === "gen") {
-		const op = subArgs[0];
-		const opArgs = subArgs.slice(1);
-		if (op === "types") result = await cmdGenTypes(opArgs);
-		else {
-			process.stderr.write(
-				`${JSON.stringify({
-					error: "unknown_command",
-					message: `Unknown gen command: ${op}`,
-				})}\n`,
-			);
-			process.exit(1);
-		}
-	} else if (subCommand === "sync") {
-		const op = subArgs[0];
-		const opArgs = subArgs.slice(1);
-		if (op === "push") result = await cmdSyncPush(opArgs);
-		else if (op === "pull") result = await cmdSyncPull(opArgs);
-		else {
-			process.stderr.write(
-				`${JSON.stringify({
-					error: "unknown_command",
-					message: `Unknown sync operation: ${op}. Use push or pull.`,
-				})}\n`,
-			);
-			process.exit(1);
-		}
-	} else if (subCommand === "service") {
-		const op = subArgs[0];
-		const opArgs = subArgs.slice(1);
-		if (op === "add") result = await cmdServiceAdd(opArgs);
-		else if (op === "list") result = await cmdServiceList(opArgs);
-		else if (op === "remove") result = await cmdServiceRemove(opArgs);
-		else if (op === "pause") result = await cmdServicePause(opArgs);
-		else if (op === "wake") result = await cmdServiceWake(opArgs);
-		else if (op === "sql") result = await cmdServiceSql(opArgs);
-		else if (op === "reset-token") result = await cmdServiceResetToken(opArgs);
-		else if (op === "reset-password")
-			result = await cmdServiceResetPassword(opArgs);
-		else {
-			process.stderr.write(
-				`${JSON.stringify({
-					error: "unknown_command",
-					message: `Unknown service command: ${op}. Use add, list, remove, pause, wake, sql, reset-token, or reset-password.`,
-				})}\n`,
-			);
-			process.exit(1);
-		}
+	const topLevel = TOP_LEVEL_CMDS[subCommand];
+	if (topLevel) {
+		result = await topLevel(subArgs);
 	} else {
-		process.stderr.write(
-			`${JSON.stringify({
-				error: "unknown_command",
-				message: `Unknown command: ${subCommand}`,
-			})}\n`,
-		);
-		process.exit(1);
+		const ops = SUBCOMMAND_OPS[subCommand];
+		if (!ops) unknownCommandError("", subCommand);
+		const op = subArgs[0];
+		const handler = op ? ops[op] : undefined;
+		if (!handler) unknownCommandError(subCommand, op);
+		result = await handler(subArgs.slice(1));
 	}
 
-	if (result?.exitCode !== 0) {
-		process.stderr.write(`${result?.output}\n`);
+	if (result.exitCode !== 0) {
+		process.stderr.write(`${result.output}\n`);
 	} else {
-		process.stdout.write(`${result?.output}\n`);
+		process.stdout.write(`${result.output}\n`);
 	}
-	process.exit(result?.exitCode);
+	process.exit(result.exitCode);
 }
 
 const SERVICE_MGMT_OPS = [

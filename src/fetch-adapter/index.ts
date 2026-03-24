@@ -49,17 +49,9 @@ export interface FetchAdapterConfig {
 	serviceRoleKey?: string;
 }
 
-/**
- * Route information extracted from a request
- */
-interface RouteInfo {
-	/** Whether this request should be intercepted */
-	intercept: boolean;
-	/** The route type (auth, data, storage, or passthrough) */
-	type: "auth" | "data" | "storage" | "passthrough";
-	/** The pathname for intercepted routes */
-	pathname?: string;
-}
+type RouteInfo =
+	| { intercept: true; type: "auth" | "data" | "storage"; pathname: string }
+	| { intercept: false; type: "passthrough" };
 
 /**
  * Determine if and how a request should be routed
@@ -171,25 +163,21 @@ export function createLocalFetch(
 		try {
 			let response: Response;
 
-			if (routeInfo.type === "auth" && routeInfo.pathname) {
+			if (routeInfo.type === "auth") {
 				response = await handleAuthRoute(
 					request,
 					routeInfo.pathname,
 					authHandler,
 					serviceRoleKey,
 				);
-			} else if (routeInfo.type === "data" && routeInfo.pathname) {
+			} else if (routeInfo.type === "data") {
 				response = await handleDataRoute(
 					request,
 					routeInfo.pathname,
 					db,
 					parser,
 				);
-			} else if (
-				routeInfo.type === "storage" &&
-				routeInfo.pathname &&
-				storageHandler
-			) {
+			} else if (storageHandler) {
 				response = await handleStorageRoute(
 					request,
 					routeInfo.pathname,
@@ -198,7 +186,6 @@ export function createLocalFetch(
 					tusSessions,
 				);
 			} else {
-				// Should not reach here, but pass through just in case
 				return originalFetch(input, init);
 			}
 

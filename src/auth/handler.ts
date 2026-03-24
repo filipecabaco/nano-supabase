@@ -22,8 +22,7 @@ import type {
 	User,
 } from "./types.ts";
 
-// Default access token expiry: 1 hour
-const ACCESS_TOKEN_EXPIRY = 3600;
+const ACCESS_TOKEN_EXPIRY_SECONDS = 3600;
 
 /**
  * Convert stored user to public user format
@@ -112,6 +111,15 @@ export class AuthHandler {
 		};
 	}
 
+	private async signInAndCreateSession(
+		storedUser: StoredUser,
+	): Promise<AuthResponse> {
+		const user = toPublicUser(storedUser);
+		const session = await this.createSession(storedUser);
+		this.emitAuthStateChange("SIGNED_IN", session);
+		return { data: { user, session }, error: null };
+	}
+
 	/**
 	 * Sign up a new user
 	 */
@@ -150,17 +158,6 @@ export class AuthHandler {
 				[email, password, userMetadata],
 			);
 
-			if (result.rows.length === 0) {
-				return {
-					data: { user: null, session: null },
-					error: authError(
-						"Failed to create user",
-						500,
-						"user_creation_failed",
-					),
-				};
-			}
-
 			const storedUser = result.rows[0];
 			if (!storedUser) {
 				return {
@@ -172,17 +169,8 @@ export class AuthHandler {
 					),
 				};
 			}
-			const user = toPublicUser(storedUser);
 
-			// Create session
-			const session = await this.createSession(storedUser);
-
-			this.emitAuthStateChange("SIGNED_IN", session);
-
-			return {
-				data: { user, session },
-				error: null,
-			};
+			return this.signInAndCreateSession(storedUser);
 		} catch (err) {
 			const message = err instanceof Error ? err.message : "Sign up failed";
 			return {
@@ -223,17 +211,7 @@ export class AuthHandler {
 				};
 			}
 
-			const user = toPublicUser(storedUser);
-
-			// Create session
-			const session = await this.createSession(storedUser);
-
-			this.emitAuthStateChange("SIGNED_IN", session);
-
-			return {
-				data: { user, session },
-				error: null,
-			};
+			return this.signInAndCreateSession(storedUser);
 		} catch (err) {
 			const message = err instanceof Error ? err.message : "Sign in failed";
 			return {
@@ -274,14 +252,14 @@ export class AuthHandler {
 			this.db,
 			user,
 			session.id,
-			ACCESS_TOKEN_EXPIRY,
+			ACCESS_TOKEN_EXPIRY_SECONDS,
 		);
 
 		return {
 			access_token: accessToken,
 			token_type: "bearer",
-			expires_in: ACCESS_TOKEN_EXPIRY,
-			expires_at: Math.floor(Date.now() / 1000) + ACCESS_TOKEN_EXPIRY,
+			expires_in: ACCESS_TOKEN_EXPIRY_SECONDS,
+			expires_at: Math.floor(Date.now() / 1000) + ACCESS_TOKEN_EXPIRY_SECONDS,
 			refresh_token: refreshToken.token,
 			user,
 		};
@@ -336,14 +314,14 @@ export class AuthHandler {
 				this.db,
 				user,
 				session_id,
-				ACCESS_TOKEN_EXPIRY,
+				ACCESS_TOKEN_EXPIRY_SECONDS,
 			);
 
 			const session: Session = {
 				access_token: accessToken,
 				token_type: "bearer",
-				expires_in: ACCESS_TOKEN_EXPIRY,
-				expires_at: Math.floor(Date.now() / 1000) + ACCESS_TOKEN_EXPIRY,
+				expires_in: ACCESS_TOKEN_EXPIRY_SECONDS,
+				expires_at: Math.floor(Date.now() / 1000) + ACCESS_TOKEN_EXPIRY_SECONDS,
 				refresh_token: new_token,
 				user,
 			};
@@ -538,7 +516,7 @@ export class AuthHandler {
 					this.db,
 					user,
 					verified.payload.session_id,
-					ACCESS_TOKEN_EXPIRY,
+					ACCESS_TOKEN_EXPIRY_SECONDS,
 				);
 				session = {
 					...session,
