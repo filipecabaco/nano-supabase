@@ -18,7 +18,6 @@ export type QueryFn = (
 
 interface BaseQueuedQuery {
 	readonly id: string;
-	/** Mutable: queue aging promotes queries to higher priority levels */
 	priority: QueryPriority;
 	readonly enqueuedAt: number;
 	readonly reject: (error: Error) => void;

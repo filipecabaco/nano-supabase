@@ -249,6 +249,7 @@ npx nano-supabase service \
 | `--base-domain` | — | Base domain for subdomain routing (e.g. `example.com` → `<slug>.example.com`) |
 | `--idle-check` | `30000` | Idle check interval in milliseconds |
 | `--circuit-breaker-threshold` | `10` | Auto-pause tenant after N consecutive 5xx responses |
+| `--mcp` | false | Expose MCP server on `/<slug>/mcp` for each tenant (requires tenant bearer token) |
 
 **Tenant routing:** requests are dispatched as `/<slug>/...` — the slug identifies the tenant, the remainder is forwarded to its local nano instance. Every tenant request requires `Authorization: Bearer <tenant-token>`.
 

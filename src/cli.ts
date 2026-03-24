@@ -111,6 +111,7 @@ Service options:
   --idle-timeout=<ms>     Idle timeout in ms (default: 600000)
   --idle-check=<ms>       Idle check interval in ms (default: 30000)
   --circuit-breaker-threshold=<n>  Auto-pause tenant after N consecutive 5xx responses (default: 10)
+  --mcp                   Expose MCP server on /<slug>/mcp for each tenant (requires tenant token)
 
 Sync options:
   --remote-url=<url>               Remote Supabase project URL (or SUPABASE_URL)
@@ -404,6 +405,7 @@ if (subCommand === "service" && !isServiceMgmtOp) {
 		DEFAULT_SERVICE_ROLE_KEY,
 		DEFAULT_ANON_KEY,
 		pgliteDist,
+		mcp,
 	});
 } else {
 	const { runStartMode } = await import("./cli-server.ts");

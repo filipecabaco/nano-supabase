@@ -3,6 +3,8 @@ import { readFile, stat, writeFile } from "node:fs/promises";
 import { createServer as createHttpServer } from "node:http";
 import { join } from "node:path";
 import type { Extension } from "@electric-sql/pglite";
+import type { McpHandler } from "./mcp-server.ts";
+import { createMcpHandler } from "./mcp-server.ts";
 import type { NanoSupabaseInstance } from "./nano.ts";
 import { nanoSupabase } from "./nano.ts";
 import { PostgrestParser } from "./postgrest-parser.ts";
@@ -23,6 +25,7 @@ export async function runServiceMode(opts: {
 	DEFAULT_SERVICE_ROLE_KEY: string;
 	DEFAULT_ANON_KEY: string;
 	pgliteDist: string;
+	mcp?: boolean;
 }): Promise<void> {
 	process.on("unhandledRejection", (err) => {
 		process.stderr.write(
@@ -46,6 +49,7 @@ export async function runServiceMode(opts: {
 		DEFAULT_SERVICE_ROLE_KEY,
 		DEFAULT_ANON_KEY,
 		pgliteDist,
+		mcp = false,
 	} = opts;
 
 	const { S3Client, PutObjectCommand, GetObjectCommand } = await import(
@@ -458,6 +462,7 @@ export async function runServiceMode(opts: {
 	const sharedParser = new PostgrestParser();
 	const nanoInstances = new Map<string, NanoSupabaseInstance | null>();
 	const tenantPoolers = new Map<string, import("./pooler.ts").PGlitePooler>();
+	const tenantMcpHandlers = new Map<string, McpHandler>();
 	const wakingPromises = new Map<string, Promise<void>>();
 	const tenantCache = new Map<string, TenantEntry>();
 	const dirtyLastActive = new Set<string>();
@@ -653,6 +658,7 @@ export async function runServiceMode(opts: {
 			await inst[Symbol.asyncDispose]().catch(() => {});
 		}
 		nanoInstances.set(tenant.id, null);
+		tenantMcpHandlers.delete(tenant.id);
 		tenant.nano = null;
 		try {
 			await offloadTenant(tenant.dataDir, tenant.id);
@@ -933,6 +939,7 @@ export async function runServiceMode(opts: {
 					consecutiveErrors.delete(tenant.id);
 					usageMap.delete(tenant.id);
 					tenantCache.delete(tenant.id);
+					tenantMcpHandlers.delete(tenant.id);
 					try {
 						await rm(tenant.dataDir, { recursive: true, force: true });
 					} catch {}
@@ -1151,6 +1158,41 @@ export async function runServiceMode(opts: {
 
 		markLastActive(tenant.id);
 		tenant.lastActive = new Date();
+
+		if (mcp && (restPath === "/mcp" || restPath.startsWith("/mcp/"))) {
+			const nano = nanoInstances.get(tenant.id);
+			if (!nano)
+				return new Response(JSON.stringify({ error: "nano_unavailable" }), {
+					status: 503,
+					headers: json,
+				});
+			let mcpHandler = tenantMcpHandlers.get(tenant.id);
+			if (!mcpHandler) {
+				const tenantUrl =
+					routing === "subdomain"
+						? `${url.protocol}//${tenant.slug}.${baseDomain || "localhost"}:${servicePort}`
+						: `${url.protocol}//${url.host}/${tenant.slug}`;
+				mcpHandler = createMcpHandler(nano, {
+					httpPort: servicePort,
+					serviceRoleKey: tenant.serviceRoleKey,
+					anonKey: tenant.anonKey,
+					projectUrl: tenantUrl,
+				});
+				tenantMcpHandlers.set(tenant.id, mcpHandler);
+			}
+			const mcpReq = new Request(
+				`http://localhost:${servicePort}${restPath}${url.search}`,
+				{
+					method: req.method,
+					headers: req.headers,
+					body:
+						req.method !== "GET" && req.method !== "HEAD"
+							? req.body
+							: undefined,
+				},
+			);
+			return mcpHandler.handleRequest(mcpReq);
+		}
 
 		const forwardHeaders = new Headers(req.headers);
 		forwardHeaders.delete("Authorization");

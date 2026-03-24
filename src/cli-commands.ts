@@ -41,7 +41,7 @@ function adminHeaders(key: string): Record<string, string> {
 }
 
 function toErrorMessage(e: unknown): string {
-	return toErrorMessage(e);
+	return e instanceof Error ? e.message : String(e);
 }
 
 async function adminRequest<T>(

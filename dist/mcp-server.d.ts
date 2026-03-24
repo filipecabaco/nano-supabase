@@ -3,6 +3,7 @@ export interface McpServerConfig {
     httpPort: number;
     serviceRoleKey: string;
     anonKey: string;
+    projectUrl?: string;
 }
 export interface McpHandler {
     handleRequest: (req: Request) => Promise<Response>;

@@ -310,6 +310,7 @@ npx nano-supabase service \
 | `--base-domain` | — | Base domain for subdomain routing (e.g. `example.com` → `<slug>.example.com`) |
 | `--idle-check` | `30000` | Idle check interval in milliseconds |
 | `--circuit-breaker-threshold` | `10` | Auto-pause tenant after N consecutive 5xx responses |
+| `--mcp` | false | Expose MCP server on `/<slug>/mcp` for each tenant (requires tenant bearer token) |
 
 **Manage tenants** (all commands accept `--url`, `--admin-token`/`NANO_ADMIN_TOKEN`, `--json`):
 
