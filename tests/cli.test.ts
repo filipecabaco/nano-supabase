@@ -19,6 +19,11 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, test } from "vitest";
 import {
+  cmdAuthAuditLog,
+  cmdAuthBan,
+  cmdAuthDeleteFactor,
+  cmdAuthGenerateLink,
+  cmdAuthListFactors,
   cmdDbDump,
   cmdDbExec,
   cmdDbReset,
@@ -419,6 +424,151 @@ describe("users", () => {
     assertEquals(result.exitCode, 1);
     const data = JSON.parse(result.output);
     assertEquals(data.error, "missing_email");
+  });
+});
+
+describe("auth", () => {
+  test("generate-link returns action_link and email_otp for existing user", async () => {
+    const createResult = await cmdUsersCreate([
+      ...serverArgs,
+      "--email=gen-link@example.com",
+      "--password=secret123",
+    ]);
+    assertEquals(createResult.exitCode, 0);
+
+    const result = await cmdAuthGenerateLink([
+      ...serverArgs,
+      "--email=gen-link@example.com",
+      "--type=magiclink",
+    ]);
+    assertEquals(result.exitCode, 0);
+    const data = JSON.parse(result.output);
+    assertExists(data.action_link);
+    assertExists(data.email_otp);
+  });
+
+  test("generate-link fails without --email", async () => {
+    const result = await cmdAuthGenerateLink([...serverArgs]);
+    assertEquals(result.exitCode, 1);
+    const data = JSON.parse(result.output);
+    assertEquals(data.error, "missing_email");
+  });
+
+  test("generate-link fails with invalid --type", async () => {
+    const result = await cmdAuthGenerateLink([
+      ...serverArgs,
+      "--email=gen-link@example.com",
+      "--type=invalid",
+    ]);
+    assertEquals(result.exitCode, 1);
+    const data = JSON.parse(result.output);
+    assertEquals(data.error, "invalid_type");
+  });
+
+  test("audit-log returns entries after user activity", async () => {
+    await cmdUsersCreate([
+      ...serverArgs,
+      "--email=audit-cli@example.com",
+      "--password=secret123",
+    ]);
+    await fetch(`${serverUrl}/auth/v1/token?grant_type=password`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", apikey: KEY },
+      body: JSON.stringify({
+        email: "audit-cli@example.com",
+        password: "secret123",
+      }),
+    });
+
+    const result = await cmdAuthAuditLog([...serverArgs]);
+    assertEquals(result.exitCode, 0);
+    const data = JSON.parse(result.output);
+    assertExists(data.entries);
+    assertEquals(Array.isArray(data.entries), true);
+    assertEquals(data.entries.length > 0, true);
+  });
+
+  test("audit-log pagination with --page and --per-page", async () => {
+    const result = await cmdAuthAuditLog([
+      ...serverArgs,
+      "--page=1",
+      "--per-page=2",
+    ]);
+    assertEquals(result.exitCode, 0);
+    const data = JSON.parse(result.output);
+    assertEquals(data.entries.length <= 2, true);
+  });
+
+  test("list-factors returns empty list for user with no MFA", async () => {
+    const createResult = await cmdUsersCreate([
+      ...serverArgs,
+      "--email=factors-cli@example.com",
+      "--password=secret123",
+    ]);
+    assertEquals(createResult.exitCode, 0);
+    const user = JSON.parse(createResult.output);
+
+    const result = await cmdAuthListFactors([...serverArgs, user.id]);
+    assertEquals(result.exitCode, 0);
+    const data = JSON.parse(result.output);
+    assertEquals(Array.isArray(data), true);
+    assertEquals(data.length, 0);
+  });
+
+  test("list-factors fails without user id", async () => {
+    const result = await cmdAuthListFactors([...serverArgs]);
+    assertEquals(result.exitCode, 1);
+    const data = JSON.parse(result.output);
+    assertEquals(data.error, "missing_id");
+  });
+
+  test("delete-factor fails without user id", async () => {
+    const result = await cmdAuthDeleteFactor([...serverArgs]);
+    assertEquals(result.exitCode, 1);
+    const data = JSON.parse(result.output);
+    assertEquals(data.error, "missing_user_id");
+  });
+
+  test("delete-factor fails without factor id", async () => {
+    const result = await cmdAuthDeleteFactor([...serverArgs, "some-user-id"]);
+    assertEquals(result.exitCode, 1);
+    const data = JSON.parse(result.output);
+    assertEquals(data.error, "missing_factor_id");
+  });
+
+  test("ban and unban user", async () => {
+    const createResult = await cmdUsersCreate([
+      ...serverArgs,
+      "--email=ban-cli@example.com",
+      "--password=secret123",
+    ]);
+    assertEquals(createResult.exitCode, 0);
+    const user = JSON.parse(createResult.output);
+
+    const banResult = await cmdAuthBan([
+      ...serverArgs,
+      user.id,
+      "--duration=876000h",
+    ]);
+    assertEquals(banResult.exitCode, 0);
+    const banData = JSON.parse(banResult.output);
+    assertExists(banData.banned_until);
+
+    const unbanResult = await cmdAuthBan([
+      ...serverArgs,
+      user.id,
+      "--duration=none",
+    ]);
+    assertEquals(unbanResult.exitCode, 0);
+    const unbanData = JSON.parse(unbanResult.output);
+    assertEquals(unbanData.banned_until, null);
+  });
+
+  test("ban fails without user id", async () => {
+    const result = await cmdAuthBan([...serverArgs]);
+    assertEquals(result.exitCode, 1);
+    const data = JSON.parse(result.output);
+    assertEquals(data.error, "missing_id");
   });
 });
 

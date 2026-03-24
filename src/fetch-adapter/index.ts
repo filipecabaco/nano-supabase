@@ -136,7 +136,7 @@ export function createLocalFetch(
 
 export function extractBearerToken(headers: Headers): string | null {
   const auth = headers.get("Authorization");
-  if (!auth || !auth.startsWith("Bearer ")) {
+  if (!auth?.startsWith("Bearer ")) {
     return null;
   }
   return auth.slice(7);

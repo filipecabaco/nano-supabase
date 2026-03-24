@@ -98,6 +98,7 @@ export declare class AuthHandler {
         friendly_name: string | null;
         created_at: string;
     }[]>;
+    adminDeleteFactor(userId: string, factorId: string): Promise<void>;
     adminAuditLog(page?: number, perPage?: number): Promise<{
         entries: unknown[];
         total: number;

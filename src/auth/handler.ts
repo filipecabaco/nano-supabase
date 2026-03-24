@@ -49,6 +49,7 @@ function toPublicUser(storedUser: StoredUser): User {
     last_sign_in_at: storedUser.last_sign_in_at || undefined,
     app_metadata: storedUser.raw_app_meta_data || {},
     user_metadata: storedUser.raw_user_meta_data || {},
+    banned_until: storedUser.banned_until,
     created_at: storedUser.created_at,
     updated_at: storedUser.updated_at,
   };
@@ -173,7 +174,7 @@ export class AuthHandler {
       );
 
       const storedUser = result.rows[0];
-      if (!storedUser || !storedUser.id) {
+      if (!storedUser?.id) {
         await this.writeAuditLog("login_failed", null, email, "account");
         return fail("Invalid login credentials", 400, "invalid_credentials");
       }
@@ -240,7 +241,7 @@ export class AuthHandler {
       }>("SELECT * FROM auth.refresh_token($1)", [refreshToken]);
 
       const tokenResult = result.rows[0];
-      if (!tokenResult || !tokenResult.new_token) {
+      if (!tokenResult?.new_token) {
         return fail("Invalid refresh token", 401, "invalid_refresh_token");
       }
 
@@ -1015,6 +1016,14 @@ export class AuthHandler {
       [userId],
     );
     return result.rows;
+  }
+
+  async adminDeleteFactor(userId: string, factorId: string): Promise<void> {
+    await this.initialize();
+    await this.db.query(
+      "DELETE FROM auth.mfa_factors WHERE id = $1 AND user_id = $2",
+      [factorId, userId],
+    );
   }
 
   async adminAuditLog(

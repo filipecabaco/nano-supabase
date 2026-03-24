@@ -522,8 +522,14 @@ export async function cmdAuthAuditLog(
   const json = args.includes("--json");
   const url = getUrl(args);
   const key = getServiceRoleKey(args);
-  const perPage = getArgValue(args, "--per-page") ?? "50";
-  const page = getArgValue(args, "--page") ?? "1";
+  const page = Math.max(
+    1,
+    parseInt(getArgValue(args, "--page") ?? "1", 10) || 1,
+  );
+  const perPage = Math.max(
+    1,
+    parseInt(getArgValue(args, "--per-page") ?? "50", 10) || 50,
+  );
   try {
     const { ok: success, data } = await adminRequest<{
       entries?: Array<{
@@ -566,17 +572,17 @@ export async function cmdAuthListFactors(
   const userId = args.find((a) => !a.startsWith("--"));
   if (!userId) return fail("missing_id", "Provide a user ID", json);
   try {
-    const { ok: success, data } = await adminRequest<{
-      factors?: Array<{
+    const { ok: success, data } = await adminRequest<
+      Array<{
         id: string;
         factor_type: string;
         friendly_name?: string;
         status: string;
         created_at?: string;
-      }>;
-    }>(`${url}/auth/v1/admin/users/${userId}/factors`, key);
+      }>
+    >(`${url}/auth/v1/admin/users/${userId}/factors`, key);
     if (!success) return apiError(data, json);
-    const factors = data.factors ?? [];
+    const factors = Array.isArray(data) ? data : [];
     const text =
       factors.length === 0
         ? "(no MFA factors enrolled)"

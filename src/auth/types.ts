@@ -11,6 +11,7 @@ export interface User {
   app_metadata: Record<string, unknown>;
   user_metadata: Record<string, unknown>;
   identities?: UserIdentity[];
+  banned_until?: string | null;
   created_at: string;
   updated_at: string;
 }
