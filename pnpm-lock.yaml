@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      '@electric-sql/pglite':
+        specifier: '>=0.4.1'
+        version: 0.4.1
       '@oslojs/otp':
         specifier: ^1.1.0
         version: 1.1.0
@@ -27,9 +30,6 @@ importers:
       '@biomejs/biome':
         specifier: ^2.4.8
         version: 2.4.8
-      '@electric-sql/pglite':
-        specifier: 0.4.1
-        version: 0.4.1
       '@electric-sql/pglite-socket':
         specifier: ^0.0.22
         version: 0.0.22(@electric-sql/pglite@0.4.1)
