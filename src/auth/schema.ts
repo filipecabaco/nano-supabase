@@ -285,7 +285,8 @@ CREATE TABLE IF NOT EXISTS auth.one_time_tokens (
   token_hash TEXT NOT NULL,
   relates_to TEXT NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  expires_at TIMESTAMPTZ NOT NULL DEFAULT (NOW() + INTERVAL '10 minutes')
 );
 CREATE INDEX IF NOT EXISTS one_time_tokens_token_hash_hash_idx ON auth.one_time_tokens USING hash (token_hash);
 CREATE INDEX IF NOT EXISTS one_time_tokens_user_id_token_type_key ON auth.one_time_tokens (user_id, token_type);
@@ -299,6 +300,9 @@ CREATE INDEX IF NOT EXISTS refresh_tokens_token_idx ON auth.refresh_tokens(token
 CREATE INDEX IF NOT EXISTS refresh_tokens_user_id_idx ON auth.refresh_tokens(user_id);
 CREATE INDEX IF NOT EXISTS refresh_tokens_session_id_idx ON auth.refresh_tokens(session_id);
 CREATE INDEX IF NOT EXISTS audit_logs_instance_id_idx ON auth.audit_log_entries(instance_id);
+CREATE INDEX IF NOT EXISTS one_time_tokens_expires_at_idx ON auth.one_time_tokens (expires_at);
+CREATE INDEX IF NOT EXISTS mfa_challenges_factor_id_idx ON auth.mfa_challenges (factor_id);
+CREATE INDEX IF NOT EXISTS audit_log_entries_created_at_idx ON auth.audit_log_entries (created_at DESC);
 
 -- Function to get current user ID (for RLS policies)
 CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID AS $$

@@ -1,11 +1,5 @@
-/**
- * Auth handler - processes auth requests and manages auth state
- */
 import type { PGlite } from "@electric-sql/pglite";
 import type { AuthError, AuthResponse, AuthStateChangeCallback, AuthSubscription, Session, User } from "./types.ts";
-/**
- * Auth handler class
- */
 export declare class AuthHandler {
     private readonly db;
     private initPromise;
@@ -13,55 +7,29 @@ export declare class AuthHandler {
     private currentSession;
     constructor(db: PGlite);
     initialize(): Promise<void>;
-    /**
-     * Emit auth state change to all subscribers
-     */
     private emitAuthStateChange;
-    /**
-     * Subscribe to auth state changes
-     */
     onAuthStateChange(callback: AuthStateChangeCallback): AuthSubscription;
     private signInAndCreateSession;
-    /**
-     * Sign up a new user
-     */
     signUp(email: string, password: string, options?: {
         data?: Record<string, unknown>;
     }): Promise<AuthResponse>;
-    /**
-     * Sign in with email and password
-     */
     signInWithPassword(email: string, password: string): Promise<AuthResponse>;
-    /**
-     * Create a session for a user
-     */
     private createSession;
-    /**
-     * Refresh the session using a refresh token
-     */
     refreshSession(refreshToken: string): Promise<AuthResponse>;
-    /**
-     * Sign out the current session
-     */
     signOut(accessToken?: string): Promise<{
         error: AuthError | null;
     }>;
-    /**
-     * Get user from access token
-     */
     getUser(accessToken: string): Promise<{
         data: {
             user: User | null;
         };
         error: AuthError | null;
     }>;
-    /**
-     * Update user data
-     */
     updateUser(accessToken: string, attributes: {
         email?: string;
         password?: string;
         data?: Record<string, unknown>;
+        nonce?: string;
     }): Promise<AuthResponse>;
     adminListUsers(page?: number, perPage?: number): Promise<{
         users: User[];
@@ -86,9 +54,6 @@ export declare class AuthHandler {
         email_confirm?: boolean;
     }): Promise<User | null>;
     adminDeleteUser(id: string): Promise<void>;
-    /**
-     * Get current session
-     */
     getSession(): Session | null;
     /**
      * Set current session (for restoring from storage)
@@ -97,6 +62,51 @@ export declare class AuthHandler {
     /**
      * Verify access token and return payload
      */
+    private writeAuditLog;
+    private generateOneTimeToken;
+    private consumeOneTimeToken;
+    signInAnonymously(): Promise<AuthResponse>;
+    sendOtp(email: string): Promise<{
+        token: string;
+    }>;
+    sendRecovery(email: string): Promise<{
+        token: string | null;
+    }>;
+    verifyOtp(rawToken: string, type: string): Promise<AuthResponse>;
+    sendInvite(email: string): Promise<{
+        token: string;
+    }>;
+    reauthenticate(accessToken: string): Promise<{
+        error: AuthError | null;
+    }>;
+    enrollTOTP(accessToken: string, friendlyName?: string): Promise<{
+        id: string;
+        type: string;
+        totp: {
+            qr_code: string;
+            secret: string;
+            uri: string;
+        };
+    } | null>;
+    challengeTOTP(accessToken: string, factorId: string): Promise<{
+        id: string;
+        expires_at: number;
+    } | null>;
+    verifyTOTP(accessToken: string, factorId: string, challengeId: string, code: string): Promise<AuthResponse>;
+    unenrollFactor(accessToken: string, factorId: string): Promise<{
+        error: AuthError | null;
+    }>;
+    adminListFactors(userId: string): Promise<{
+        id: string;
+        factor_type: string;
+        status: string;
+        friendly_name: string | null;
+        created_at: string;
+    }[]>;
+    adminAuditLog(page?: number, perPage?: number): Promise<{
+        entries: unknown[];
+        total: number;
+    }>;
     verifyToken(accessToken: string): Promise<{
         valid: boolean;
         payload?: {

@@ -254,6 +254,7 @@ export async function initializeAuth(db: PGlite): Promise<AuthHandler> {
 export async function createFetchAdapter(config: {
 	db: PGlite;
 	supabaseUrl?: string;
+	serviceRoleKey?: string;
 	debug?: boolean;
 	originalFetch?: (
 		input: RequestInfo | URL,
@@ -272,6 +273,7 @@ export async function createFetchAdapter(config: {
 	const {
 		db,
 		supabaseUrl = "http://localhost:54321",
+		serviceRoleKey,
 		debug = false,
 		originalFetch,
 		storageBackend,
@@ -288,6 +290,7 @@ export async function createFetchAdapter(config: {
 		authHandler,
 		storageHandler,
 		supabaseUrl,
+		serviceRoleKey,
 		originalFetch,
 		debug,
 	});
