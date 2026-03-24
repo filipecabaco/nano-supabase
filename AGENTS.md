@@ -150,10 +150,12 @@ RLS functions `auth.uid()`, `auth.role()`, and `auth.email()` work as expected o
 ## CLI (nano-supabase)
 
 ```bash
-npx nano-supabase start                     # HTTP on :54321, Postgres TCP on :5432
-npx nano-supabase start --data-dir=./data   # persist to disk
-npx nano-supabase start --mcp               # MCP server on /mcp
-npx nano-supabase start --detach            # background mode
+npx nano-supabase start                          # HTTP on :54321, Postgres TCP on :5432
+npx nano-supabase start --data-dir=./data        # persist to disk
+npx nano-supabase start --mcp                    # MCP server on /mcp
+npx nano-supabase start --detach                 # background mode
+npx nano-supabase start --count=3                # start 3 instances (ports increment per instance)
+npx nano-supabase start --tls-cert=cert.pem --tls-key=key.pem  # TLS/HTTPS
 
 # Load extensions at startup
 npx nano-supabase start --extensions=vector
@@ -221,6 +223,13 @@ npx nano-supabase service \
   --data-dir=./service-data \
   --cold-dir=./service-cold \
   --idle-timeout=600000
+
+# Subdomain routing — <slug>.example.com instead of example.com/<slug>
+npx nano-supabase service \
+  --admin-token=<secret> \
+  --secret=<encryption-secret> \
+  --routing=subdomain \
+  --base-domain=example.com
 ```
 
 **Flags:**
@@ -236,6 +245,10 @@ npx nano-supabase service \
 | `--idle-timeout` | `600000` | Milliseconds before idle tenant is auto-paused |
 | `--s3-bucket` | — | S3 bucket name for offload storage |
 | `--s3-endpoint` | — | Custom S3 endpoint (for MinIO, R2, etc.) |
+| `--routing` | `path` | Routing mode: `path` (default) or `subdomain` |
+| `--base-domain` | — | Base domain for subdomain routing (e.g. `example.com` → `<slug>.example.com`) |
+| `--idle-check` | `30000` | Idle check interval in milliseconds |
+| `--circuit-breaker-threshold` | `10` | Auto-pause tenant after N consecutive 5xx responses |
 
 **Tenant routing:** requests are dispatched as `/<slug>/...` — the slug identifies the tenant, the remainder is forwarded to its local nano instance. Every tenant request requires `Authorization: Bearer <tenant-token>`.
 

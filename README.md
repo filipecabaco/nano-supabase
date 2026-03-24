@@ -161,12 +161,14 @@ All extensions available in PGlite are supported. See the full list at [https://
 The CLI starts a full Supabase-compatible server locally and provides tooling to manage it.
 
 ```bash
-nano-supabase start                    # start server (HTTP + Postgres TCP)
-nano-supabase start --data-dir=./data  # persist to disk
-nano-supabase start --mcp              # also expose MCP server on /mcp
-nano-supabase start --detach           # run in background
-nano-supabase stop                     # stop detached server
-nano-supabase status                   # check if server is running
+nano-supabase start                                            # start server (HTTP + Postgres TCP)
+nano-supabase start --data-dir=./data                          # persist to disk
+nano-supabase start --mcp                                      # also expose MCP server on /mcp
+nano-supabase start --detach                                   # run in background
+nano-supabase start --count=3                                  # start 3 instances (ports increment per instance)
+nano-supabase start --tls-cert=cert.pem --tls-key=key.pem      # enable TLS/HTTPS
+nano-supabase stop                                             # stop detached server
+nano-supabase status                                           # check if server is running
 ```
 
 ### Database
@@ -256,6 +258,10 @@ Starts an MCP (Model Context Protocol) server on `/mcp` using Streamable HTTP tr
 | `--detach` | — | Run in background |
 | `--mcp` | — | Enable MCP server on `/mcp` |
 | `--extensions=<names>` | — | Comma-separated PGlite extensions to load (e.g. `vector,pg_trgm`) |
+| `--count=<n>` | — | Start N instances (ports increment per instance; data dir: `dataDir/i+1`) |
+| `--tls-cert=<path>` | — | Path to TLS certificate file (must be paired with `--tls-key`) |
+| `--tls-key=<path>` | — | Path to TLS private key file (must be paired with `--tls-cert`) |
+| `--debug` | — | Enable debug logging |
 | `--json` | — | Output JSON instead of human-readable text |
 
 ## Service Mode
@@ -277,6 +283,13 @@ npx nano-supabase service \
   --secret=<encryption-secret> \
   --registry-db-url=<postgres-url> \
   --service-port=8080
+
+# Subdomain routing — <slug>.example.com instead of example.com/<slug>
+npx nano-supabase service \
+  --admin-token=<secret> \
+  --secret=<encryption-secret> \
+  --routing=subdomain \
+  --base-domain=example.com
 ```
 
 **Flags:**
@@ -293,6 +306,10 @@ npx nano-supabase service \
 | `--idle-timeout` | `600000` | Milliseconds before idle tenant is auto-paused |
 | `--s3-bucket` | — | S3 bucket for offload storage (enables S3 mode) |
 | `--s3-endpoint` | — | Custom S3 endpoint (MinIO, R2, etc.) |
+| `--routing` | `path` | Routing mode: `path` (default) or `subdomain` |
+| `--base-domain` | — | Base domain for subdomain routing (e.g. `example.com` → `<slug>.example.com`) |
+| `--idle-check` | `30000` | Idle check interval in milliseconds |
+| `--circuit-breaker-threshold` | `10` | Auto-pause tenant after N consecutive 5xx responses |
 
 **Manage tenants** (all commands accept `--url`, `--admin-token`/`NANO_ADMIN_TOKEN`, `--json`):
 

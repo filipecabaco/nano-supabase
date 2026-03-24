@@ -1265,32 +1265,39 @@ export async function runServiceMode(opts: {
 	};
 	const serviceServer = createHttpServer(serviceServerHandler);
 
+	let idleCheckRunning = false;
 	const idleCheckInterval = setInterval(async () => {
-		await flushLastActive().catch((e: unknown) => {
-			log("error", {
-				event: "flush_last_active_failed",
-				error: e instanceof Error ? e.message : String(e),
-			});
-		});
-		const now = Date.now();
-		for (const tenant of await listTenants()) {
-			if (
-				tenant.state === "running" &&
-				now - tenant.lastActive.getTime() > idleTimeout
-			) {
-				log("tenant.idle", {
-					tenant_id: tenant.id,
-					slug: tenant.slug,
-					idle_ms: now - tenant.lastActive.getTime(),
+		if (idleCheckRunning) return;
+		idleCheckRunning = true;
+		try {
+			await flushLastActive().catch((e: unknown) => {
+				log("error", {
+					event: "flush_last_active_failed",
+					error: e instanceof Error ? e.message : String(e),
 				});
-				await pauseTenant(tenant).catch((e: unknown) => {
-					log("error", {
-						error: e instanceof Error ? e.message : String(e),
+			});
+			const now = Date.now();
+			for (const tenant of await listTenants()) {
+				if (
+					tenant.state === "running" &&
+					now - tenant.lastActive.getTime() > idleTimeout
+				) {
+					log("tenant.idle", {
 						tenant_id: tenant.id,
 						slug: tenant.slug,
+						idle_ms: now - tenant.lastActive.getTime(),
 					});
-				});
+					await pauseTenant(tenant).catch((e: unknown) => {
+						log("error", {
+							error: e instanceof Error ? e.message : String(e),
+							tenant_id: tenant.id,
+							slug: tenant.slug,
+						});
+					});
+				}
 			}
+		} finally {
+			idleCheckRunning = false;
 		}
 	}, idleCheck);
 

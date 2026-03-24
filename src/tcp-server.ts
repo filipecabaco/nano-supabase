@@ -235,6 +235,7 @@ export class PGliteTCPServer {
 		state.processing = true;
 		try {
 			while (state.buffer.length > 0) {
+				const before = state.buffer.length;
 				if (!state.startupDone) {
 					if (!this.handleStartup(socket, state)) break;
 				} else if (!state.authenticated) {
@@ -250,10 +251,15 @@ export class PGliteTCPServer {
 					if (!msg) break;
 					await this.handleMessage(socket, state, msg.type, msg.body);
 				}
+				if (state.buffer.length === before) {
+					socket.destroy();
+					break;
+				}
 			}
 		} finally {
 			state.processing = false;
-			if (state.buffer.length > 0) this.drain(socket, state).catch(() => {});
+			if (state.buffer.length > 0)
+				setImmediate(() => this.drain(socket, state).catch(() => {}));
 		}
 	}
 
@@ -516,6 +522,7 @@ export class PGliteTCPMuxServer {
 		state.processing = true;
 		try {
 			while (state.buffer.length > 0) {
+				const before = state.buffer.length;
 				if (!state.startupDone) {
 					const done = await this.handleMuxStartup(socket, state);
 					if (!done) break;
@@ -532,10 +539,15 @@ export class PGliteTCPMuxServer {
 					if (!msg) break;
 					await this.handleMuxMessage(socket, state, msg.type, msg.body);
 				}
+				if (state.buffer.length === before) {
+					socket.destroy();
+					break;
+				}
 			}
 		} finally {
 			state.processing = false;
-			if (state.buffer.length > 0) this.drainMux(socket, state).catch(() => {});
+			if (state.buffer.length > 0)
+				setImmediate(() => this.drainMux(socket, state).catch(() => {}));
 		}
 	}
 

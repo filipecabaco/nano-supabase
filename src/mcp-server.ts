@@ -254,37 +254,53 @@ export function createMcpHandler(
 		{
 			transport: WebStandardStreamableHTTPServerTransport;
 			server: ReturnType<typeof createSupabaseMcpServer>;
+			lastActive: number;
 		}
 	>();
+
+	const SESSION_TTL_MS = 30 * 60 * 1000;
+	const sweepInterval = setInterval(
+		() => {
+			const now = Date.now();
+			for (const [id, session] of sessions) {
+				if (now - session.lastActive > SESSION_TTL_MS) sessions.delete(id);
+			}
+		},
+		5 * 60 * 1000,
+	);
+	if (typeof sweepInterval === "object") sweepInterval.unref();
 
 	return {
 		async handleRequest(req: Request): Promise<Response> {
 			const sessionId = req.headers.get("mcp-session-id");
 
-			if (sessionId && sessions.has(sessionId)) {
+			if (sessionId) {
 				const session = sessions.get(sessionId);
-				return (
-					session?.transport.handleRequest(req) ??
-					new Response(null, { status: 404 })
-				);
-			}
-
-			if (sessionId && !sessions.has(sessionId)) {
-				return new Response(
-					JSON.stringify({
-						jsonrpc: "2.0",
-						error: { code: -32001, message: "Session not found" },
-						id: null,
-					}),
-					{ status: 404, headers: { "Content-Type": "application/json" } },
-				);
+				if (session) {
+					session.lastActive = Date.now();
+					return session.transport.handleRequest(req);
+				}
+				if (!sessions.has(sessionId)) {
+					return new Response(
+						JSON.stringify({
+							jsonrpc: "2.0",
+							error: { code: -32001, message: "Session not found" },
+							id: null,
+						}),
+						{ status: 404, headers: { "Content-Type": "application/json" } },
+					);
+				}
 			}
 
 			const transport = new WebStandardStreamableHTTPServerTransport({
 				sessionIdGenerator: () => crypto.randomUUID(),
 				enableJsonResponse: true,
 				onsessioninitialized: (id) => {
-					sessions.set(id, { transport, server: mcpServer });
+					sessions.set(id, {
+						transport,
+						server: mcpServer,
+						lastActive: Date.now(),
+					});
 				},
 				onsessionclosed: (id) => {
 					sessions.delete(id);
