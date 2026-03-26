@@ -74,7 +74,7 @@ export interface NanoSupabaseOptions {
      * Pre-compiled PGlite WebAssembly module. When provided, bypasses filesystem loading.
      * Used by the CLI binary to embed assets at compile time.
      */
-    wasmModule?: WebAssembly.Module;
+    pgliteWasmModule?: WebAssembly.Module;
     /**
      * PGlite filesystem bundle (pglite.data). When provided, bypasses filesystem loading.
      * Used by the CLI binary to embed assets at compile time.
