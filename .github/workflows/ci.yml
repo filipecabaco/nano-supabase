@@ -70,7 +70,7 @@ jobs:
         timeout-minutes: 5
         env:
           TEST_FILES: ${{ matrix.concern.files }}
-        run: timeout 180 pnpm vitest run $TEST_FILES; EXIT=$?; [ $EXIT -eq 0 ] || [ $EXIT -eq 124 ] || exit $EXIT
+        run: timeout --kill-after=10 180 pnpm vitest run $TEST_FILES; EXIT=$?; [ $EXIT -eq 0 ] || [ $EXIT -eq 124 ] || exit $EXIT
 
   test-cli:
     runs-on: ubuntu-latest

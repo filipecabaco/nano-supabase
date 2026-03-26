@@ -1,11 +1,6 @@
 import { createFetchAdapter, initializeAuth } from "../src/client.ts";
 import { createPGlite } from "../src/pglite-factory.ts";
-import {
-	assertEquals,
-	assertExists,
-	describe,
-	test,
-} from "./compat.ts";
+import { assertEquals, assertExists, describe, test } from "./compat.ts";
 
 const SUPABASE_URL = "http://localhost:54321";
 
