@@ -80,7 +80,7 @@ export interface NanoSupabaseOptions {
 	 * Pre-compiled PGlite WebAssembly module. When provided, bypasses filesystem loading.
 	 * Used by the CLI binary to embed assets at compile time.
 	 */
-	wasmModule?: WebAssembly.Module;
+	pgliteWasmModule?: WebAssembly.Module;
 	/**
 	 * PGlite filesystem bundle (pglite.data). When provided, bypasses filesystem loading.
 	 * Used by the CLI binary to embed assets at compile time.
@@ -192,7 +192,7 @@ export async function createClient<Database = unknown>(
 		tcp,
 		storageBackend,
 		debug,
-		wasmModule,
+		pgliteWasmModule,
 		fsBundle,
 		postgrestWasmBytes,
 		serviceRoleKey,
@@ -208,7 +208,7 @@ export async function createClient<Database = unknown>(
 		tcp,
 		storageBackend,
 		debug,
-		wasmModule,
+		pgliteWasmModule,
 		fsBundle,
 		postgrestWasmBytes,
 		serviceRoleKey,
@@ -227,7 +227,7 @@ export async function nanoSupabase(
 		tcp,
 		storageBackend,
 		debug = false,
-		wasmModule,
+		pgliteWasmModule,
 		fsBundle,
 		postgrestWasmBytes,
 		serviceRoleKey,
@@ -237,7 +237,7 @@ export async function nanoSupabase(
 
 	const db = createPGlite(dataDir, {
 		extensions,
-		wasmModule,
+		pgliteWasmModule,
 		fsBundle,
 		...postgresOptions,
 	});

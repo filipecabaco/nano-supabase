@@ -150,7 +150,7 @@ export class AuthHandler {
 				};
 			}
 
-			this.writeAuditLog("signup", storedUser.id, email, "account");
+			await this.writeAuditLog("signup", storedUser.id, email, "account");
 			return this.signInAndCreateSession(storedUser);
 		} catch (err) {
 			const message = err instanceof Error ? err.message : "Sign up failed";
@@ -189,7 +189,12 @@ export class AuthHandler {
 				};
 			}
 
-			this.writeAuditLog("login", storedUser.id, storedUser.email, "account");
+			await this.writeAuditLog(
+				"login",
+				storedUser.id,
+				storedUser.email,
+				"account",
+			);
 			return this.signInAndCreateSession(storedUser);
 		} catch (err) {
 			const message = err instanceof Error ? err.message : "Sign in failed";
@@ -335,7 +340,7 @@ export class AuthHandler {
 			await this.db.exec("RESET ROLE");
 
 			if (signOutUserId)
-				this.writeAuditLog("logout", signOutUserId, null, "account");
+				await this.writeAuditLog("logout", signOutUserId, null, "account");
 
 			this.emitAuthStateChange("SIGNED_OUT", null);
 			return { error: null };

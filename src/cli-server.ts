@@ -16,7 +16,7 @@ import { nanoSupabase } from "./nano.ts";
 import { PGliteTCPServer } from "./tcp-server.ts";
 
 export async function runStartMode(opts: {
-	wasmModule: WebAssembly.Module;
+	pgliteWasmModule: WebAssembly.Module;
 	fsBundle: Blob;
 	postgrestWasm: Uint8Array;
 	pgcryptoExt: Extension;
@@ -36,7 +36,7 @@ export async function runStartMode(opts: {
 	tlsKey?: string;
 }): Promise<void> {
 	const {
-		wasmModule,
+		pgliteWasmModule,
 		fsBundle,
 		postgrestWasm,
 		pgcryptoExt,
@@ -82,7 +82,7 @@ export async function runStartMode(opts: {
 			dataDir,
 			tcp: tlsBufs ? false : { port: tcpPort, host: "0.0.0.0" },
 			debug,
-			wasmModule,
+			pgliteWasmModule,
 			fsBundle,
 			postgrestWasmBytes: postgrestWasm,
 			extensions: {

@@ -357,7 +357,7 @@ if (detach) {
 	process.exit(1);
 }
 
-const wasmModule = await WebAssembly.compile(
+const pgliteWasmModule = await WebAssembly.compile(
 	await readFile(join(pgliteDist, "pglite.wasm")),
 );
 const fsBundle = new Blob([await readFile(join(pgliteDist, "pglite.data"))]);
@@ -413,7 +413,7 @@ for (const name of extensionNames) {
 if (subCommand === "service" && !isServiceMgmtOp) {
 	const { runServiceMode } = await import("./cli-service.ts");
 	await runServiceMode({
-		wasmModule,
+		pgliteWasmModule,
 		fsBundle,
 		postgrestWasm,
 		pgcryptoExt,
@@ -429,7 +429,7 @@ if (subCommand === "service" && !isServiceMgmtOp) {
 } else {
 	const { runStartMode } = await import("./cli-server.ts");
 	await runStartMode({
-		wasmModule,
+		pgliteWasmModule,
 		fsBundle,
 		postgrestWasm,
 		pgcryptoExt,

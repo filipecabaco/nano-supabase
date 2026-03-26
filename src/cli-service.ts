@@ -10,7 +10,7 @@ import { nanoSupabase } from "./nano.ts";
 import { PostgrestParser } from "./postgrest-parser.ts";
 
 export async function runServiceMode(opts: {
-	wasmModule: WebAssembly.Module;
+	pgliteWasmModule: WebAssembly.Module;
 	fsBundle: Blob;
 	postgrestWasm: Uint8Array;
 	pgcryptoExt: Extension;
@@ -38,7 +38,7 @@ export async function runServiceMode(opts: {
 	});
 
 	const {
-		wasmModule,
+		pgliteWasmModule,
 		fsBundle,
 		postgrestWasm,
 		pgcryptoExt,
@@ -283,7 +283,7 @@ export async function runServiceMode(opts: {
 		await mkdir(registryDir, { recursive: true });
 		const { PGlite } = await import("@electric-sql/pglite");
 		const registryDb = new PGlite(registryDir, {
-			wasmModule,
+			pgliteWasmModule,
 			fsBundle,
 		});
 		await registryDb.waitReady;
@@ -613,7 +613,7 @@ export async function runServiceMode(opts: {
 		});
 		const nanoInstance = await nanoSupabase({
 			dataDir: tenant.dataDir,
-			wasmModule,
+			pgliteWasmModule,
 			fsBundle,
 			postgrestWasmBytes: postgrestWasm,
 			parser: sharedParser,

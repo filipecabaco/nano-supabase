@@ -43,6 +43,8 @@ jobs:
             files: tests/storage.test.ts
           - name: fetch-adapter
             files: tests/fetch-adapter.test.ts
+          - name: fetch-adapter-data
+            files: tests/fetch-adapter-data.test.ts
           - name: applications
             files: tests/applications.test.ts tests/full-user-flow.test.ts
           - name: mcp
@@ -65,6 +67,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
       - name: Run tests
+        timeout-minutes: 5
         env:
           TEST_FILES: ${{ matrix.concern.files }}
         run: pnpm vitest run $TEST_FILES

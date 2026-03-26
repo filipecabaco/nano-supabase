@@ -22,12 +22,12 @@ jobs:
           cache: "pnpm"
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: pnpm install
 
       - name: Check for PGlite update
         id: check
         run: |
-          CURRENT=$(node -e "const p=require('./package.json'); console.log(p.devDependencies['@electric-sql/pglite'].replace(/^[^0-9]*/, ''))")
+          CURRENT=$(node -e "const p=require('./package.json'); console.log(p.peerDependencies['@electric-sql/pglite'].replace(/^[^0-9]*/, ''))")
           LATEST=$(npm view @electric-sql/pglite version)
           echo "current=$CURRENT" >> $GITHUB_OUTPUT
           echo "latest=$LATEST" >> $GITHUB_OUTPUT
@@ -42,13 +42,13 @@ jobs:
         env:
           LATEST: ${{ steps.check.outputs.latest }}
         run: |
-          pnpm add -D "@electric-sql/pglite@${LATEST}"
           node -e "
             const fs = require('fs');
             const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
             pkg.peerDependencies['@electric-sql/pglite'] = '>=' + process.env.LATEST;
             fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
           "
+          pnpm install
 
       - name: Typecheck
         if: steps.check.outputs.outdated == 'true'
