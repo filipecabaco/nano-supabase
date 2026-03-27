@@ -1,3 +1,4 @@
+import { AwsClient } from "aws4fetch";
 import type { BlobMetadata, StorageBackend } from "./backend.ts";
 
 export interface S3StorageBackendOptions {
@@ -14,57 +15,40 @@ export interface S3StorageBackendOptions {
 export class S3StorageBackend implements StorageBackend {
 	private readonly bucket: string;
 	private readonly prefix: string;
-	private s3Client: unknown;
-	private s3Loaded: Promise<{
-		S3Client: unknown;
-		PutObjectCommand: unknown;
-		GetObjectCommand: unknown;
-		DeleteObjectCommand: unknown;
-		ListObjectsV2Command: unknown;
-		CopyObjectCommand: unknown;
-		HeadObjectCommand: unknown;
-	}> | null = null;
-	private readonly s3Options: S3StorageBackendOptions;
+	private readonly baseUrl: string;
+	private readonly aws: AwsClient;
 
 	constructor(options: S3StorageBackendOptions) {
 		this.bucket = options.bucket;
 		this.prefix = options.prefix ?? "storage/";
-		this.s3Options = options;
+		const region = options.region ?? process.env.AWS_REGION ?? "us-east-1";
+		const accessKeyId =
+			options.credentials?.accessKeyId ??
+			process.env.AWS_ACCESS_KEY_ID ??
+			"";
+		const secretAccessKey =
+			options.credentials?.secretAccessKey ??
+			process.env.AWS_SECRET_ACCESS_KEY ??
+			"";
+
+		this.aws = new AwsClient({
+			accessKeyId,
+			secretAccessKey,
+			region,
+			service: "s3",
+		});
+
+		this.baseUrl = options.endpoint
+			? `${options.endpoint.replace(/\/$/, "")}/${this.bucket}`
+			: `https://${this.bucket}.s3.${region}.amazonaws.com`;
 	}
 
-	private async getS3(): Promise<{ client: any; commands: any }> {
-		if (!this.s3Loaded) {
-			this.s3Loaded = import("@aws-sdk/client-s3").then((mod) => ({
-				S3Client: mod.S3Client,
-				PutObjectCommand: mod.PutObjectCommand,
-				GetObjectCommand: mod.GetObjectCommand,
-				DeleteObjectCommand: mod.DeleteObjectCommand,
-				ListObjectsV2Command: mod.ListObjectsV2Command,
-				CopyObjectCommand: mod.CopyObjectCommand,
-				HeadObjectCommand: mod.HeadObjectCommand,
-			}));
-		}
-		const commands = await this.s3Loaded;
-		if (!this.s3Client) {
-			const ClientClass = commands.S3Client as any;
-			const clientOpts: Record<string, unknown> = {};
-			if (this.s3Options.endpoint)
-				clientOpts.endpoint = this.s3Options.endpoint;
-			if (this.s3Options.region) clientOpts.region = this.s3Options.region;
-			if (this.s3Options.credentials)
-				clientOpts.credentials = this.s3Options.credentials;
-			if (this.s3Options.endpoint) clientOpts.forcePathStyle = true;
-			this.s3Client = new ClientClass(clientOpts);
-		}
-		return { client: this.s3Client, commands };
+	private url(key: string): string {
+		return `${this.baseUrl}/${this.prefix}${key}`;
 	}
 
-	private s3Key(key: string): string {
-		return `${this.prefix}${key}`;
-	}
-
-	private metaKey(key: string): string {
-		return `${this.prefix}${key}.__meta__.json`;
+	private metaUrl(key: string): string {
+		return `${this.baseUrl}/${this.prefix}${key}.__meta__.json`;
 	}
 
 	async put(
@@ -72,175 +56,128 @@ export class S3StorageBackend implements StorageBackend {
 		data: Uint8Array,
 		metadata: BlobMetadata,
 	): Promise<void> {
-		const { client, commands } = await this.getS3();
-		await Promise.all([
-			client.send(
-				new (commands.PutObjectCommand as any)({
-					Bucket: this.bucket,
-					Key: this.s3Key(key),
-					Body: data,
-					ContentType: metadata.contentType,
-				}),
-			),
-			client.send(
-				new (commands.PutObjectCommand as any)({
-					Bucket: this.bucket,
-					Key: this.metaKey(key),
-					Body: JSON.stringify(metadata),
-					ContentType: "application/json",
-				}),
-			),
+		const [blobResp, metaResp] = await Promise.all([
+			this.aws.fetch(this.url(key), {
+				method: "PUT",
+				body: data,
+				headers: { "Content-Type": metadata.contentType },
+			}),
+			this.aws.fetch(this.metaUrl(key), {
+				method: "PUT",
+				body: JSON.stringify(metadata),
+				headers: { "Content-Type": "application/json" },
+			}),
 		]);
+		if (!blobResp.ok || !metaResp.ok) {
+			const text = await (blobResp.ok ? metaResp : blobResp).text();
+			throw new Error(`S3 PUT failed: ${text}`);
+		}
 	}
 
 	async get(
 		key: string,
 	): Promise<{ data: Uint8Array; metadata: BlobMetadata } | null> {
-		const { client, commands } = await this.getS3();
-		try {
-			const [blobResp, metaResp] = await Promise.all([
-				client.send(
-					new (commands.GetObjectCommand as any)({
-						Bucket: this.bucket,
-						Key: this.s3Key(key),
-					}),
-				),
-				client.send(
-					new (commands.GetObjectCommand as any)({
-						Bucket: this.bucket,
-						Key: this.metaKey(key),
-					}),
-				),
-			]);
-
-			const blobChunks: Uint8Array[] = [];
-			for await (const chunk of blobResp.Body as AsyncIterable<Uint8Array>) {
-				blobChunks.push(chunk);
-			}
-			const totalLen = blobChunks.reduce((s, c) => s + c.length, 0);
-			const data = new Uint8Array(totalLen);
-			let offset = 0;
-			for (const chunk of blobChunks) {
-				data.set(chunk, offset);
-				offset += chunk.length;
-			}
-
-			const metaChunks: Uint8Array[] = [];
-			for await (const chunk of metaResp.Body as AsyncIterable<Uint8Array>) {
-				metaChunks.push(chunk);
-			}
-			const metaStr = new TextDecoder().decode(
-				metaChunks.reduce((acc, c) => {
-					const merged = new Uint8Array(acc.length + c.length);
-					merged.set(acc);
-					merged.set(c, acc.length);
-					return merged;
-				}, new Uint8Array()),
-			);
-
-			return { data, metadata: JSON.parse(metaStr) };
-		} catch (e: any) {
-			if (e?.name === "NoSuchKey" || e?.$metadata?.httpStatusCode === 404)
-				return null;
-			throw e;
+		const [blobResp, metaResp] = await Promise.all([
+			this.aws.fetch(this.url(key)),
+			this.aws.fetch(this.metaUrl(key)),
+		]);
+		if (blobResp.status === 404 || metaResp.status === 404) {
+			return null;
 		}
+		if (!blobResp.ok || !metaResp.ok) {
+			const text = await (blobResp.ok ? metaResp : blobResp).text();
+			throw new Error(`S3 GET failed: ${text}`);
+		}
+		const [data, metaText] = await Promise.all([
+			blobResp.arrayBuffer(),
+			metaResp.text(),
+		]);
+		return {
+			data: new Uint8Array(data),
+			metadata: JSON.parse(metaText),
+		};
 	}
 
 	async delete(key: string): Promise<boolean> {
-		const { client, commands } = await this.getS3();
 		const existed = await this.exists(key);
 		await Promise.all([
-			client.send(
-				new (commands.DeleteObjectCommand as any)({
-					Bucket: this.bucket,
-					Key: this.s3Key(key),
-				}),
-			),
-			client.send(
-				new (commands.DeleteObjectCommand as any)({
-					Bucket: this.bucket,
-					Key: this.metaKey(key),
-				}),
-			),
+			this.aws.fetch(this.url(key), { method: "DELETE" }),
+			this.aws.fetch(this.metaUrl(key), { method: "DELETE" }),
 		]);
 		return existed;
 	}
 
 	async deleteByPrefix(prefix: string): Promise<number> {
-		const { client, commands } = await this.getS3();
-		const s3Prefix = this.s3Key(prefix);
+		const s3Prefix = `${this.prefix}${prefix}`;
 		let count = 0;
-		let continuationToken: string | undefined;
+		let continuationToken = "";
 
 		do {
-			const listResp: any = await client.send(
-				new (commands.ListObjectsV2Command as any)({
-					Bucket: this.bucket,
-					Prefix: s3Prefix,
-					ContinuationToken: continuationToken,
-				}),
+			const params = new URLSearchParams({
+				"list-type": "2",
+				prefix: s3Prefix,
+			});
+			if (continuationToken) {
+				params.set("continuation-token", continuationToken);
+			}
+			const listResp = await this.aws.fetch(
+				`${this.baseUrl}?${params.toString()}`,
+			);
+			if (!listResp.ok) break;
+
+			const xml = await listResp.text();
+			const keys = [...xml.matchAll(/<Key>([^<]+)<\/Key>/g)].map(
+				(m) => m[1],
 			);
 
-			const contents = listResp.Contents ?? [];
-			for (const obj of contents) {
-				await client.send(
-					new (commands.DeleteObjectCommand as any)({
-						Bucket: this.bucket,
-						Key: obj.Key,
-					}),
-				);
-				if (!obj.Key.endsWith(".__meta__.json")) count++;
+			for (const objKey of keys) {
+				await this.aws.fetch(`${this.baseUrl}/${objKey}`, {
+					method: "DELETE",
+				});
+				if (!objKey.endsWith(".__meta__.json")) count++;
 			}
 
-			continuationToken = listResp.IsTruncated
-				? listResp.NextContinuationToken
-				: undefined;
+			const truncatedMatch = xml.match(
+				/<IsTruncated>(true|false)<\/IsTruncated>/,
+			);
+			const isTruncated = truncatedMatch?.[1] === "true";
+			if (isTruncated) {
+				const tokenMatch = xml.match(
+					/<NextContinuationToken>([^<]+)<\/NextContinuationToken>/,
+				);
+				continuationToken = tokenMatch?.[1] ?? "";
+			} else {
+				continuationToken = "";
+			}
 		} while (continuationToken);
 
 		return count;
 	}
 
 	async exists(key: string): Promise<boolean> {
-		const { client, commands } = await this.getS3();
-		try {
-			await client.send(
-				new (commands.HeadObjectCommand as any)({
-					Bucket: this.bucket,
-					Key: this.s3Key(key),
-				}),
-			);
-			return true;
-		} catch (e: any) {
-			if (e?.name === "NotFound" || e?.$metadata?.httpStatusCode === 404)
-				return false;
-			throw e;
-		}
+		const resp = await this.aws.fetch(this.url(key), { method: "HEAD" });
+		if (resp.status === 404) return false;
+		if (resp.ok) return true;
+		throw new Error(`S3 HEAD failed: ${resp.status}`);
 	}
 
 	async copy(fromKey: string, toKey: string): Promise<boolean> {
-		const { client, commands } = await this.getS3();
-		try {
-			await Promise.all([
-				client.send(
-					new (commands.CopyObjectCommand as any)({
-						Bucket: this.bucket,
-						CopySource: `${this.bucket}/${this.s3Key(fromKey)}`,
-						Key: this.s3Key(toKey),
-					}),
-				),
-				client.send(
-					new (commands.CopyObjectCommand as any)({
-						Bucket: this.bucket,
-						CopySource: `${this.bucket}/${this.metaKey(fromKey)}`,
-						Key: this.metaKey(toKey),
-					}),
-				),
-			]);
-			return true;
-		} catch (e: any) {
-			if (e?.name === "NoSuchKey" || e?.$metadata?.httpStatusCode === 404)
-				return false;
-			throw e;
-		}
+		const copySource = `/${this.bucket}/${this.prefix}${fromKey}`;
+		const metaCopySource = `/${this.bucket}/${this.prefix}${fromKey}.__meta__.json`;
+
+		const [blobResp, metaResp] = await Promise.all([
+			this.aws.fetch(this.url(toKey), {
+				method: "PUT",
+				headers: { "x-amz-copy-source": copySource },
+			}),
+			this.aws.fetch(this.metaUrl(toKey), {
+				method: "PUT",
+				headers: { "x-amz-copy-source": metaCopySource },
+			}),
+		]);
+
+		if (blobResp.status === 404 || metaResp.status === 404) return false;
+		if (!blobResp.ok || !metaResp.ok) return false;
+		return true;
 	}
 }
