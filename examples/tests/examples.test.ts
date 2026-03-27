@@ -687,3 +687,80 @@ describe("service/feature-flags", () => {
 		expect(cascaded).toHaveLength(0);
 	});
 });
+
+describe("cloud/claude-code", () => {
+	it("applies todo migration and enforces RLS", async () => {
+		const db = await createPGlite();
+		const { localFetch } = await createFetchAdapter({
+			db,
+			supabaseUrl: "http://localhost:54321",
+		});
+
+		const supabase = createClient("http://localhost:54321", "local-anon-key", {
+			auth: { autoRefreshToken: false },
+			global: { fetch: localFetch as typeof fetch },
+		});
+
+		await db.exec(`
+			CREATE TABLE IF NOT EXISTS todos (
+				id SERIAL PRIMARY KEY,
+				user_id UUID DEFAULT auth.uid(),
+				title TEXT NOT NULL,
+				done BOOLEAN DEFAULT false,
+				created_at TIMESTAMPTZ DEFAULT now()
+			);
+			ALTER TABLE todos ENABLE ROW LEVEL SECURITY;
+			CREATE POLICY "Users can view their own todos"
+				ON todos FOR SELECT USING (user_id = auth.uid());
+			CREATE POLICY "Users can insert their own todos"
+				ON todos FOR INSERT WITH CHECK (user_id = auth.uid());
+			CREATE POLICY "Users can update their own todos"
+				ON todos FOR UPDATE USING (user_id = auth.uid());
+			CREATE POLICY "Users can delete their own todos"
+				ON todos FOR DELETE USING (user_id = auth.uid());
+		`);
+
+		await supabase.auth.signUp({
+			email: "dev@example.com",
+			password: "password123",
+		});
+		await supabase.auth.signInWithPassword({
+			email: "dev@example.com",
+			password: "password123",
+		});
+
+		await supabase.from("todos").insert({ title: "Set up database" });
+		await supabase.from("todos").insert({ title: "Create API endpoints" });
+		await supabase.from("todos").insert({ title: "Write tests" });
+
+		const { data: todos } = await supabase
+			.from("todos")
+			.select("*")
+			.order("created_at");
+		expect(todos).toHaveLength(3);
+		expect(todos![0].title).toBe("Set up database");
+		expect(todos![0].done).toBe(false);
+
+		await supabase
+			.from("todos")
+			.update({ done: true })
+			.eq("id", todos![0].id);
+
+		const { data: updated } = await supabase
+			.from("todos")
+			.select("title,done")
+			.eq("id", todos![0].id);
+		expect(updated![0].done).toBe(true);
+
+		await supabase.auth.signOut();
+		const { data: anonTodos } = await supabase.from("todos").select("*");
+		expect(anonTodos).toHaveLength(0);
+
+		await supabase.auth.signInWithPassword({
+			email: "dev@example.com",
+			password: "password123",
+		});
+		const { data: afterReauth } = await supabase.from("todos").select("*");
+		expect(afterReauth).toHaveLength(3);
+	});
+});

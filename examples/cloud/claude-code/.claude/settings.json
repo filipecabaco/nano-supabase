@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "nano-supabase": {
+      "command": "npx",
+      "args": ["nano-supabase", "start", "--mcp", "--detach", "--data-dir=./.nano-supabase-data"]
+    }
+  }
+}

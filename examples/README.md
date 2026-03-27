@@ -47,6 +47,12 @@ Demos organized by use case. Each folder contains a self-contained example with 
 | [cloudflare-worker](edge/cloudflare-worker/) | nano-supabase running as a Cloudflare Worker |
 | [deno](edge/deno/) | nano-supabase in a Deno project using Web Crypto API |
 
+## Cloud
+
+| Example | Description |
+|---------|-------------|
+| [claude-code](cloud/claude-code/) | Complete Claude Code cloud session setup — auto-setup, MCP integration, migrations, and project template |
+
 ## Running examples
 
 Standalone examples (library, cli, orm):
@@ -86,6 +92,16 @@ Feature flags service:
 cd examples/service/feature-flags
 bun install
 bun run start
+```
+
+Claude Code cloud:
+
+```bash
+# Copy into your project root
+cp -r examples/cloud/claude-code/.claude/ .claude/
+cp -r examples/cloud/claude-code/supabase/ supabase/
+# Session setup runs automatically, or manually:
+bash .claude/setup.sh
 ```
 
 Edge examples:
