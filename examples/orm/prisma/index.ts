@@ -1,11 +1,11 @@
 import { execFile } from "node:child_process";
 import { resolve } from "node:path";
 import { promisify } from "node:util";
-import { nanoSupabase } from "../src/index.ts";
+import { nanoSupabase } from "../../../src/index.ts";
 
 const execFileAsync = promisify(execFile);
 
-const SCHEMA_PATH = resolve("examples/prisma/schema.prisma");
+const SCHEMA_PATH = resolve("examples/orm/prisma/schema.prisma");
 const PRISMA_BIN = resolve("node_modules/.bin/prisma");
 
 async function pushSchema(databaseUrl: string): Promise<void> {
@@ -28,7 +28,7 @@ async function main(): Promise<void> {
 	console.log("[Prisma] Pushing schema...");
 	await pushSchema(databaseUrl);
 
-	const { PrismaClient } = await import("./prisma/client/index.js");
+	const { PrismaClient } = await import("./client/index.js");
 	const prisma = new PrismaClient({ datasourceUrl: databaseUrl });
 
 	console.log("\n--- Create users ---");

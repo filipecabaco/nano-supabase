@@ -45,10 +45,14 @@
 		"test:apps": "vitest run tests/applications.test.ts tests/full-user-flow.test.ts",
 		"test:perf": "vitest run tests/performance.test.ts",
 		"test:cli": "vitest run --config vitest.cli.config.ts",
-		"example:basic": "tsx examples/basic.ts",
-		"example:server": "tsx examples/tcp-server.ts",
-		"example:prisma": "tsx examples/prisma-tcp.ts",
-		"prisma:generate": "prisma generate --schema=examples/prisma/schema.prisma",
+		"example:pooler": "tsx examples/library/pooler/index.ts",
+		"example:supabase-client": "tsx examples/library/supabase-client/index.ts",
+		"example:postgrest-parser": "tsx examples/library/postgrest-parser/index.ts",
+		"example:tcp-server": "tsx examples/cli/tcp-server/index.ts",
+		"example:drizzle": "tsx examples/orm/drizzle/index.ts",
+		"example:prisma": "tsx examples/orm/prisma/index.ts",
+		"test:examples": "vitest run --config vitest.examples.config.ts",
+		"prisma:generate": "prisma generate --schema=examples/orm/prisma/schema.prisma",
 		"cli": "node dist/cli.js"
 	},
 	"keywords": [

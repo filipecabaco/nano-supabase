@@ -1,0 +1,47 @@
+name: Examples
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "examples/**"
+      - "src/**"
+      - "vitest.examples.config.ts"
+  push:
+    branches: [main]
+    paths:
+      - "examples/**"
+      - "src/**"
+      - "vitest.examples.config.ts"
+
+jobs:
+  test-examples:
+    runs-on: ubuntu-latest
+    name: test / examples
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - name: Run example tests
+        timeout-minutes: 5
+        run: pnpm vitest run --config vitest.examples.config.ts
+
+  build-react-demo:
+    runs-on: ubuntu-latest
+    name: build / react-file-manager
+    defaults:
+      run:
+        working-directory: examples/browser/react-file-manager
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: latest
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "pnpm"
+      - run: pnpm install --no-frozen-lockfile
+        working-directory: .
+      - run: pnpm install --no-frozen-lockfile
+      - name: Build
+        run: pnpm run build
