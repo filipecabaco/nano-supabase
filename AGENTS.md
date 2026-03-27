@@ -67,6 +67,8 @@ All exports from `nano-supabase`:
 | `PostgrestParser` | PostgREST URL → SQL converter (WASM) |
 | `AuthHandler` | Auth operations (signup, signin, JWT, sessions) |
 | `StorageHandler` | Storage operations (buckets, objects, signed URLs) |
+| `FileSystemStorageBackend` | Persistent blob storage on disk (Node.js-only) |
+| `S3StorageBackend` | Persistent blob storage in S3/R2/MinIO |
 | `QueryPriority` | `CRITICAL / HIGH / MEDIUM / LOW` enum for pooler |
 
 ## Schema Setup
@@ -137,6 +139,48 @@ const supabase = await createClient({ dataDir: './my-db' }) // filesystem (Node.
 ```
 
 All schemas use `IF NOT EXISTS` — persistent databases are safe to reuse across restarts.
+
+## Storage Persistence
+
+By default, uploaded files are stored in memory and lost on restart. To persist storage blobs, use a storage backend:
+
+**Filesystem (Node.js-only):**
+
+```typescript
+import { nanoSupabase, FileSystemStorageBackend } from 'nano-supabase'
+
+const nano = await nanoSupabase({
+  dataDir: './my-db',
+  storageBackend: new FileSystemStorageBackend('./my-db/storage'),
+})
+```
+
+**S3 / R2 / MinIO:**
+
+```typescript
+import { nanoSupabase, S3StorageBackend } from 'nano-supabase'
+
+const nano = await nanoSupabase({
+  storageBackend: new S3StorageBackend({
+    bucket: 'my-bucket',
+    endpoint: 'https://minio.example.com',  // optional, for S3-compatible services
+    prefix: 'storage/',                       // optional, default: 'storage/'
+  }),
+})
+```
+
+S3 credentials are read from `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_REGION` environment variables, or passed via the `credentials` option.
+
+**CLI:** When `--data-dir` is set, the CLI automatically uses filesystem storage at `<data-dir>/storage`. Override with:
+
+```bash
+npx nano-supabase start --data-dir=./data                              # auto: fs at ./data/storage
+npx nano-supabase start --storage-backend=memory                       # force in-memory
+npx nano-supabase start --storage-backend=s3 --s3-bucket=my-bucket     # S3
+npx nano-supabase start --storage-backend=s3 --s3-bucket=my-bucket --s3-endpoint=http://localhost:9000  # MinIO
+```
+
+**Service mode:** Each tenant gets its own storage backend. With `--s3-bucket`, all tenants use S3 (prefix: `tenants/<id>/storage/`). Without it, each tenant uses filesystem storage at `<data-dir>/<tenant>/storage`.
 
 ## Auth & RLS
 

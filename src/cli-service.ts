@@ -98,6 +98,9 @@ export async function runServiceMode(opts: {
 		getArgValue(subArgs, "--cold-dir") ?? "/tmp/nano-service-cold";
 	const s3Bucket = getArgValue(subArgs, "--s3-bucket");
 	const s3Endpoint = getArgValue(subArgs, "--s3-endpoint");
+	const storageBackendType =
+		getArgValue(subArgs, "--storage-backend") ?? (s3Bucket ? "s3" : "fs");
+	const s3StoragePrefix = getArgValue(subArgs, "--s3-prefix");
 	const routing = getArgValue(subArgs, "--routing") ?? "path";
 	const baseDomain = getArgValue(subArgs, "--base-domain") ?? "";
 	const idleTimeout = (() => {
@@ -606,11 +609,32 @@ export async function runServiceMode(opts: {
 		rowToEntry(row);
 	}
 
+	async function createTenantStorageBackend(
+		tenant: TenantEntry,
+	): Promise<import("./storage/backend.ts").StorageBackend | undefined> {
+		if (storageBackendType === "s3" && s3Bucket) {
+			const { S3StorageBackend } = await import("./storage/s3-backend.ts");
+			return new S3StorageBackend({
+				bucket: s3Bucket,
+				endpoint: s3Endpoint,
+				prefix: s3StoragePrefix ?? `tenants/${tenant.id}/storage/`,
+			});
+		}
+		if (storageBackendType === "fs") {
+			const { FileSystemStorageBackend } = await import(
+				"./storage/fs-backend.ts"
+			);
+			return new FileSystemStorageBackend(join(tenant.dataDir, "storage"));
+		}
+		return undefined;
+	}
+
 	async function startTenantNano(tenant: TenantEntry): Promise<void> {
 		log("tenant.nano_initializing", {
 			tenant_id: tenant.id,
 			slug: tenant.slug,
 		});
+		const tenantStorageBackend = await createTenantStorageBackend(tenant);
 		const nanoInstance = await nanoSupabase({
 			dataDir: tenant.dataDir,
 			pgliteWasmModule,
@@ -621,6 +645,7 @@ export async function runServiceMode(opts: {
 				pgcrypto: pgcryptoExt,
 				uuid_ossp: uuidOsspExt,
 			},
+			storageBackend: tenantStorageBackend,
 		});
 		log("tenant.pooler_creating", { tenant_id: tenant.id, slug: tenant.slug });
 		nanoInstances.set(tenant.id, nanoInstance);

@@ -34,6 +34,9 @@ CLI Server (src/cli.ts)
 - `src/fetch-adapter/index.ts` — `createLocalFetch` URL routing dispatcher
 - `src/auth/handler.ts` — Auth operations (signup, signin, signout, JWT, admin CRUD)
 - `src/storage/handler.ts` — Storage operations (buckets, objects, signed URLs)
+- `src/storage/backend.ts` — StorageBackend interface + MemoryStorageBackend (cross-runtime)
+- `src/storage/fs-backend.ts` — FileSystemStorageBackend (Node.js-only, persists blobs to disk)
+- `src/storage/s3-backend.ts` — S3StorageBackend (S3/R2/MinIO, dynamically imports @aws-sdk/client-s3)
 - `src/postgrest-parser.ts` — PostgREST → SQL (WASM binding)
 - `src/pglite-factory.ts` — PGlite factory, always registers pgcrypto + uuid-ossp
 
