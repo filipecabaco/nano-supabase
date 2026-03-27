@@ -1,4 +1,4 @@
-import type { PGlite } from "@electric-sql/pglite";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import L from "leaflet";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -67,7 +67,7 @@ function MapClickHandler({
 }
 
 function App() {
-	const [db, setDb] = useState<PGlite | null>(null);
+	const [supabase, setSupabase] = useState<SupabaseClient | null>(null);
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState<string | null>(null);
 	const [places, setPlaces] = useState<Place[]>([]);
@@ -95,11 +95,11 @@ function App() {
 
 	useEffect(() => {
 		initDatabase()
-			.then(async (instance) => {
-				setDb(instance);
+			.then(async (client) => {
+				setSupabase(client);
 				const [allPlaces, allStats] = await Promise.all([
-					getAllPlaces(instance),
-					getStats(instance),
+					getAllPlaces(client),
+					getStats(client),
 				]);
 				setPlaces(allPlaces);
 				setStats(allStats);
@@ -109,16 +109,16 @@ function App() {
 	}, []);
 
 	const refreshData = useCallback(
-		async (instance: PGlite) => {
+		async (client: SupabaseClient) => {
 			const [allPlaces, allStats] = await Promise.all([
-				getAllPlaces(instance),
-				getStats(instance),
+				getAllPlaces(client),
+				getStats(client),
 			]);
 			setPlaces(allPlaces);
 			setStats(allStats);
 			if (searchCenter) {
 				const nearby = await findNearby(
-					instance,
+					client,
 					searchCenter.lat,
 					searchCenter.lng,
 					searchRadius,
@@ -138,12 +138,12 @@ function App() {
 
 	async function handleAddPlace(e: React.FormEvent) {
 		e.preventDefault();
-		if (!db || !pendingClick || !newName.trim()) return;
+		if (!supabase || !pendingClick || !newName.trim()) return;
 		setAdding(true);
 		setError(null);
 		try {
 			await addPlace(
-				db,
+				supabase,
 				newName.trim(),
 				newCategory,
 				pendingClick.lat,
@@ -151,7 +151,7 @@ function App() {
 			);
 			setPendingClick(null);
 			setNewName("");
-			await refreshData(db);
+			await refreshData(supabase);
 		} catch (err) {
 			setError((err as Error).message);
 		} finally {
@@ -160,20 +160,20 @@ function App() {
 	}
 
 	async function handleDelete(id: number) {
-		if (!db) return;
+		if (!supabase) return;
 		try {
-			await deletePlace(db, id);
-			await refreshData(db);
+			await deletePlace(supabase, id);
+			await refreshData(supabase);
 		} catch (err) {
 			setError((err as Error).message);
 		}
 	}
 
 	async function handleSearchNearby() {
-		if (!db || !searchCenter) return;
+		if (!supabase || !searchCenter) return;
 		try {
 			const nearby = await findNearby(
-				db,
+				supabase,
 				searchCenter.lat,
 				searchCenter.lng,
 				searchRadius,
@@ -195,7 +195,7 @@ function App() {
 				<div className="text-center">
 					<div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4" />
 					<p className="text-muted-foreground text-sm">
-						Loading PostGIS (WASM)...
+						Connecting to nano-supabase...
 					</p>
 				</div>
 			</div>

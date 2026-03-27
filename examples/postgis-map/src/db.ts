@@ -1,12 +1,14 @@
-import { PGlite } from "@electric-sql/pglite";
-import { postgis } from "@electric-sql/pglite-postgis";
-import { pgcrypto } from "@electric-sql/pglite/contrib/pgcrypto";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
-let dbInstance: PGlite | null = null;
-let initPromise: Promise<PGlite> | null = null;
+const SUPABASE_URL = "http://localhost:54321";
+const SUPABASE_ANON_KEY = "local-anon-key";
+const SERVICE_ROLE_KEY = "local-service-role-key";
 
-export async function initDatabase(): Promise<PGlite> {
-	if (dbInstance) return dbInstance;
+let supabaseInstance: SupabaseClient | null = null;
+let initPromise: Promise<SupabaseClient> | null = null;
+
+export async function initDatabase(): Promise<SupabaseClient> {
+	if (supabaseInstance) return supabaseInstance;
 	if (initPromise) return initPromise;
 
 	initPromise = doInit();
@@ -16,14 +18,26 @@ export async function initDatabase(): Promise<PGlite> {
 	return initPromise;
 }
 
-async function doInit(): Promise<PGlite> {
-	const db = new PGlite({
-		extensions: { pgcrypto, postgis },
+async function adminSql(sql: string, params: unknown[] = []): Promise<{ rows: Record<string, unknown>[] }> {
+	const res = await fetch(`${SUPABASE_URL}/admin/v1/sql`, {
+		method: "POST",
+		headers: {
+			"Content-Type": "application/json",
+			Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
+		},
+		body: JSON.stringify({ sql, params }),
 	});
+	if (!res.ok) {
+		const body = await res.json();
+		throw new Error(body.message ?? `Admin SQL failed: ${res.status}`);
+	}
+	return res.json();
+}
 
-	await db.exec("CREATE EXTENSION IF NOT EXISTS postgis;");
+async function doInit(): Promise<SupabaseClient> {
+	await adminSql("CREATE EXTENSION IF NOT EXISTS postgis");
 
-	await db.exec(`
+	await adminSql(`
 		CREATE TABLE IF NOT EXISTS places (
 			id SERIAL PRIMARY KEY,
 			name TEXT NOT NULL,
@@ -35,8 +49,81 @@ async function doInit(): Promise<PGlite> {
 		CREATE INDEX IF NOT EXISTS places_location_idx ON places USING GIST (location);
 	`);
 
-	dbInstance = db;
-	return db;
+	await adminSql(`
+		CREATE OR REPLACE FUNCTION add_place(p_name TEXT, p_category TEXT, p_lng FLOAT, p_lat FLOAT)
+		RETURNS TABLE(id INT, name TEXT, category TEXT, lat FLOAT, lng FLOAT, created_at TEXT) AS $$
+			INSERT INTO places (name, category, location)
+			VALUES (p_name, p_category, ST_SetSRID(ST_MakePoint(p_lng, p_lat), 4326))
+			RETURNING
+				places.id,
+				places.name,
+				places.category,
+				ST_Y(places.location)::float AS lat,
+				ST_X(places.location)::float AS lng,
+				places.created_at::text;
+		$$ LANGUAGE sql;
+	`);
+
+	await adminSql(`
+		CREATE OR REPLACE FUNCTION get_all_places()
+		RETURNS TABLE(id INT, name TEXT, category TEXT, lat FLOAT, lng FLOAT, created_at TEXT) AS $$
+			SELECT
+				places.id,
+				places.name,
+				places.category,
+				ST_Y(places.location)::float AS lat,
+				ST_X(places.location)::float AS lng,
+				places.created_at::text
+			FROM places ORDER BY created_at DESC;
+		$$ LANGUAGE sql;
+	`);
+
+	await adminSql(`
+		CREATE OR REPLACE FUNCTION find_nearby(center_lng FLOAT, center_lat FLOAT, radius_km FLOAT)
+		RETURNS TABLE(id INT, name TEXT, category TEXT, lat FLOAT, lng FLOAT, created_at TEXT, distance_km FLOAT) AS $$
+			SELECT
+				places.id,
+				places.name,
+				places.category,
+				ST_Y(places.location)::float AS lat,
+				ST_X(places.location)::float AS lng,
+				places.created_at::text,
+				(ST_Distance(
+					places.location::geography,
+					ST_SetSRID(ST_MakePoint(center_lng, center_lat), 4326)::geography
+				) / 1000.0)::float AS distance_km
+			FROM places
+			WHERE ST_DWithin(
+				places.location::geography,
+				ST_SetSRID(ST_MakePoint(center_lng, center_lat), 4326)::geography,
+				radius_km * 1000
+			)
+			ORDER BY distance_km;
+		$$ LANGUAGE sql;
+	`);
+
+	await adminSql(`
+		CREATE OR REPLACE FUNCTION delete_place(place_id INT)
+		RETURNS void AS $$
+			DELETE FROM places WHERE id = place_id;
+		$$ LANGUAGE sql;
+	`);
+
+	await adminSql(`
+		CREATE OR REPLACE FUNCTION get_place_stats()
+		RETURNS TABLE(count BIGINT, bbox TEXT) AS $$
+			SELECT
+				COUNT(*),
+				CASE WHEN COUNT(*) > 0
+					THEN ST_AsText(ST_Extent(location))
+					ELSE NULL
+				END AS bbox
+			FROM places;
+		$$ LANGUAGE sql;
+	`);
+
+	supabaseInstance = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+	return supabaseInstance;
 }
 
 export interface Place {
@@ -50,83 +137,53 @@ export interface Place {
 }
 
 export async function addPlace(
-	db: PGlite,
+	supabase: SupabaseClient,
 	name: string,
 	category: string,
 	lat: number,
 	lng: number,
 ): Promise<Place> {
-	const result = await db.query<{
-		id: number;
-		name: string;
-		category: string;
-		lat: number;
-		lng: number;
-		created_at: string;
-	}>(
-		`INSERT INTO places (name, category, location)
-		 VALUES ($1, $2, ST_SetSRID(ST_MakePoint($3, $4), 4326))
-		 RETURNING id, name, category,
-		   ST_Y(location) AS lat, ST_X(location) AS lng,
-		   created_at::text`,
-		[name, category, lng, lat],
-	);
-	return result.rows[0];
+	const { data, error } = await supabase.rpc("add_place", {
+		p_name: name,
+		p_category: category,
+		p_lng: lng,
+		p_lat: lat,
+	});
+	if (error) throw new Error(error.message);
+	return (data as Place[])[0];
 }
 
-export async function getAllPlaces(db: PGlite): Promise<Place[]> {
-	const result = await db.query<Place>(
-		`SELECT id, name, category,
-		   ST_Y(location) AS lat, ST_X(location) AS lng,
-		   created_at::text
-		 FROM places ORDER BY created_at DESC`,
-	);
-	return result.rows;
+export async function getAllPlaces(supabase: SupabaseClient): Promise<Place[]> {
+	const { data, error } = await supabase.rpc("get_all_places");
+	if (error) throw new Error(error.message);
+	return data as Place[];
 }
 
 export async function findNearby(
-	db: PGlite,
+	supabase: SupabaseClient,
 	lat: number,
 	lng: number,
 	radiusKm: number,
 ): Promise<Place[]> {
-	const result = await db.query<Place>(
-		`SELECT id, name, category,
-		   ST_Y(location) AS lat, ST_X(location) AS lng,
-		   created_at::text,
-		   ST_Distance(
-		     location::geography,
-		     ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography
-		   ) / 1000.0 AS distance_km
-		 FROM places
-		 WHERE ST_DWithin(
-		   location::geography,
-		   ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography,
-		   $3
-		 )
-		 ORDER BY distance_km`,
-		[lng, lat, radiusKm * 1000],
-	);
-	return result.rows;
+	const { data, error } = await supabase.rpc("find_nearby", {
+		center_lng: lng,
+		center_lat: lat,
+		radius_km: radiusKm,
+	});
+	if (error) throw new Error(error.message);
+	return data as Place[];
 }
 
-export async function deletePlace(db: PGlite, id: number): Promise<void> {
-	await db.query("DELETE FROM places WHERE id = $1", [id]);
+export async function deletePlace(supabase: SupabaseClient, id: number): Promise<void> {
+	const { error } = await supabase.rpc("delete_place", { place_id: id });
+	if (error) throw new Error(error.message);
 }
 
 export async function getStats(
-	db: PGlite,
+	supabase: SupabaseClient,
 ): Promise<{ count: number; bbox: string | null }> {
-	const result = await db.query<{ count: string; bbox: string | null }>(
-		`SELECT COUNT(*)::text AS count,
-		   CASE WHEN COUNT(*) > 0
-		     THEN ST_AsText(ST_Extent(location))
-		     ELSE NULL
-		   END AS bbox
-		 FROM places`,
-	);
-	return {
-		count: parseInt(result.rows[0].count, 10),
-		bbox: result.rows[0].bbox,
-	};
+	const { data, error } = await supabase.rpc("get_place_stats");
+	if (error) throw new Error(error.message);
+	const row = (data as { count: number; bbox: string | null }[])[0];
+	return { count: Number(row.count), bbox: row.bbox };
 }
