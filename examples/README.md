@@ -13,6 +13,8 @@ Demos organized by use case. Each folder contains a self-contained example with 
 | Example | Description |
 |---------|-------------|
 | [supabase-client](library/supabase-client/) | Full Supabase-compatible client API (CRUD, filters, ordering, pagination) |
+| [auth-rls](library/auth-rls/) | User authentication and Row Level Security — multi-user isolation |
+| [storage](library/storage/) | File upload/download, signed URLs, bucket management |
 | [postgrest-parser](library/postgrest-parser/) | PostgREST URL-to-SQL query parser |
 | [pooler](library/pooler/) | Priority queue connection pooler with metrics |
 
@@ -21,6 +23,8 @@ Demos organized by use case. Each folder contains a self-contained example with 
 | Example | Description |
 |---------|-------------|
 | [tcp-server](cli/tcp-server/) | PostgreSQL wire protocol server — connect with psql, pgAdmin, or any Postgres client |
+| [migrations](cli/migrations/) | Schema management with versioned migration files |
+| [mcp-server](cli/mcp-server/) | MCP server for AI tool integration (Claude Code, etc.) |
 
 ## ORM
 
@@ -34,6 +38,14 @@ Demos organized by use case. Each folder contains a self-contained example with 
 | Example | Description |
 |---------|-------------|
 | [feature-flags](service/feature-flags/) | Feature flag service with rollouts, environment overrides, and app scoping |
+| [multi-tenant](service/multi-tenant/) | Multi-tenant HTTP gateway with pause/wake lifecycle |
+
+## Edge
+
+| Example | Description |
+|---------|-------------|
+| [cloudflare-worker](edge/cloudflare-worker/) | nano-supabase running as a Cloudflare Worker |
+| [deno](edge/deno/) | nano-supabase in a Deno project using Web Crypto API |
 
 ## Running examples
 
@@ -42,10 +54,22 @@ Standalone examples (library, cli, orm):
 ```bash
 pnpm run example:pooler
 pnpm run example:supabase-client
+pnpm run example:auth-rls
+pnpm run example:storage
 pnpm run example:postgrest-parser
 pnpm run example:tcp-server
+pnpm run example:migrations
 pnpm run example:drizzle
 pnpm run example:prisma
+```
+
+Service examples (require a running service):
+
+```bash
+# Start the service first
+npx nano-supabase service --admin-token=my-token --secret=my-secret --data-dir=./data
+# Then in another terminal
+pnpm run example:multi-tenant
 ```
 
 React demo:
@@ -64,24 +88,24 @@ bun install
 bun run start
 ```
 
+Edge examples:
+
+```bash
+# Deno
+cd examples/edge/deno
+deno run --allow-read --allow-env --allow-net index.ts
+
+# Cloudflare Worker
+cd examples/edge/cloudflare-worker
+npx wrangler dev
+```
+
 ## Tests
 
 Example tests validate that the core logic of each demo works correctly:
 
 ```bash
-pnpm vitest run --config vitest.examples.config.ts
+pnpm run test:examples
 ```
 
 Tests run in a separate CI workflow triggered by changes to `examples/` or `src/`.
-
-## Missing examples / contribution ideas
-
-The following areas could benefit from examples:
-
-- **Auth + RLS** — standalone example showing signup, signin, and row-level security policies
-- **Storage** — file upload/download with signed URLs and bucket policies
-- **Service mode** — multi-tenant setup using `nano-supabase service`
-- **MCP server** — using the MCP endpoint with Claude Code or other MCP clients
-- **Edge/Cloudflare Workers** — deploying nano-supabase at the edge
-- **Deno** — using nano-supabase in a Deno project
-- **Migrations** — schema management with `nano-supabase migration`

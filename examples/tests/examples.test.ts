@@ -1,6 +1,8 @@
 import { PGlite } from "@electric-sql/pglite";
+import { createClient } from "@supabase/supabase-js";
 import { describe, expect, it } from "vitest";
-import { nanoSupabase } from "../../src/index.ts";
+import { createFetchAdapter, nanoSupabase } from "../../src/index.ts";
+import { createPGlite } from "../../src/pglite-factory.ts";
 import { PGlitePooler } from "../../src/pooler.ts";
 import { PostgrestParser } from "../../src/postgrest-parser.ts";
 import { QueryPriority } from "../../src/types.ts";
@@ -414,6 +416,192 @@ describe.skipIf(!hasDrizzle)("orm/drizzle", () => {
 		await db.delete(users).where(eq(users.name, "Charlie"));
 		const remaining = await db.select().from(users);
 		expect(remaining).toHaveLength(2);
+	});
+});
+
+describe("library/auth-rls", () => {
+	it("enforces row-level security per user", async () => {
+		const db = await createPGlite();
+		const { localFetch, authHandler } = await createFetchAdapter({
+			db,
+			supabaseUrl: "http://localhost:54321",
+		});
+
+		const supabase = createClient("http://localhost:54321", "local-anon-key", {
+			auth: { autoRefreshToken: false },
+			global: { fetch: localFetch as typeof fetch },
+		});
+
+		await db.exec(`
+			CREATE TABLE IF NOT EXISTS todos (
+				id SERIAL PRIMARY KEY,
+				user_id UUID NOT NULL DEFAULT auth.uid(),
+				title TEXT NOT NULL,
+				done BOOLEAN DEFAULT false
+			);
+			ALTER TABLE todos ENABLE ROW LEVEL SECURITY;
+			CREATE POLICY "Users see own" ON todos FOR SELECT USING (user_id = auth.uid());
+			CREATE POLICY "Users insert own" ON todos FOR INSERT WITH CHECK (user_id = auth.uid());
+			CREATE POLICY "Users delete own" ON todos FOR DELETE USING (user_id = auth.uid());
+		`);
+
+		await supabase.auth.signUp({ email: "alice@test.com", password: "password123" });
+		await supabase.auth.signUp({ email: "bob@test.com", password: "password456" });
+
+		await supabase.auth.signInWithPassword({ email: "alice@test.com", password: "password123" });
+		await supabase.from("todos").insert({ title: "Alice todo 1" });
+		await supabase.from("todos").insert({ title: "Alice todo 2" });
+
+		const { data: aliceTodos } = await supabase.from("todos").select("*");
+		expect(aliceTodos).toHaveLength(2);
+
+		await supabase.auth.signInWithPassword({ email: "bob@test.com", password: "password456" });
+		const { data: bobTodos } = await supabase.from("todos").select("*");
+		expect(bobTodos).toHaveLength(0);
+
+		await supabase.from("todos").insert({ title: "Bob todo 1" });
+		const { data: bobTodosAfter } = await supabase.from("todos").select("*");
+		expect(bobTodosAfter).toHaveLength(1);
+
+		await supabase.auth.signOut();
+		const { data: anonTodos } = await supabase.from("todos").select("*");
+		expect(anonTodos).toHaveLength(0);
+
+		await supabase.auth.signInWithPassword({ email: "alice@test.com", password: "password123" });
+		const { data: aliceFinal } = await supabase.from("todos").select("*");
+		expect(aliceFinal).toHaveLength(2);
+	});
+});
+
+describe("library/storage", () => {
+	it("uploads, downloads, lists, and deletes files", async () => {
+		const db = await createPGlite();
+		const { localFetch, storageHandler } = await createFetchAdapter({
+			db,
+			supabaseUrl: "http://localhost:54321",
+		});
+
+		const supabase = createClient("http://localhost:54321", "local-anon-key", {
+			auth: { autoRefreshToken: false },
+			global: { fetch: localFetch as typeof fetch },
+		});
+
+		await storageHandler!.createBucket({
+			name: "docs",
+			public: false,
+		});
+		await storageHandler!.createBucket({
+			name: "public-files",
+			public: true,
+		});
+
+		const { data: buckets } = await supabase.storage.listBuckets();
+		expect(buckets!.length).toBeGreaterThanOrEqual(2);
+
+		const content = new TextEncoder().encode("Hello, storage!");
+		const { data: uploaded, error: uploadErr } = await supabase.storage
+			.from("docs")
+			.upload("notes/hello.txt", content, { contentType: "text/plain" });
+		expect(uploadErr).toBeNull();
+		expect(uploaded?.path).toBe("notes/hello.txt");
+
+		const { data: downloaded } = await supabase.storage
+			.from("docs")
+			.download("notes/hello.txt");
+		expect(downloaded).toBeTruthy();
+		const text = await downloaded!.text();
+		expect(text).toBe("Hello, storage!");
+
+		const { data: files } = await supabase.storage
+			.from("docs")
+			.list("notes");
+		expect(files!.length).toBeGreaterThanOrEqual(1);
+
+		const { data: signedUrl } = await supabase.storage
+			.from("docs")
+			.createSignedUrl("notes/hello.txt", 3600);
+		expect(signedUrl?.signedUrl).toBeTruthy();
+
+		const { data: publicUrl } = supabase.storage
+			.from("public-files")
+			.getPublicUrl("test.txt");
+		expect(publicUrl.publicUrl).toContain("test.txt");
+
+		await supabase.storage
+			.from("docs")
+			.copy("notes/hello.txt", "notes/hello-copy.txt");
+		const { data: afterCopy } = await supabase.storage
+			.from("docs")
+			.list("notes");
+		expect(afterCopy!.length).toBeGreaterThanOrEqual(2);
+
+		await supabase.storage
+			.from("docs")
+			.remove(["notes/hello-copy.txt"]);
+		const { data: afterRemove } = await supabase.storage
+			.from("docs")
+			.list("notes");
+		expect(afterRemove!.length).toBe(afterCopy!.length - 1);
+	});
+});
+
+describe("cli/migrations", () => {
+	it("applies migration files in order", async () => {
+		await using nano = await nanoSupabase();
+		const db = nano.db;
+
+		await db.exec(`
+			CREATE TABLE IF NOT EXISTS users (
+				id SERIAL PRIMARY KEY,
+				name TEXT NOT NULL,
+				email TEXT UNIQUE NOT NULL,
+				created_at TIMESTAMP DEFAULT NOW()
+			)
+		`);
+
+		await db.exec(`
+			CREATE TABLE IF NOT EXISTS posts (
+				id SERIAL PRIMARY KEY,
+				user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+				title TEXT NOT NULL,
+				body TEXT,
+				published BOOLEAN DEFAULT false,
+				created_at TIMESTAMP DEFAULT NOW()
+			);
+			CREATE INDEX IF NOT EXISTS idx_posts_user_id ON posts(user_id)
+		`);
+
+		await db.exec(`
+			ALTER TABLE users ADD COLUMN IF NOT EXISTS role TEXT DEFAULT 'user';
+			CREATE TABLE IF NOT EXISTS user_settings (
+				user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+				theme TEXT DEFAULT 'light',
+				notifications BOOLEAN DEFAULT true
+			)
+		`);
+
+		await db.exec(`
+			INSERT INTO users (name, email, role) VALUES ('Alice', 'alice@test.com', 'admin');
+			INSERT INTO posts (user_id, title, published) VALUES (1, 'Hello', true);
+			INSERT INTO user_settings (user_id, theme) VALUES (1, 'dark')
+		`);
+
+		const { rows: users } = await db.query("SELECT name, role FROM users");
+		expect(users).toHaveLength(1);
+		expect(users[0].role).toBe("admin");
+
+		const { rows: posts } = await db.query("SELECT title FROM posts");
+		expect(posts).toHaveLength(1);
+
+		const { rows: settings } = await db.query("SELECT theme FROM user_settings");
+		expect(settings[0].theme).toBe("dark");
+
+		await db.exec("DELETE FROM users WHERE name = 'Alice'");
+		const { rows: cascadedPosts } = await db.query("SELECT * FROM posts");
+		expect(cascadedPosts).toHaveLength(0);
+
+		const { rows: cascadedSettings } = await db.query("SELECT * FROM user_settings");
+		expect(cascadedSettings).toHaveLength(0);
 	});
 });
 
