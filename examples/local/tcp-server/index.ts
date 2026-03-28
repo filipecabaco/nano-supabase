@@ -1,4 +1,4 @@
-import { nanoSupabase } from "../src/index.ts";
+import { nanoSupabase } from "../../../src/index.ts";
 
 async function main() {
 	console.log("=== PGlite PostgreSQL Wire Protocol Server ===\n");

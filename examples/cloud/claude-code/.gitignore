@@ -1,0 +1,4 @@
+node_modules/
+.nano-supabase-data/
+src/types.ts
+dist/

@@ -8,7 +8,7 @@ import {
 	timestamp,
 } from "drizzle-orm/pg-core";
 import { drizzle } from "drizzle-orm/pglite";
-import { nanoSupabase } from "../src/index.ts";
+import { nanoSupabase } from "../../../src/index.ts";
 
 const users = pgTable("users", {
 	id: serial("id").primaryKey(),

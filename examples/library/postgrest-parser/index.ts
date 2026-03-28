@@ -1,4 +1,4 @@
-import { PostgrestParser } from "../src/postgrest-parser.ts";
+import { PostgrestParser } from "../../../src/postgrest-parser.ts";
 
 async function main() {
 	console.log("=== PostgREST Parser Demo ===\n");

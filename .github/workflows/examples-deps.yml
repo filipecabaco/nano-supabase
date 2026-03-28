@@ -1,0 +1,93 @@
+name: Update Example Dependencies
+
+on:
+  schedule:
+    - cron: "0 9 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  update-react-demo:
+    runs-on: ubuntu-latest
+    name: update / react-file-manager
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: latest
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "pnpm"
+
+      - name: Update root dependencies
+        run: pnpm install
+
+      - name: Update react-file-manager dependencies
+        working-directory: examples/local/react-file-manager
+        run: pnpm update --latest
+
+      - name: Check for changes
+        id: changes
+        run: |
+          if git diff --quiet examples/local/react-file-manager; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create PR
+        if: steps.changes.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@v7
+        with:
+          branch: deps/examples-react-file-manager
+          title: "deps(examples): update react-file-manager dependencies"
+          body: |
+            Automated weekly dependency update for `examples/local/react-file-manager`.
+
+            This PR was created by the `examples-deps` workflow.
+          commit-message: "deps(examples): update react-file-manager dependencies"
+          labels: dependencies,examples
+
+  update-feature-flags:
+    runs-on: ubuntu-latest
+    name: update / feature-flags
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: latest
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Update feature-flags dependencies
+        working-directory: examples/service/feature-flags
+        run: |
+          npm update --save
+          npm update --save-dev
+
+      - name: Check for changes
+        id: changes
+        run: |
+          if git diff --quiet examples/service/feature-flags; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create PR
+        if: steps.changes.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@v7
+        with:
+          branch: deps/examples-feature-flags
+          title: "deps(examples): update feature-flags dependencies"
+          body: |
+            Automated weekly dependency update for `examples/service/feature-flags`.
+
+            This PR was created by the `examples-deps` workflow.
+          commit-message: "deps(examples): update feature-flags dependencies"
+          labels: dependencies,examples

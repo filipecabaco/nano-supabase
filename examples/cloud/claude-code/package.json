@@ -1,0 +1,22 @@
+{
+  "name": "claude-code-cloud-example",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "setup": "bash .claude/setup.sh",
+    "dev": "npx tsx src/index.ts",
+    "db:exec": "npx nano-supabase db exec",
+    "db:reset": "npx nano-supabase db reset",
+    "migration:new": "npx nano-supabase migration new",
+    "migration:up": "npx nano-supabase migration up",
+    "migration:list": "npx nano-supabase migration list",
+    "gen:types": "npx nano-supabase gen types --output src/types.ts",
+    "status": "npx nano-supabase status",
+    "stop": "npx nano-supabase stop"
+  },
+  "dependencies": {
+    "@electric-sql/pglite": ">=0.4.2",
+    "@supabase/supabase-js": "^2.99.2",
+    "nano-supabase": "latest"
+  }
+}

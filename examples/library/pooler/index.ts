@@ -1,6 +1,6 @@
 import { PGlite } from "@electric-sql/pglite";
-import { PGlitePooler } from "../src/pooler.ts";
-import { QueryPriority } from "../src/types.ts";
+import { PGlitePooler } from "../../../src/pooler.ts";
+import { QueryPriority } from "../../../src/types.ts";
 
 async function main() {
 	console.log("=== PGlite Pooler Basic Demo ===\n");
