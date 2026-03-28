@@ -28,6 +28,18 @@ export default defineConfig({
 	optimizeDeps: {
 		exclude: ["@electric-sql/pglite"],
 	},
+	build: {
+		rollupOptions: {
+			external: [
+				"node:fs/promises",
+				"node:path",
+				"node:buffer",
+				"node:crypto",
+				"node:net",
+				"node:tls",
+			],
+		},
+	},
 	server: {
 		fs: {
 			allow: ["../../.."],
