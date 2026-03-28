@@ -3,7 +3,7 @@
  * Handles setting and clearing PostgreSQL session context for authenticated requests
  */
 
-import type { PGlite } from "@electric-sql/pglite";
+import type { PGliteInterface } from "@electric-sql/pglite";
 import { verifyAccessToken } from "../auth/crypto.ts";
 import {
 	CLEAR_AUTH_CONTEXT_SQL,
@@ -20,7 +20,7 @@ export interface AuthContext {
  * Set auth context for authenticated request
  */
 export async function setAuthContext(
-	db: PGlite,
+	db: PGliteInterface,
 	token: string | null,
 ): Promise<AuthContext> {
 	if (!token) {
@@ -45,6 +45,6 @@ export async function setAuthContext(
 /**
  * Clear auth context (set to anonymous)
  */
-export async function clearAuthContext(db: PGlite): Promise<void> {
+export async function clearAuthContext(db: PGliteInterface): Promise<void> {
 	await db.exec(CLEAR_AUTH_CONTEXT_SQL);
 }

@@ -1,4 +1,4 @@
-import type { PGlite } from "@electric-sql/pglite";
+import type { PGliteInterface } from "@electric-sql/pglite";
 import type { PostgrestParser } from "../postgrest-parser.ts";
 import { setAuthContext } from "./auth-context.ts";
 import { postgresErrorResponse } from "./error-handler.ts";
@@ -8,7 +8,7 @@ import { jsonResponse } from "./response.ts";
 export async function handleDataRoute(
 	request: Request,
 	pathname: string,
-	db: PGlite,
+	db: PGliteInterface,
 	parser: PostgrestParser,
 ): Promise<Response> {
 	const method = request.method.toUpperCase();

@@ -273,6 +273,95 @@ body {
 	font-size: 14px;
 }
 
+.user-badge {
+	background: #1e1b4b;
+	color: #a5b4fc;
+	border: 1px solid #312e81;
+	text-transform: none;
+	letter-spacing: 0;
+	max-width: 160px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.auth-section {
+	margin-bottom: 24px;
+}
+
+.auth-form {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+}
+
+.auth-error {
+	font-size: 13px;
+	color: #ef4444;
+	padding: 8px 12px;
+	background: #1c1111;
+	border: 1px solid #3b1111;
+	border-radius: 8px;
+}
+
+.auth-buttons {
+	display: flex;
+	gap: 8px;
+}
+
+.btn-secondary {
+	background: #262626;
+	color: #d4d4d4;
+	border: 1px solid #333;
+}
+
+.btn-secondary:hover:not(:disabled) {
+	background: #333;
+}
+
+.btn-sm {
+	padding: 6px 14px;
+	font-size: 12px;
+}
+
+.notes-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	margin-bottom: 12px;
+}
+
+.notes-header .stats {
+	margin-bottom: 0;
+}
+
+.storage-section {
+	margin-top: 24px;
+	padding: 16px;
+	background: #171717;
+	border: 1px solid #262626;
+	border-radius: 10px;
+}
+
+.file-upload {
+	display: inline-block;
+	cursor: pointer;
+	margin-top: 8px;
+}
+
+.file-status {
+	font-size: 12px;
+	color: #3ecf8e;
+	margin-top: 8px;
+}
+
+.info-value code {
+	background: #1a1a1a;
+	padding: 1px 6px;
+	border-radius: 4px;
+	font-size: 12px;
+}
+
 .footer {
 	margin-top: 40px;
 	text-align: center;

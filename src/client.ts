@@ -5,7 +5,7 @@
  * All auth, data, and storage operations are handled in-browser/in-process using PGlite
  */
 
-import type { PGlite } from "@electric-sql/pglite";
+import type { PGlite, PGliteInterface } from "@electric-sql/pglite";
 import { AuthHandler } from "./auth/handler.ts";
 import { createLocalFetch } from "./fetch-adapter/index.ts";
 import { PostgrestParser } from "./postgrest-parser.ts";
@@ -30,7 +30,7 @@ export interface LocalSupabaseClientConfig {
 	 * const db = new PGlite('idb://my-local-db')    // Browser — IndexedDB
 	 * ```
 	 */
-	db: PGlite;
+	db: PGlite | PGliteInterface;
 	/**
 	 * URL to use for the local Supabase instance
 	 * This should be a fake URL that won't conflict with real requests
@@ -122,7 +122,7 @@ export interface LocalSupabaseClientResult<T = unknown> {
  * ```
  */
 export async function createComponents(
-	db: PGlite,
+	db: PGlite | PGliteInterface,
 	storageBackend: StorageBackend | false | undefined,
 	postgrestWasmBytes?: Uint8Array,
 	sharedParser?: PostgrestParser,
@@ -225,7 +225,7 @@ export async function createLocalSupabaseClient<T = unknown>(
  * const result = await authHandler.signUp('user@example.com', 'password')
  * ```
  */
-export async function initializeAuth(db: PGlite): Promise<AuthHandler> {
+export async function initializeAuth(db: PGlite | PGliteInterface): Promise<AuthHandler> {
 	const authHandler = new AuthHandler(db);
 	await authHandler.initialize();
 	return authHandler;
@@ -252,7 +252,7 @@ export async function initializeAuth(db: PGlite): Promise<AuthHandler> {
  * ```
  */
 export async function createFetchAdapter(config: {
-	db: PGlite;
+	db: PGlite | PGliteInterface;
 	supabaseUrl?: string;
 	serviceRoleKey?: string;
 	debug?: boolean;
