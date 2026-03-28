@@ -7,6 +7,7 @@ Demos organized by use case. Each folder contains a self-contained example with 
 | Example | Description |
 |---------|-------------|
 | [react-file-manager](browser/react-file-manager/) | Dropbox-style file storage app with auth, storage, and RLS — runs entirely in the browser |
+| [postgis-map](browser/postgis-map/) | Interactive map with PostGIS spatial queries, OpenStreetMap tiles, and Leaflet |
 
 ## Library
 

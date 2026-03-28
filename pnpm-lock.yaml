@@ -33,9 +33,12 @@ importers:
       '@biomejs/biome':
         specifier: ^2.4.8
         version: 2.4.8
+      '@electric-sql/pglite-postgis':
+        specifier: ^0.0.4
+        version: 0.0.4(@electric-sql/pglite@0.4.2)
       '@electric-sql/pglite-socket':
         specifier: ^0.0.22
-        version: 0.0.22
+        version: 0.0.22(@electric-sql/pglite@0.4.2)
       '@prisma/client':
         specifier: ^6.19.2
         version: 6.19.2(prisma@6.19.2(typescript@5.9.3))(typescript@5.9.3)
@@ -87,7 +90,7 @@ importers:
     optionalDependencies:
       '@electric-sql/pglite-tools':
         specifier: ^0.3.1
-        version: 0.3.1
+        version: 0.3.1(@electric-sql/pglite@0.4.2)
       '@modelcontextprotocol/sdk':
         specifier: ^1.27.1
         version: 1.27.1(zod@4.3.6)
@@ -168,6 +171,11 @@ packages:
 
   '@blazediff/core@1.9.1':
     resolution: {integrity: sha512-ehg3jIkYKulZh+8om/O25vkvSsXXwC+skXmyA87FFx6A/45eqOkZsBltMw/TVteb0mloiGT8oGRTcjRAz66zaA==}
+
+  '@electric-sql/pglite-postgis@0.0.4':
+    resolution: {integrity: sha512-FQ/sGqF4AvygeJdU2fUIdNK3GGI8Kf/2qFXp+lLbrjwgRYXh6tJeuZWq+LwPS0yLrmdv7/9FpNHxmfY2OzU+9g==}
+    peerDependencies:
+      '@electric-sql/pglite': 0.4.2
 
   '@electric-sql/pglite-socket@0.0.22':
     resolution: {integrity: sha512-JOW+vY6H2y9sh9VJKy2dQ/JzRlMy7jISLUxuaONk7Nt2wFsxBlgH0V2uBFd+IowGvXl5HU4zGTiePYXASGpdww==}
@@ -2766,9 +2774,17 @@ snapshots:
 
   '@blazediff/core@1.9.1': {}
 
-  '@electric-sql/pglite-socket@0.0.22': {}
+  '@electric-sql/pglite-postgis@0.0.4(@electric-sql/pglite@0.4.2)':
+    dependencies:
+      '@electric-sql/pglite': 0.4.2
 
-  '@electric-sql/pglite-tools@0.3.1':
+  '@electric-sql/pglite-socket@0.0.22(@electric-sql/pglite@0.4.2)':
+    dependencies:
+      '@electric-sql/pglite': 0.4.2
+
+  '@electric-sql/pglite-tools@0.3.1(@electric-sql/pglite@0.4.2)':
+    dependencies:
+      '@electric-sql/pglite': 0.4.2
     optional: true
 
   '@electric-sql/pglite@0.4.2': {}

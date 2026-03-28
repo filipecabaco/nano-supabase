@@ -45,3 +45,22 @@ jobs:
       - run: pnpm install --no-frozen-lockfile
       - name: Build
         run: pnpm run build
+
+  build-postgis-map:
+    runs-on: ubuntu-latest
+    name: build / postgis-map
+    defaults:
+      run:
+        working-directory: examples/browser/postgis-map
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: latest
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "pnpm"
+      - run: pnpm install --no-frozen-lockfile
+      - name: Build
+        run: pnpm run build

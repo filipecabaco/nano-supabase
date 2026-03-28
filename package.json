@@ -83,6 +83,7 @@
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^2.4.8",
+		"@electric-sql/pglite-postgis": "^0.0.4",
 		"@electric-sql/pglite-socket": "^0.0.22",
 		"@prisma/client": "^6.19.2",
 		"@supabase/postgres-meta": "^0.96.1",

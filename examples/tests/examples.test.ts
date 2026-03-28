@@ -764,3 +764,137 @@ describe("cloud/claude-code", () => {
 		expect(afterReauth).toHaveLength(3);
 	});
 });
+
+let hasPostgis = false;
+try {
+	await import("@electric-sql/pglite-postgis");
+	hasPostgis = true;
+} catch {}
+
+describe.skipIf(!hasPostgis)("browser/postgis-map", () => {
+	it("creates spatial table and performs geospatial queries", async () => {
+		const { postgis } = await import("@electric-sql/pglite-postgis");
+		const nano = await nanoSupabase({ extensions: { postgis } });
+		const db = nano.db;
+
+		await db.exec("CREATE EXTENSION IF NOT EXISTS postgis");
+
+		await db.exec(`
+			CREATE TABLE IF NOT EXISTS places (
+				id SERIAL PRIMARY KEY,
+				name TEXT NOT NULL,
+				category TEXT NOT NULL DEFAULT 'other',
+				location GEOMETRY(Point, 4326) NOT NULL,
+				created_at TIMESTAMP DEFAULT NOW()
+			);
+			CREATE INDEX IF NOT EXISTS places_location_idx ON places USING GIST (location);
+		`);
+
+		await db.exec(`
+			CREATE OR REPLACE FUNCTION add_place(p_name TEXT, p_category TEXT, p_lng FLOAT, p_lat FLOAT)
+			RETURNS TABLE(id INT, name TEXT, category TEXT, lat FLOAT, lng FLOAT, created_at TEXT) AS $$
+				INSERT INTO places (name, category, location)
+				VALUES (p_name, p_category, ST_SetSRID(ST_MakePoint(p_lng, p_lat), 4326))
+				RETURNING
+					places.id,
+					places.name,
+					places.category,
+					ST_Y(places.location)::float AS lat,
+					ST_X(places.location)::float AS lng,
+					places.created_at::text;
+			$$ LANGUAGE sql;
+		`);
+
+		await db.exec(`
+			CREATE OR REPLACE FUNCTION get_all_places()
+			RETURNS TABLE(id INT, name TEXT, category TEXT, lat FLOAT, lng FLOAT, created_at TEXT) AS $$
+				SELECT
+					places.id, places.name, places.category,
+					ST_Y(places.location)::float AS lat,
+					ST_X(places.location)::float AS lng,
+					places.created_at::text
+				FROM places ORDER BY created_at DESC;
+			$$ LANGUAGE sql;
+		`);
+
+		await db.exec(`
+			CREATE OR REPLACE FUNCTION find_nearby(center_lng FLOAT, center_lat FLOAT, radius_km FLOAT)
+			RETURNS TABLE(id INT, name TEXT, category TEXT, lat FLOAT, lng FLOAT, created_at TEXT, distance_km FLOAT) AS $$
+				SELECT
+					places.id, places.name, places.category,
+					ST_Y(places.location)::float AS lat,
+					ST_X(places.location)::float AS lng,
+					places.created_at::text,
+					(ST_Distance(
+						places.location::geography,
+						ST_SetSRID(ST_MakePoint(center_lng, center_lat), 4326)::geography
+					) / 1000.0)::float AS distance_km
+				FROM places
+				WHERE ST_DWithin(
+					places.location::geography,
+					ST_SetSRID(ST_MakePoint(center_lng, center_lat), 4326)::geography,
+					radius_km * 1000
+				)
+				ORDER BY distance_km;
+			$$ LANGUAGE sql;
+		`);
+
+		await db.exec(`
+			CREATE OR REPLACE FUNCTION get_place_stats()
+			RETURNS TABLE(count BIGINT, bbox TEXT) AS $$
+				SELECT
+					COUNT(*),
+					CASE WHEN COUNT(*) > 0
+						THEN ST_AsText(ST_Extent(location))
+						ELSE NULL
+					END AS bbox
+				FROM places;
+			$$ LANGUAGE sql;
+		`);
+
+		const { rows: lisbon } = await db.query<{ id: number; name: string; lat: number; lng: number }>(
+			"SELECT * FROM add_place($1, $2, $3, $4)",
+			["Lisbon Tower", "landmark", -9.1399, 38.7223],
+		);
+		expect(lisbon).toHaveLength(1);
+		expect(lisbon[0].name).toBe("Lisbon Tower");
+		expect(lisbon[0].lat).toBeCloseTo(38.7223, 3);
+		expect(lisbon[0].lng).toBeCloseTo(-9.1399, 3);
+
+		await db.query("SELECT * FROM add_place($1, $2, $3, $4)", [
+			"Lisbon Cafe", "restaurant", -9.1370, 38.7200,
+		]);
+		await db.query("SELECT * FROM add_place($1, $2, $3, $4)", [
+			"Porto Station", "transit", -8.6100, 41.1496,
+		]);
+
+		const { rows: allPlaces } = await db.query<{ name: string }>(
+			"SELECT * FROM get_all_places()",
+		);
+		expect(allPlaces).toHaveLength(3);
+
+		const { rows: nearby } = await db.query<{ name: string; distance_km: number }>(
+			"SELECT * FROM find_nearby($1, $2, $3)",
+			[-9.1399, 38.7223, 5],
+		);
+		expect(nearby.length).toBeGreaterThanOrEqual(1);
+		expect(nearby.length).toBeLessThanOrEqual(2);
+		expect(nearby.every((p) => p.distance_km <= 5)).toBe(true);
+		expect(nearby.some((p) => p.name === "Lisbon Tower")).toBe(true);
+
+		const { rows: farAway } = await db.query<{ name: string }>(
+			"SELECT * FROM find_nearby($1, $2, $3)",
+			[-9.1399, 38.7223, 1000],
+		);
+		expect(farAway).toHaveLength(3);
+
+		const { rows: stats } = await db.query<{ count: number; bbox: string | null }>(
+			"SELECT * FROM get_place_stats()",
+		);
+		expect(Number(stats[0].count)).toBe(3);
+		expect(stats[0].bbox).toBeTruthy();
+		expect(stats[0].bbox).toContain("POLYGON");
+
+		await nano.stop();
+	});
+});
