@@ -1,10 +1,12 @@
 import { chmodSync, copyFileSync, cpSync, mkdirSync, rmSync } from "node:fs";
+import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import * as esbuild from "esbuild";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const rootDir = join(__dirname, "..");
+const require = createRequire(import.meta.url);
 
 const target = process.argv[2];
 
@@ -63,7 +65,7 @@ async function buildCli() {
 	});
 	chmodSync(join(rootDir, "dist/cli.js"), 0o755);
 
-	const pgliteDistDir = join(rootDir, "node_modules/@electric-sql/pglite/dist");
+	const pgliteDistDir = dirname(require.resolve("@electric-sql/pglite"));
 	for (const file of [
 		"pglite.wasm",
 		"initdb.wasm",
@@ -74,7 +76,7 @@ async function buildCli() {
 		copyFileSync(join(pgliteDistDir, file), join(rootDir, "dist", file));
 	}
 	copyFileSync(
-		join(rootDir, "node_modules/postgrest-parser/pkg/postgrest_parser_bg.wasm"),
+		require.resolve("postgrest-parser/pkg/postgrest_parser_bg.wasm"),
 		join(rootDir, "dist/postgrest_parser_bg.wasm"),
 	);
 	cpSync(

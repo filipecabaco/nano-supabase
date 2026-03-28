@@ -85,11 +85,13 @@
 		"@biomejs/biome": "^2.4.8",
 		"@electric-sql/pglite-postgis": "^0.0.4",
 		"@electric-sql/pglite-socket": "^0.0.22",
+		"@electric-sql/pglite-tools": "^0.3.1",
 		"@prisma/client": "^6.19.2",
 		"@supabase/postgres-meta": "^0.96.1",
 		"@testcontainers/localstack": "^11.13.0",
 		"@testcontainers/postgresql": "^11.13.0",
 		"@types/node": "^25.5.0",
+		"@types/pg": "^8.20.0",
 		"@types/selfsigned": "^2.1.0",
 		"@vitest/browser": "^4.1.0",
 		"@vitest/browser-playwright": "^4.1.0",
@@ -105,11 +107,7 @@
 	"peerDependencies": {
 		"@electric-sql/pglite": ">=0.4.2"
 	},
-	"peerDependenciesMeta": {
-		"@electric-sql/pglite": {
-			"optional": true
-		}
-	},
+	"peerDependenciesMeta": {},
 	"dependencies": {
 		"@oslojs/otp": "^1.1.0",
 		"@scure/base": "^2.0.0",
@@ -119,10 +117,8 @@
 		"postgrest-parser": "^0.1.2"
 	},
 	"optionalDependencies": {
-		"@electric-sql/pglite-tools": "^0.3.1",
 		"@modelcontextprotocol/sdk": "^1.27.1",
 		"@supabase/mcp-server-supabase": "^0.7.0",
-		"@types/pg": "^8.20.0",
 		"node-pg-migrate": "^8.0.4",
 		"pg": "^8.20.0"
 	},
