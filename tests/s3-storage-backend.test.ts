@@ -1,10 +1,13 @@
-import { AwsClient } from "aws4fetch";
-import { LocalstackContainer, type StartedLocalStackContainer } from "@testcontainers/localstack";
 import { createClient } from "@supabase/supabase-js";
+import {
+	LocalstackContainer,
+	type StartedLocalStackContainer,
+} from "@testcontainers/localstack";
+import { AwsClient } from "aws4fetch";
+import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { createFetchAdapter } from "../src/client.ts";
 import { createPGlite } from "../src/pglite-factory.ts";
 import { S3StorageBackend } from "../src/storage/s3-backend.ts";
-import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
 const SUPABASE_URL = "http://localhost:54321";
 const BUCKET = "test-storage-bucket";
@@ -56,9 +59,9 @@ describe("S3StorageBackend", () => {
 
 		const result = await backend.get("bucket1/file.txt");
 		expect(result).not.toBeNull();
-		expect(new TextDecoder().decode(result!.data)).toBe("hello s3");
-		expect(result!.metadata.contentType).toBe("text/plain");
-		expect(result!.metadata.size).toBe(data.byteLength);
+		expect(new TextDecoder().decode(result?.data)).toBe("hello s3");
+		expect(result?.metadata.contentType).toBe("text/plain");
+		expect(result?.metadata.size).toBe(data.byteLength);
 
 		expect(await backend.get("bucket1/missing.txt")).toBeNull();
 
@@ -81,7 +84,7 @@ describe("S3StorageBackend", () => {
 
 		const copied = await backend.get("b/dst.txt");
 		expect(copied).not.toBeNull();
-		expect(new TextDecoder().decode(copied!.data)).toBe("copy me to s3");
+		expect(new TextDecoder().decode(copied?.data)).toBe("copy me to s3");
 	});
 
 	test("deleteByPrefix", async () => {
@@ -132,11 +135,12 @@ describe("S3StorageBackend", () => {
 			.upload("test.txt", content, { contentType: "text/plain" });
 		expect(uploadError).toBeNull();
 
-		const { data: downloadData, error: downloadError } =
-			await supabase.storage.from("s3-files").download("test.txt");
+		const { data: downloadData, error: downloadError } = await supabase.storage
+			.from("s3-files")
+			.download("test.txt");
 		expect(downloadError).toBeNull();
 		expect(downloadData).not.toBeNull();
-		const text = await downloadData!.text();
+		const text = await downloadData?.text();
 		expect(text).toBe("data in s3");
 
 		expect(await backend.exists("s3-files/test.txt")).toBe(true);

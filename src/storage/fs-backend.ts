@@ -1,4 +1,11 @@
-import { mkdir, readFile, readdir, rm, unlink, writeFile } from "node:fs/promises";
+import {
+	mkdir,
+	readdir,
+	readFile,
+	rm,
+	unlink,
+	writeFile,
+} from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { BlobMetadata, StorageBackend } from "./backend.ts";
 

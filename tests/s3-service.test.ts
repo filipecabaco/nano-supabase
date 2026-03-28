@@ -3,11 +3,11 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { AwsClient } from "aws4fetch";
 import {
 	LocalstackContainer,
 	type StartedLocalStackContainer,
 } from "@testcontainers/localstack";
+import { AwsClient } from "aws4fetch";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -36,10 +36,7 @@ async function waitForHealth(url: string, timeout = 45_000): Promise<void> {
 	);
 }
 
-async function createS3Bucket(
-	endpoint: string,
-	bucket: string,
-): Promise<void> {
+async function createS3Bucket(endpoint: string, bucket: string): Promise<void> {
 	const aws = new AwsClient({ ...CREDENTIALS, region: REGION, service: "s3" });
 	const resp = await aws.fetch(`${endpoint}/${bucket}`, { method: "PUT" });
 	if (!resp.ok && resp.status !== 409) {
@@ -60,9 +57,7 @@ async function s3ObjectExists(
 }
 
 beforeAll(async () => {
-	localstack = await new LocalstackContainer(
-		"localstack/localstack:4",
-	).start();
+	localstack = await new LocalstackContainer("localstack/localstack:4").start();
 	s3Endpoint = localstack.getConnectionUri();
 	await createS3Bucket(s3Endpoint, S3_BUCKET);
 }, 120_000);
@@ -199,17 +194,14 @@ describe("service mode with S3 offload", () => {
 	}, 30_000);
 
 	test("storage blobs persist in S3 backend", async () => {
-		const createBucketRes = await fetch(
-			`${base}/s3-tenant/storage/v1/bucket`,
-			{
-				method: "POST",
-				headers: {
-					Authorization: `Bearer ${tenantToken}`,
-					"Content-Type": "application/json",
-				},
-				body: JSON.stringify({ name: "uploads", public: true }),
+		const createBucketRes = await fetch(`${base}/s3-tenant/storage/v1/bucket`, {
+			method: "POST",
+			headers: {
+				Authorization: `Bearer ${tenantToken}`,
+				"Content-Type": "application/json",
 			},
-		);
+			body: JSON.stringify({ name: "uploads", public: true }),
+		});
 		expect(createBucketRes.status).toBe(200);
 
 		const fileContent = new TextEncoder().encode("s3 stored file");

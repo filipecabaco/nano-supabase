@@ -6,10 +6,10 @@ import {
 	type Http2ServerRequest,
 	type Http2ServerResponse,
 } from "node:http2";
+import { join } from "node:path";
 import type { Extension } from "@electric-sql/pglite";
 import { pgDump } from "@electric-sql/pglite-tools/pg_dump";
 import { printStartupInfo } from "./cli-display.ts";
-import { join } from "node:path";
 import type { McpHandler } from "./mcp-server.ts";
 import { createMcpHandler } from "./mcp-server.ts";
 import type { NanoSupabaseInstance } from "./nano.ts";
@@ -65,8 +65,7 @@ export async function runStartMode(opts: {
 	} = opts;
 
 	let storageBackend: StorageBackend | undefined;
-	const resolvedBackendType =
-		storageBackendType ?? (dataDir ? "fs" : "memory");
+	const resolvedBackendType = storageBackendType ?? (dataDir ? "fs" : "memory");
 
 	if (resolvedBackendType === "fs") {
 		const storageDir = join(dataDir ?? "/tmp/nano-supabase-storage", "storage");

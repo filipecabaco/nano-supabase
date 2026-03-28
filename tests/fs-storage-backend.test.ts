@@ -25,10 +25,7 @@ describe("FileSystemStorageBackend", () => {
 
 			const result = await backend.get("bucket1/file.txt");
 			assertExists(result);
-			assertEquals(
-				new TextDecoder().decode(result.data),
-				"hello world",
-			);
+			assertEquals(new TextDecoder().decode(result.data), "hello world");
 			assertEquals(result.metadata.contentType, "text/plain");
 			assertEquals(result.metadata.size, data.byteLength);
 
@@ -89,9 +86,7 @@ describe("FileSystemStorageBackend", () => {
 		const baseDir = await mkdtemp(join(tmpdir(), "nano-fs-e2e-"));
 		try {
 			const db = createPGlite();
-			const backend = new FileSystemStorageBackend(
-				join(baseDir, "storage"),
-			);
+			const backend = new FileSystemStorageBackend(join(baseDir, "storage"));
 			const { localFetch } = await createFetchAdapter({
 				db,
 				supabaseUrl: SUPABASE_URL,
@@ -109,8 +104,10 @@ describe("FileSystemStorageBackend", () => {
 			});
 			assertEquals(signUpError, null);
 
-			const { error: bucketError } =
-				await supabase.storage.createBucket("files", { public: false });
+			const { error: bucketError } = await supabase.storage.createBucket(
+				"files",
+				{ public: false },
+			);
 			assertEquals(bucketError, null);
 
 			const content = new TextEncoder().encode("persistent data");
@@ -126,10 +123,7 @@ describe("FileSystemStorageBackend", () => {
 			const text = await downloadData.text();
 			assertEquals(text, "persistent data");
 
-			assertEquals(
-				await backend.exists("files/test.txt"),
-				true,
-			);
+			assertEquals(await backend.exists("files/test.txt"), true);
 
 			await db.close();
 		} finally {
