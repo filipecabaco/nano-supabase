@@ -52,9 +52,7 @@ export async function runServiceMode(opts: {
 		mcp = false,
 	} = opts;
 
-	const { S3Client, PutObjectCommand, GetObjectCommand } = await import(
-		"@aws-sdk/client-s3"
-	);
+	const { AwsClient } = await import("aws4fetch");
 	const { mkdir, rm, mkdtemp } = await import("node:fs/promises");
 	const { execFile } = await import("node:child_process");
 	const { promisify } = await import("node:util");
@@ -326,16 +324,18 @@ export async function runServiceMode(opts: {
 		};
 	}
 
+	const s3Region = process.env.AWS_REGION ?? "us-east-1";
+	const s3BaseUrl = s3Bucket
+		? s3Endpoint
+			? `${s3Endpoint.replace(/\/$/, "")}/${s3Bucket}`
+			: `https://${s3Bucket}.s3.${s3Region}.amazonaws.com`
+		: null;
 	const s3Client = s3Bucket
-		? new S3Client({
-				region: process.env.AWS_REGION ?? "us-east-1",
-				...(s3Endpoint ? { endpoint: s3Endpoint, forcePathStyle: true } : {}),
-				credentials: process.env.AWS_ACCESS_KEY_ID
-					? {
-							accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-							secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY ?? "",
-						}
-					: undefined,
+		? new AwsClient({
+				accessKeyId: process.env.AWS_ACCESS_KEY_ID ?? "",
+				secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY ?? "",
+				region: s3Region,
+				service: "s3",
 			})
 		: null;
 
@@ -357,7 +357,7 @@ export async function runServiceMode(opts: {
 		tenantDataDir: string,
 		tenantId: string,
 	): Promise<void> {
-		if (s3Bucket && s3Client) {
+		if (s3Bucket && s3Client && s3BaseUrl) {
 			const tmpDir = await mkdtemp("/tmp/nano-offload-");
 			const archivePath = join(tmpDir, "data.tar.gz");
 			await execFileAsync("tar", [
@@ -368,13 +368,17 @@ export async function runServiceMode(opts: {
 				".",
 			]);
 			const archiveData = await readFile(archivePath);
-			await s3Client.send(
-				new PutObjectCommand({
-					Bucket: s3Bucket,
-					Key: `tenants/${tenantId}/data.tar.gz`,
-					Body: archiveData,
-				}),
+			const resp = await s3Client.fetch(
+				`${s3BaseUrl}/tenants/${tenantId}/data.tar.gz`,
+				{
+					method: "PUT",
+					body: archiveData,
+					headers: { "Content-Type": "application/gzip" },
+				},
 			);
+			if (!resp.ok) {
+				throw new Error(`S3 offload PUT failed: ${resp.status}`);
+			}
 			await rm(tmpDir, { recursive: true, force: true });
 		} else {
 			const archivePath = join(coldDir, `${tenantId}.tar.gz`);
@@ -394,22 +398,17 @@ export async function runServiceMode(opts: {
 		tenantId: string,
 	): Promise<void> {
 		await mkdir(tenantDataDir, { recursive: true });
-		if (s3Bucket && s3Client) {
+		if (s3Bucket && s3Client && s3BaseUrl) {
 			const tmpDir = await mkdtemp("/tmp/nano-pull-");
 			const archivePath = join(tmpDir, "data.tar.gz");
-			const resp = await s3Client.send(
-				new GetObjectCommand({
-					Bucket: s3Bucket,
-					Key: `tenants/${tenantId}/data.tar.gz`,
-				}),
+			const resp = await s3Client.fetch(
+				`${s3BaseUrl}/tenants/${tenantId}/data.tar.gz`,
 			);
-			const chunks: Uint8Array[] = [];
-			if (resp.Body) {
-				for await (const chunk of resp.Body as AsyncIterable<Uint8Array>) {
-					chunks.push(chunk);
-				}
+			if (!resp.ok) {
+				throw new Error(`S3 pull GET failed: ${resp.status}`);
 			}
-			await writeFile(archivePath, Buffer.concat(chunks));
+			const data = new Uint8Array(await resp.arrayBuffer());
+			await writeFile(archivePath, data);
 			await execFileAsync("tar", ["xzf", archivePath, "-C", tenantDataDir]);
 			await rm(tmpDir, { recursive: true, force: true });
 		} else {
@@ -969,7 +968,7 @@ export async function runServiceMode(opts: {
 						await rm(tenant.dataDir, { recursive: true, force: true });
 					} catch {}
 					try {
-						if (!s3Bucket || !s3Client) {
+						if (!s3Bucket || !s3BaseUrl) {
 							await rm(join(coldDir, `${tenant.id}.tar.gz`), { force: true });
 						}
 					} catch {}

@@ -59,7 +59,7 @@ export class S3StorageBackend implements StorageBackend {
 		const [blobResp, metaResp] = await Promise.all([
 			this.aws.fetch(this.url(key), {
 				method: "PUT",
-				body: data,
+				body: data as unknown as BodyInit,
 				headers: { "Content-Type": metadata.contentType },
 			}),
 			this.aws.fetch(this.metaUrl(key), {
@@ -126,9 +126,10 @@ export class S3StorageBackend implements StorageBackend {
 			if (!listResp.ok) break;
 
 			const xml = await listResp.text();
-			const keys = [...xml.matchAll(/<Key>([^<]+)<\/Key>/g)].map(
-				(m) => m[1],
-			);
+			const keys: string[] = [];
+			for (const m of xml.matchAll(/<Key>([^<]+)<\/Key>/g)) {
+				if (m[1]) keys.push(m[1]);
+			}
 
 			for (const objKey of keys) {
 				await this.aws.fetch(`${this.baseUrl}/${objKey}`, {
