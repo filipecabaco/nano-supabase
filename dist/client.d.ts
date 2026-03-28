@@ -4,7 +4,7 @@
  * Creates a fully local Supabase client that works with @supabase/supabase-js
  * All auth, data, and storage operations are handled in-browser/in-process using PGlite
  */
-import type { PGlite } from "@electric-sql/pglite";
+import type { PGlite, PGliteInterface } from "@electric-sql/pglite";
 import { AuthHandler } from "./auth/handler.ts";
 import { PostgrestParser } from "./postgrest-parser.ts";
 import type { StorageBackend } from "./storage/backend.ts";
@@ -27,7 +27,7 @@ export interface LocalSupabaseClientConfig {
      * const db = new PGlite('idb://my-local-db')    // Browser — IndexedDB
      * ```
      */
-    db: PGlite;
+    db: PGlite | PGliteInterface;
     /**
      * URL to use for the local Supabase instance
      * This should be a fake URL that won't conflict with real requests
@@ -110,7 +110,7 @@ export interface LocalSupabaseClientResult<T = unknown> {
  * await supabase.storage.from('avatars').upload('avatar.png', file)
  * ```
  */
-export declare function createComponents(db: PGlite, storageBackend: StorageBackend | false | undefined, postgrestWasmBytes?: Uint8Array, sharedParser?: PostgrestParser): Promise<{
+export declare function createComponents(db: PGlite | PGliteInterface, storageBackend: StorageBackend | false | undefined, postgrestWasmBytes?: Uint8Array, sharedParser?: PostgrestParser): Promise<{
     parser: PostgrestParser;
     authHandler: AuthHandler;
     storageHandler: StorageHandler | undefined;
@@ -137,7 +137,7 @@ export declare function createLocalSupabaseClient<T = unknown>(config: LocalSupa
  * const result = await authHandler.signUp('user@example.com', 'password')
  * ```
  */
-export declare function initializeAuth(db: PGlite): Promise<AuthHandler>;
+export declare function initializeAuth(db: PGlite | PGliteInterface): Promise<AuthHandler>;
 /**
  * Create only the fetch adapter without a Supabase client
  *
@@ -159,7 +159,7 @@ export declare function initializeAuth(db: PGlite): Promise<AuthHandler>;
  * ```
  */
 export declare function createFetchAdapter(config: {
-    db: PGlite;
+    db: PGlite | PGliteInterface;
     supabaseUrl?: string;
     serviceRoleKey?: string;
     debug?: boolean;

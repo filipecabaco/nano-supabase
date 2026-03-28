@@ -1,7 +1,7 @@
-import type { PGlite } from "@electric-sql/pglite";
+import type { PGliteInterface } from "@electric-sql/pglite";
 import type { TokenPair, User } from "./types.ts";
-export declare function createAccessToken(db: PGlite, user: User, sessionId: string, expiresIn?: number): Promise<string>;
-export declare function verifyAccessToken(db: PGlite, token: string): Promise<{
+export declare function createAccessToken(db: PGliteInterface, user: User, sessionId: string, expiresIn?: number): Promise<string>;
+export declare function verifyAccessToken(db: PGliteInterface, token: string): Promise<{
     valid: boolean;
     payload?: {
         sub: string;
@@ -16,7 +16,7 @@ export declare function verifyAccessToken(db: PGlite, token: string): Promise<{
     };
     error?: string;
 }>;
-export declare function generateTokenPair(db: PGlite, user: User, sessionId: string, refreshToken: string, expiresIn?: number): Promise<TokenPair>;
+export declare function generateTokenPair(db: PGliteInterface, user: User, sessionId: string, refreshToken: string, expiresIn?: number): Promise<TokenPair>;
 export declare function extractUserIdFromToken(token: string): string | null;
 export declare function extractSessionIdFromToken(token: string): string | null;
 //# sourceMappingURL=crypto.d.ts.map

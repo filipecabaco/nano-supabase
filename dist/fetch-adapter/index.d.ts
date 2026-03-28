@@ -11,13 +11,13 @@
  * while still being able to interact with other APIs and Supabase products
  * (Realtime, Edge Functions, etc.)
  */
-import type { PGlite } from "@electric-sql/pglite";
+import type { PGliteInterface } from "@electric-sql/pglite";
 import type { AuthHandler } from "../auth/handler.ts";
 import type { PostgrestParser } from "../postgrest-parser.ts";
 import type { StorageHandler } from "../storage/handler.ts";
 export interface FetchAdapterConfig {
     /** The PGlite database instance */
-    db: PGlite;
+    db: PGliteInterface;
     /** The PostgREST parser instance */
     parser: PostgrestParser;
     /** The auth handler instance */

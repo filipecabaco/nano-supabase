@@ -2,7 +2,7 @@
  * Supabase-compatible client for PGlite
  * Intercepts PostgREST-style API calls and converts them to SQL
  */
-import type { PGlite } from "@electric-sql/pglite";
+import type { PGliteInterface } from "@electric-sql/pglite";
 import { PostgrestParser } from "./postgrest-parser.ts";
 /**
  * Query builder interface compatible with Supabase-js
@@ -41,7 +41,7 @@ export interface QueryBuilder<T = unknown> {
 export declare class SupabaseClient {
     private readonly db;
     private readonly parser;
-    constructor(db: PGlite, parser: PostgrestParser);
+    constructor(db: PGliteInterface, parser: PostgrestParser);
     /**
      * Access a table for querying
      */
@@ -57,5 +57,5 @@ export declare class SupabaseClient {
 /**
  * Create a Supabase-compatible client with schema introspection
  */
-export declare function createSupabaseClient(db: PGlite): Promise<SupabaseClient>;
+export declare function createSupabaseClient(db: PGliteInterface): Promise<SupabaseClient>;
 //# sourceMappingURL=supabase-client.d.ts.map

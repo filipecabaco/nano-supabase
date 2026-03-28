@@ -4,7 +4,7 @@
  * All metadata lives in storage.buckets / storage.objects (with RLS).
  * File blobs are stored in a pluggable StorageBackend (in-memory by default).
  */
-import type { PGlite } from "@electric-sql/pglite";
+import type { PGliteInterface } from "@electric-sql/pglite";
 import type { BlobMetadata, StorageBackend } from "./backend.ts";
 export interface StorageBucket {
     id: string;
@@ -47,7 +47,7 @@ export declare class StorageHandler {
     private readonly db;
     private readonly backend;
     private initPromise;
-    constructor(db: PGlite, backend?: StorageBackend);
+    constructor(db: PGliteInterface, backend?: StorageBackend);
     initialize(): Promise<void>;
     /** Get the blob backend (for advanced use) */
     getBackend(): StorageBackend;
