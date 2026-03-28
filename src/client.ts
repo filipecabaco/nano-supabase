@@ -225,7 +225,9 @@ export async function createLocalSupabaseClient<T = unknown>(
  * const result = await authHandler.signUp('user@example.com', 'password')
  * ```
  */
-export async function initializeAuth(db: PGlite | PGliteInterface): Promise<AuthHandler> {
+export async function initializeAuth(
+	db: PGlite | PGliteInterface,
+): Promise<AuthHandler> {
 	const authHandler = new AuthHandler(db);
 	await authHandler.initialize();
 	return authHandler;
