@@ -139,6 +139,10 @@ Start options:
   --tcp-port=<port>            Postgres TCP port (default: ${DEFAULT_TCP_PORT})
   --service-role-key=<key>     Service role key (default: ${DEFAULT_SERVICE_ROLE_KEY})
   --extensions=<names>         Comma-separated list of PGlite extensions to load (e.g. vector,pg_trgm)
+  --storage-backend=<type>     Storage blob backend: memory (default without --data-dir), fs (default with --data-dir), s3
+  --s3-bucket=<bucket>         S3 bucket for storage blobs (required when --storage-backend=s3)
+  --s3-endpoint=<url>          Custom S3 endpoint (for MinIO, R2, etc.)
+  --s3-prefix=<prefix>         S3 key prefix for storage blobs (default: storage/)
   --count=<n>                  Start N instances (ports increment: httpPort+i, tcpPort+i; data dir: dataDir/i+1)
   --detach                     Run in background and print JSON connection info
   --pid-file=<path>            Write PID to additional file (default location: /tmp/nano-supabase-<port>.pid)
@@ -313,6 +317,11 @@ const count = (() => {
 	}
 	return n;
 })();
+const storageBackendType = getArgValue(subArgs, "--storage-backend");
+const s3Bucket = getArgValue(subArgs, "--s3-bucket");
+const s3Endpoint = getArgValue(subArgs, "--s3-endpoint");
+const s3Prefix = getArgValue(subArgs, "--s3-prefix");
+
 const extensionNames = (getArgValue(subArgs, "--extensions") ?? "")
 	.split(",")
 	.map((s) => s.trim())
@@ -447,5 +456,9 @@ if (subCommand === "service" && !isServiceMgmtOp) {
 		count,
 		tlsCert,
 		tlsKey,
+		storageBackendType,
+		s3Bucket,
+		s3Endpoint,
+		s3Prefix,
 	});
 }

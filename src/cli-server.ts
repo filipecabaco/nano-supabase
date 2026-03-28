@@ -6,6 +6,7 @@ import {
 	type Http2ServerRequest,
 	type Http2ServerResponse,
 } from "node:http2";
+import { join } from "node:path";
 import type { Extension } from "@electric-sql/pglite";
 import { pgDump } from "@electric-sql/pglite-tools/pg_dump";
 import { printStartupInfo } from "./cli-display.ts";
@@ -13,6 +14,7 @@ import type { McpHandler } from "./mcp-server.ts";
 import { createMcpHandler } from "./mcp-server.ts";
 import type { NanoSupabaseInstance } from "./nano.ts";
 import { nanoSupabase } from "./nano.ts";
+import type { StorageBackend } from "./storage/backend.ts";
 import { PGliteTCPServer } from "./tcp-server.ts";
 
 export async function runStartMode(opts: {
@@ -34,6 +36,10 @@ export async function runStartMode(opts: {
 	count: number;
 	tlsCert?: string;
 	tlsKey?: string;
+	storageBackendType?: string;
+	s3Bucket?: string;
+	s3Endpoint?: string;
+	s3Prefix?: string;
 }): Promise<void> {
 	const {
 		pgliteWasmModule,
@@ -52,7 +58,35 @@ export async function runStartMode(opts: {
 		pidFile,
 		tlsCert,
 		tlsKey,
+		storageBackendType,
+		s3Bucket,
+		s3Endpoint,
+		s3Prefix,
 	} = opts;
+
+	let storageBackend: StorageBackend | undefined;
+	const resolvedBackendType = storageBackendType ?? (dataDir ? "fs" : "memory");
+
+	if (resolvedBackendType === "fs") {
+		const storageDir = join(dataDir ?? "/tmp/nano-supabase-storage", "storage");
+		const { FileSystemStorageBackend } = await import(
+			"./storage/fs-backend.ts"
+		);
+		storageBackend = new FileSystemStorageBackend(storageDir);
+	} else if (resolvedBackendType === "s3") {
+		if (!s3Bucket) {
+			process.stderr.write(
+				"--s3-bucket is required when --storage-backend=s3\n",
+			);
+			process.exit(1);
+		}
+		const { S3StorageBackend } = await import("./storage/s3-backend.ts");
+		storageBackend = new S3StorageBackend({
+			bucket: s3Bucket,
+			endpoint: s3Endpoint,
+			prefix: s3Prefix,
+		});
+	}
 
 	let tlsBufs: { cert: Buffer; key: Buffer } | null = null;
 	if (tlsCert && tlsKey) {
@@ -91,6 +125,7 @@ export async function runStartMode(opts: {
 				...extraExtensions,
 			},
 			serviceRoleKey,
+			storageBackend,
 		});
 		if (tlsBufs) {
 			externalTcpServer = await PGliteTCPServer.create(

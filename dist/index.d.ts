@@ -28,7 +28,7 @@ export type { ParsedQuery, QueryExecutor } from "./postgrest-parser.ts";
 export { PostgrestParser } from "./postgrest-parser.ts";
 export { PriorityQueue } from "./queue.ts";
 export { type CreateTenantOptions, type CreateTenantResult, ServiceClient, type ServiceClientOptions, type SqlResult, type Tenant, type TenantUsage, } from "./service-client.ts";
-export { type BlobMetadata, type CreateBucketOptions, MemoryStorageBackend, type SignedUrlToken, STORAGE_SCHEMA_SQL, type StorageBackend, type StorageBucket, StorageHandler, type StorageObject, } from "./storage/index.ts";
+export { type BlobMetadata, type CreateBucketOptions, FileSystemStorageBackend, MemoryStorageBackend, S3StorageBackend, type S3StorageBackendOptions, type SignedUrlToken, STORAGE_SCHEMA_SQL, type StorageBackend, type StorageBucket, StorageHandler, type StorageObject, } from "./storage/index.ts";
 export type { QueryBuilder } from "./supabase-client.ts";
 export { createSupabaseClient, SupabaseClient } from "./supabase-client.ts";
 export type { PoolerConfig, QueryResult, QueuedQuery, QueueMetrics, } from "./types.ts";

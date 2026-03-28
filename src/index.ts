@@ -100,7 +100,10 @@ export {
 export {
 	type BlobMetadata,
 	type CreateBucketOptions,
+	FileSystemStorageBackend,
 	MemoryStorageBackend,
+	S3StorageBackend,
+	type S3StorageBackendOptions,
 	type SignedUrlToken,
 	STORAGE_SCHEMA_SQL,
 	type StorageBackend,
