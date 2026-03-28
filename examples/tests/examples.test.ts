@@ -285,7 +285,7 @@ describe("library/postgrest-parser", () => {
 	});
 });
 
-describe("cli/tcp-server", () => {
+describe("local/tcp-server", () => {
 	it("starts TCP server and creates sample data", async () => {
 		await using nano = await nanoSupabase({ tcp: { port: 0 } });
 		const db = nano.db;
@@ -318,7 +318,7 @@ try {
 	hasDrizzle = true;
 } catch {}
 
-describe.skipIf(!hasDrizzle)("orm/drizzle", () => {
+describe.skipIf(!hasDrizzle)("library/drizzle", () => {
 	it("performs type-safe CRUD via Drizzle ORM", async () => {
 		const { eq, desc, and, gte, lte } = await import("drizzle-orm");
 		const { boolean, integer, pgTable, serial, text, timestamp } = await import(
@@ -545,7 +545,7 @@ describe("library/storage", () => {
 	});
 });
 
-describe("cli/migrations", () => {
+describe("local/migrations", () => {
 	it("applies migration files in order", async () => {
 		await using nano = await nanoSupabase();
 		const db = nano.db;
@@ -771,7 +771,7 @@ try {
 	hasPostgis = true;
 } catch {}
 
-describe.skipIf(!hasPostgis)("browser/postgis-map", () => {
+describe.skipIf(!hasPostgis)("local/postgis-map", () => {
 	it("creates spatial table and performs geospatial queries", async () => {
 		const { postgis } = await import("@electric-sql/pglite-postgis");
 		const nano = await nanoSupabase({ extensions: { postgis } });

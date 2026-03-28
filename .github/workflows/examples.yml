@@ -30,7 +30,7 @@ jobs:
     name: build / react-file-manager
     defaults:
       run:
-        working-directory: examples/browser/react-file-manager
+        working-directory: examples/local/react-file-manager
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -51,7 +51,7 @@ jobs:
     name: build / postgis-map
     defaults:
       run:
-        working-directory: examples/browser/postgis-map
+        working-directory: examples/local/postgis-map
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4

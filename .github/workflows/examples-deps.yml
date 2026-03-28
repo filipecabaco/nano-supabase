@@ -27,13 +27,13 @@ jobs:
         run: pnpm install
 
       - name: Update react-file-manager dependencies
-        working-directory: examples/browser/react-file-manager
+        working-directory: examples/local/react-file-manager
         run: pnpm update --latest
 
       - name: Check for changes
         id: changes
         run: |
-          if git diff --quiet examples/browser/react-file-manager; then
+          if git diff --quiet examples/local/react-file-manager; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
           else
             echo "changed=true" >> "$GITHUB_OUTPUT"
@@ -46,7 +46,7 @@ jobs:
           branch: deps/examples-react-file-manager
           title: "deps(examples): update react-file-manager dependencies"
           body: |
-            Automated weekly dependency update for `examples/browser/react-file-manager`.
+            Automated weekly dependency update for `examples/local/react-file-manager`.
 
             This PR was created by the `examples-deps` workflow.
           commit-message: "deps(examples): update react-file-manager dependencies"

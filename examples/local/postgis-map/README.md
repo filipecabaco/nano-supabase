@@ -24,7 +24,7 @@ npx nano-supabase start --extensions=postgis
 ## Run
 
 ```bash
-cd examples/browser/postgis-map
+cd examples/local/postgis-map
 pnpm install
 pnpm run dev
 ```

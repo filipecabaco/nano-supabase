@@ -5,7 +5,7 @@ import { nanoSupabase } from "../../../src/index.ts";
 
 const execFileAsync = promisify(execFile);
 
-const SCHEMA_PATH = resolve("examples/orm/prisma/schema.prisma");
+const SCHEMA_PATH = resolve("examples/local/prisma/schema.prisma");
 const PRISMA_BIN = resolve("node_modules/.bin/prisma");
 
 async function pushSchema(databaseUrl: string): Promise<void> {

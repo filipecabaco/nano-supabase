@@ -2,14 +2,9 @@
 
 Demos organized by use case. Each folder contains a self-contained example with its own README.
 
-## Browser
-
-| Example | Description |
-|---------|-------------|
-| [react-file-manager](browser/react-file-manager/) | Dropbox-style file storage app with auth, storage, and RLS — runs entirely in the browser |
-| [postgis-map](browser/postgis-map/) | Interactive map with PostGIS spatial queries, OpenStreetMap tiles, and Leaflet |
-
 ## Library
+
+In-process usage — no server needed, everything runs in your application.
 
 | Example | Description |
 |---------|-------------|
@@ -18,23 +13,24 @@ Demos organized by use case. Each folder contains a self-contained example with 
 | [storage](library/storage/) | File upload/download, signed URLs, bucket management |
 | [postgrest-parser](library/postgrest-parser/) | PostgREST URL-to-SQL query parser |
 | [pooler](library/pooler/) | Priority queue connection pooler with metrics |
+| [drizzle](library/drizzle/) | Type-safe queries with Drizzle ORM (direct PGlite connection) |
 
-## CLI
+## Local
 
-| Example | Description |
-|---------|-------------|
-| [tcp-server](cli/tcp-server/) | PostgreSQL wire protocol server — connect with psql, pgAdmin, or any Postgres client |
-| [migrations](cli/migrations/) | Schema management with versioned migration files |
-| [mcp-server](cli/mcp-server/) | MCP server for AI tool integration (Claude Code, etc.) |
-
-## ORM
+Run the nano-supabase CLI server locally — showcases TCP, migrations, MCP, ORMs, and full-stack apps.
 
 | Example | Description |
 |---------|-------------|
-| [drizzle](orm/drizzle/) | Type-safe queries with Drizzle ORM (direct PGlite connection) |
-| [prisma](orm/prisma/) | Prisma ORM via TCP wire protocol |
+| [tcp-server](local/tcp-server/) | PostgreSQL wire protocol server — connect with psql, pgAdmin, or any Postgres client |
+| [migrations](local/migrations/) | Schema management with versioned migration files |
+| [mcp-server](local/mcp-server/) | MCP server for AI tool integration (Claude Code, etc.) |
+| [prisma](local/prisma/) | Prisma ORM via TCP wire protocol |
+| [react-file-manager](local/react-file-manager/) | Dropbox-style file storage app with auth, storage, and RLS |
+| [postgis-map](local/postgis-map/) | Interactive map with PostGIS spatial queries, OpenStreetMap tiles, and Leaflet |
 
 ## Service
+
+Multi-tenant mode — run nano-supabase as a shared HTTP gateway.
 
 | Example | Description |
 |---------|-------------|
@@ -43,6 +39,8 @@ Demos organized by use case. Each folder contains a self-contained example with 
 
 ## Edge
 
+Deploy to edge runtimes — Cloudflare Workers, Deno, etc.
+
 | Example | Description |
 |---------|-------------|
 | [cloudflare-worker](edge/cloudflare-worker/) | nano-supabase running as a Cloudflare Worker |
@@ -50,13 +48,15 @@ Demos organized by use case. Each folder contains a self-contained example with 
 
 ## Cloud
 
+Cloud development environments — pre-configured project templates.
+
 | Example | Description |
 |---------|-------------|
 | [claude-code](cloud/claude-code/) | Complete Claude Code cloud session setup — auto-setup, MCP integration, migrations, and project template |
 
 ## Running examples
 
-Standalone examples (library, cli, orm):
+Library examples (in-process, no server):
 
 ```bash
 pnpm run example:pooler
@@ -64,9 +64,14 @@ pnpm run example:supabase-client
 pnpm run example:auth-rls
 pnpm run example:storage
 pnpm run example:postgrest-parser
+pnpm run example:drizzle
+```
+
+Local server examples:
+
+```bash
 pnpm run example:tcp-server
 pnpm run example:migrations
-pnpm run example:drizzle
 pnpm run example:prisma
 ```
 
@@ -79,10 +84,15 @@ npx nano-supabase service --admin-token=my-token --secret=my-secret --data-dir=.
 pnpm run example:multi-tenant
 ```
 
-React demo:
+React apps (require `npx nano-supabase start`):
 
 ```bash
-cd examples/browser/react-file-manager
+cd examples/local/react-file-manager
+pnpm install
+pnpm run dev
+
+# PostGIS map (requires --extensions=postgis)
+cd examples/local/postgis-map
 pnpm install
 pnpm run dev
 ```
