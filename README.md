@@ -49,14 +49,10 @@ const { data } = await supabase.from('users').select('*').eq('id', 1).single()
 If you need to share a PGlite instance or configure it yourself:
 
 ```typescript
-import { PGlite } from '@electric-sql/pglite'
-import { pgcrypto } from '@electric-sql/pglite/contrib/pgcrypto'
 import { createClient } from '@supabase/supabase-js'
 import { nanoSupabase } from 'nano-supabase'
 
-const nano = await nanoSupabase({
-  extensions: { pgcrypto },
-})
+const nano = await nanoSupabase()
 
 // Run schema setup
 await nano.db.exec(`CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT, email TEXT UNIQUE);`)
@@ -461,10 +457,10 @@ Vite's dev server pre-bundles dependencies with esbuild, which breaks PGlite's W
 
 ## Demo
 
-See [examples/react-demo](examples/react-demo) for a task management app running 100% client-side.
+See [examples/local/react-file-manager](examples/local/react-file-manager) for a file storage app running 100% client-side.
 
 ```bash
-cd examples/react-demo
+cd examples/local/react-file-manager
 npm install
 npm run dev
 ```
