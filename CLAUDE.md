@@ -40,6 +40,10 @@ CLI Server (src/cli.ts)
 - `src/postgrest-parser.ts` — PostgREST → SQL (WASM binding)
 - `src/pglite-factory.ts` — PGlite factory, always registers pgcrypto + uuid-ossp
 
+## PGliteInterface typing
+
+All public APIs that accept a database instance use `PGliteInterface` (from `@electric-sql/pglite`) rather than the concrete `PGlite` class. This means `PGliteWorker` from `@electric-sql/pglite/worker` works as a drop-in replacement — enabling off-main-thread Postgres and multi-tab leader election in the browser. The `PGlite` concrete type is only used in server-side code (`pglite-factory.ts`, `pooler.ts`, `tcp-server.ts`) and in `nano.ts` which creates its own instance via `createPGlite()`.
+
 ## Commands
 
 ```bash
