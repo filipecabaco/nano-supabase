@@ -23,6 +23,7 @@ import {
 	cmdServicePause,
 	cmdServiceRemove,
 	cmdServiceResetPassword,
+	cmdServiceMigrate,
 	cmdServiceResetToken,
 	cmdServiceSql,
 	cmdServiceWake,
@@ -109,6 +110,18 @@ Commands:
   sync pull             Pull remote schema and buckets into local instance
 
   service               Run as a multi-tenant service (multiple isolated PGlite instances)
+  service migrate <slug> Fully migrate a tenant to hosted Supabase (schema, auth, data, storage)
+
+Service migrate options:
+  --remote-db-url=<url>            Remote Postgres connection string (required; or SUPABASE_DB_URL)
+  --remote-url=<url>               Remote Supabase project URL (for storage object upload; or SUPABASE_URL)
+  --remote-service-role-key=<k>    Remote service role key (for storage object upload; or SUPABASE_SERVICE_ROLE_KEY)
+  --migrations-dir=<path>          Path to migration files (default: ./supabase/migrations)
+  --no-schema                      Skip schema/migration transfer
+  --no-auth                        Skip auth user transfer
+  --no-data                        Skip public table data transfer
+  --no-storage                     Skip storage bucket and object transfer
+  --dry-run                        Preview without writing
 
 Service options:
   --service-port=<port>       HTTP listen port (default: 8080)
@@ -200,6 +213,7 @@ const SUBCOMMAND_OPS: Record<string, Record<string, CmdHandler>> = {
 		pause: cmdServicePause,
 		wake: cmdServiceWake,
 		sql: cmdServiceSql,
+		migrate: cmdServiceMigrate,
 		"reset-token": cmdServiceResetToken,
 		"reset-password": cmdServiceResetPassword,
 	},

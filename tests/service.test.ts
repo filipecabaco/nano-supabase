@@ -881,3 +881,205 @@ describe("service with local PGlite registry (no --registry-db-url)", () => {
 		}
 	}, 60_000);
 });
+
+describe("service migrate", () => {
+	let svcProcess: ChildProcess;
+	let dataDir: string;
+	let coldDir: string;
+	const port = 54495;
+	const tcpPort = 54496;
+	const base = `http://localhost:${port}`;
+	let tenantToken: string;
+	let remoteDbUrl: string;
+
+	beforeAll(async () => {
+		dataDir = mkdtempSync(join(tmpdir(), "nano-svc-migrate-data-"));
+		coldDir = mkdtempSync(join(tmpdir(), "nano-svc-migrate-cold-"));
+		svcProcess = spawn(
+			"node",
+			[
+				CLI,
+				"service",
+				`--service-port=${port}`,
+				`--tcp-port=${tcpPort}`,
+				`--admin-token=${ADMIN_TOKEN}`,
+				`--data-dir=${dataDir}`,
+				`--cold-dir=${coldDir}`,
+				`--registry-db-url=${registryDbUrl}`,
+				`--secret=test-migrate-secret`,
+			],
+			{ stdio: "ignore", detached: false },
+		);
+		await waitForHealth(base);
+
+		const createRes = await fetch(`${base}/admin/tenants`, {
+			method: "POST",
+			headers: {
+				Authorization: `Bearer ${ADMIN_TOKEN}`,
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify({ slug: "migrate-src" }),
+		});
+		const createBody = await createRes.json();
+		tenantToken = createBody.token;
+
+		const remoteClient = new Client({ connectionString: registryDbUrl });
+		await remoteClient.connect();
+		await remoteClient.query("CREATE SCHEMA IF NOT EXISTS migrate_target");
+		await remoteClient.query(`
+			SET search_path = migrate_target;
+			CREATE TABLE IF NOT EXISTS _setup_done (ok boolean);
+		`);
+		await remoteClient.end();
+		remoteDbUrl = registryDbUrl + "&options=-csearch_path%3Dpublic";
+	}, 90_000);
+
+	afterAll(async () => {
+		svcProcess?.kill("SIGTERM");
+		await new Promise((r) => setTimeout(r, 500));
+		rmSync(dataDir, { recursive: true, force: true });
+		rmSync(coldDir, { recursive: true, force: true });
+	});
+
+	test("migrate transfers schema, auth users, and data to remote", async () => {
+		const adminHeaders = {
+			Authorization: `Bearer ${ADMIN_TOKEN}`,
+			"Content-Type": "application/json",
+		};
+
+		await fetch(`${base}/admin/tenants/migrate-src/sql`, {
+			method: "POST",
+			headers: adminHeaders,
+			body: JSON.stringify({
+				sql: `CREATE TABLE IF NOT EXISTS todos (
+					id SERIAL PRIMARY KEY,
+					title TEXT NOT NULL,
+					done BOOLEAN DEFAULT false
+				)`,
+			}),
+		});
+
+		await fetch(`${base}/admin/tenants/migrate-src/sql`, {
+			method: "POST",
+			headers: adminHeaders,
+			body: JSON.stringify({
+				sql: "INSERT INTO todos (title, done) VALUES ('Buy milk', false), ('Write tests', true)",
+			}),
+		});
+
+		await fetch(`${base}/migrate-src/auth/v1/signup`, {
+			method: "POST",
+			headers: {
+				Authorization: `Bearer ${tenantToken}`,
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify({
+				email: "migrated@test.com",
+				password: "password123",
+			}),
+		});
+
+		const migrateRes = await fetch(
+			`${base}/admin/tenants/migrate-src/migrate`,
+			{
+				method: "POST",
+				headers: adminHeaders,
+				body: JSON.stringify({
+					remoteDbUrl,
+					skipStorage: true,
+				}),
+			},
+		);
+		expect(migrateRes.status).toBe(200);
+		const result = await migrateRes.json();
+
+		expect(result.schema.tables).toBeGreaterThanOrEqual(1);
+		expect(result.auth.users).toBeGreaterThanOrEqual(1);
+		expect(result.data.tables).toBeGreaterThanOrEqual(1);
+		expect(result.data.rows).toBeGreaterThanOrEqual(2);
+
+		const remote = new Client({ connectionString: remoteDbUrl });
+		await remote.connect();
+
+		const todosRes = await remote.query(
+			"SELECT title, done FROM todos ORDER BY id",
+		);
+		expect(todosRes.rows).toEqual([
+			{ title: "Buy milk", done: false },
+			{ title: "Write tests", done: true },
+		]);
+
+		const usersRes = await remote.query(
+			"SELECT email FROM auth.users WHERE email = 'migrated@test.com'",
+		);
+		expect(usersRes.rows).toHaveLength(1);
+
+		await remote.end();
+	}, 60_000);
+
+	test("migrate with --dry-run does not write anything", async () => {
+		const adminHeaders = {
+			Authorization: `Bearer ${ADMIN_TOKEN}`,
+			"Content-Type": "application/json",
+		};
+
+		await fetch(`${base}/admin/tenants/migrate-src/sql`, {
+			method: "POST",
+			headers: adminHeaders,
+			body: JSON.stringify({
+				sql: "CREATE TABLE IF NOT EXISTS dryrun_test (id SERIAL PRIMARY KEY, val TEXT)",
+			}),
+		});
+		await fetch(`${base}/admin/tenants/migrate-src/sql`, {
+			method: "POST",
+			headers: adminHeaders,
+			body: JSON.stringify({
+				sql: "INSERT INTO dryrun_test (val) VALUES ('should-not-appear')",
+			}),
+		});
+
+		const migrateRes = await fetch(
+			`${base}/admin/tenants/migrate-src/migrate`,
+			{
+				method: "POST",
+				headers: adminHeaders,
+				body: JSON.stringify({
+					remoteDbUrl,
+					skipStorage: true,
+					skipAuth: true,
+					dryRun: true,
+				}),
+			},
+		);
+		expect(migrateRes.status).toBe(200);
+		const result = await migrateRes.json();
+		expect(result.data.rows).toBeGreaterThan(0);
+
+		const remote = new Client({ connectionString: remoteDbUrl });
+		await remote.connect();
+		const check = await remote
+			.query("SELECT 1 FROM dryrun_test LIMIT 1")
+			.catch(() => ({ rows: [] as unknown[] }));
+		expect(check.rows.filter((r: unknown) => {
+			const row = r as Record<string, unknown>;
+			return row.val === "should-not-appear";
+		})).toHaveLength(0);
+		await remote.end();
+	}, 30_000);
+
+	test("cmdServiceMigrate CLI wrapper works", async () => {
+		const { cmdServiceMigrate } = await import("../src/cli-commands.ts");
+		const result = await cmdServiceMigrate([
+			`--url=${base}`,
+			`--admin-token=${ADMIN_TOKEN}`,
+			"migrate-src",
+			`--remote-db-url=${remoteDbUrl}`,
+			"--no-storage",
+			"--json",
+		]);
+		expect(result.exitCode).toBe(0);
+		const parsed = JSON.parse(result.output);
+		expect(parsed.auth.users).toBeGreaterThanOrEqual(1);
+		expect(parsed.data.tables).toBeGreaterThanOrEqual(1);
+	}, 30_000);
+});
