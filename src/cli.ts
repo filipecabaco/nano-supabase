@@ -18,6 +18,7 @@ import {
   cmdMigrationList,
   cmdMigrationNew,
   cmdMigrationUp,
+  cmdLocalToService,
   cmdServiceAdd,
   cmdServiceList,
   cmdServiceMigrate,
@@ -111,6 +112,23 @@ Commands:
 
   service               Run as a multi-tenant service (multiple isolated PGlite instances)
   service migrate <slug> Fully migrate a tenant to hosted Supabase (schema, auth, data, storage)
+  service local-to-service <slug> Migrate a local PGlite instance into a service tenant
+
+Local-to-service options:
+  --data-dir=<path>                Local PGlite data directory (required)
+  --url=<url>                      Service base URL (default: http://localhost:8080)
+  --admin-token=<token>            Admin bearer token (required; or NANO_ADMIN_TOKEN)
+  --token=<token>                  Custom tenant bearer token (optional)
+  --password=<pass>                Custom tenant Postgres password (optional)
+  --anon-key=<key>                 Custom anon key (optional)
+  --service-role-key=<key>         Custom service role key (optional)
+  --force                          Migrate into an existing tenant
+  --migrations-dir=<path>          Path to migration files (default: ./supabase/migrations)
+  --no-schema                      Skip schema/migration transfer
+  --no-auth                        Skip auth user transfer
+  --no-data                        Skip public table data transfer
+  --no-storage                     Skip storage bucket and object transfer
+  --dry-run                        Preview without writing
 
 Service migrate options:
   --remote-db-url=<url>            Remote Postgres connection string (required; or SUPABASE_DB_URL)
@@ -214,6 +232,7 @@ const SUBCOMMAND_OPS: Record<string, Record<string, CmdHandler>> = {
     wake: cmdServiceWake,
     sql: cmdServiceSql,
     migrate: cmdServiceMigrate,
+    "local-to-service": cmdLocalToService,
     "reset-token": cmdServiceResetToken,
     "reset-password": cmdServiceResetPassword,
   },
