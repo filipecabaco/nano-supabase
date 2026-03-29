@@ -2,6 +2,7 @@ import type { BlobMetadata, StorageBackend } from "./backend.ts";
 export declare class FileSystemStorageBackend implements StorageBackend {
     private readonly baseDir;
     constructor(baseDir: string);
+    private safePath;
     private blobPath;
     private metaPath;
     put(key: string, data: Uint8Array, metadata: BlobMetadata): Promise<void>;

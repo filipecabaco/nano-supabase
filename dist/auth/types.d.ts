@@ -1,9 +1,3 @@
-/**
- * Auth types compatible with Supabase Auth (GoTrue)
- */
-/**
- * User object returned from auth operations
- */
 export interface User {
     id: string;
     aud: string;
@@ -20,9 +14,6 @@ export interface User {
     created_at: string;
     updated_at: string;
 }
-/**
- * User identity (for OAuth providers)
- */
 export interface UserIdentity {
     id: string;
     user_id: string;
@@ -32,9 +23,6 @@ export interface UserIdentity {
     created_at: string;
     updated_at: string;
 }
-/**
- * Session object containing tokens and user
- */
 export interface Session {
     access_token: string;
     token_type: "bearer";
@@ -43,9 +31,6 @@ export interface Session {
     refresh_token: string;
     user: User;
 }
-/**
- * Auth response for sign up/sign in operations
- */
 export interface AuthResponse {
     data: {
         user: User | null;
@@ -53,17 +38,11 @@ export interface AuthResponse {
     };
     error: AuthError | null;
 }
-/**
- * Auth error object
- */
 export interface AuthError {
     message: string;
     status: number;
     code?: string;
 }
-/**
- * Sign up credentials
- */
 export interface SignUpCredentials {
     email: string;
     password: string;
@@ -72,32 +51,17 @@ export interface SignUpCredentials {
         emailRedirectTo?: string;
     };
 }
-/**
- * Sign in credentials
- */
 export interface SignInCredentials {
     email: string;
     password: string;
 }
-/**
- * Auth state change event types
- */
 export type AuthChangeEvent = "INITIAL_SESSION" | "SIGNED_IN" | "SIGNED_OUT" | "TOKEN_REFRESHED" | "USER_UPDATED" | "PASSWORD_RECOVERY";
-/**
- * Auth state change callback
- */
 export type AuthStateChangeCallback = (event: AuthChangeEvent, session: Session | null) => void;
-/**
- * Subscription returned from onAuthStateChange
- */
 export interface AuthSubscription {
     id: string;
     callback: AuthStateChangeCallback;
     unsubscribe: () => void;
 }
-/**
- * Internal user record stored in database
- */
 export interface StoredUser {
     id: string;
     instance_id: string;
@@ -131,9 +95,6 @@ export interface StoredUser {
     is_sso_user: boolean;
     deleted_at: string | null;
 }
-/**
- * Internal session record stored in database
- */
 export interface StoredSession {
     id: string;
     user_id: string;
@@ -147,9 +108,6 @@ export interface StoredSession {
     ip: string | null;
     tag: string | null;
 }
-/**
- * Internal refresh token record stored in database
- */
 export interface StoredRefreshToken {
     id: number;
     token: string;
@@ -160,9 +118,6 @@ export interface StoredRefreshToken {
     parent: string | null;
     session_id: string;
 }
-/**
- * Token pair (access + refresh)
- */
 export interface TokenPair {
     accessToken: string;
     refreshToken: string;

@@ -734,6 +734,14 @@ GRANT EXECUTE ON FUNCTION auth.create_access_token(UUID, UUID, TEXT, TEXT, JSONB
 GRANT EXECUTE ON FUNCTION auth.verify_access_token(TEXT) TO service_role;
 `;
 
+const ALLOWED_ROLES = new Set([
+  "anon",
+  "authenticated",
+  "service_role",
+  "supabase_admin",
+  "postgres",
+]);
+
 function escapeSqlString(value: string): string {
   return value.replace(/'/g, "''");
 }
@@ -743,6 +751,10 @@ export function getSetAuthContextSQL(
   role: string,
   email: string,
 ): string {
+  if (!ALLOWED_ROLES.has(role)) {
+    throw new Error(`Invalid role: ${role}`);
+  }
+
   const claims = JSON.stringify({
     sub: userId,
     role: role,
@@ -751,14 +763,13 @@ export function getSetAuthContextSQL(
   });
 
   const escapedUserId = escapeSqlString(userId);
-  const escapedRole = escapeSqlString(role);
   const escapedEmail = escapeSqlString(email);
   const escapedClaims = escapeSqlString(claims);
 
   return `
-    SET ROLE ${escapedRole};
+    SET ROLE ${role};
     SELECT set_config('request.jwt.claim.sub', '${escapedUserId}', false);
-    SELECT set_config('request.jwt.claim.role', '${escapedRole}', false);
+    SELECT set_config('request.jwt.claim.role', '${role}', false);
     SELECT set_config('request.jwt.claim.email', '${escapedEmail}', false);
     SELECT set_config('request.jwt.claims', '${escapedClaims}', false);
   `;

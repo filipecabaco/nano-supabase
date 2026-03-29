@@ -6,22 +6,30 @@ import {
   unlink,
   writeFile,
 } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import type { BlobMetadata, StorageBackend } from "./backend.ts";
 
 export class FileSystemStorageBackend implements StorageBackend {
   private readonly baseDir: string;
 
   constructor(baseDir: string) {
-    this.baseDir = baseDir;
+    this.baseDir = resolve(baseDir);
+  }
+
+  private safePath(subpath: string): string {
+    const resolved = resolve(this.baseDir, subpath);
+    if (!resolved.startsWith(this.baseDir + "/") && resolved !== this.baseDir) {
+      throw new Error("Invalid storage path");
+    }
+    return resolved;
   }
 
   private blobPath(key: string): string {
-    return join(this.baseDir, key);
+    return this.safePath(key);
   }
 
   private metaPath(key: string): string {
-    return join(this.baseDir, `${key}.__meta__.json`);
+    return this.safePath(`${key}.__meta__.json`);
   }
 
   async put(
@@ -62,7 +70,7 @@ export class FileSystemStorageBackend implements StorageBackend {
   }
 
   async deleteByPrefix(prefix: string): Promise<number> {
-    const dir = join(this.baseDir, prefix);
+    const dir = this.safePath(prefix);
     let count = 0;
     try {
       count = await this.countFiles(dir);

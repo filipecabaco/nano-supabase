@@ -1915,7 +1915,10 @@ export async function runServiceMode(opts: {
       );
     }
     const incomingHash = await hashToken(bearerToken);
-    if (incomingHash !== tenant.tokenHash) {
+    if (
+      incomingHash.length !== tenant.tokenHash.length ||
+      !timingSafeEqual(Buffer.from(incomingHash), Buffer.from(tenant.tokenHash))
+    ) {
       return new Response(
         JSON.stringify({
           error: "unauthorized",

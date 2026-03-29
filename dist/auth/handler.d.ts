@@ -25,6 +25,7 @@ export declare class AuthHandler {
         };
         error: AuthError | null;
     }>;
+    private verifyNonce;
     updateUser(accessToken: string, attributes: {
         email?: string;
         password?: string;
@@ -55,13 +56,7 @@ export declare class AuthHandler {
     }): Promise<User | null>;
     adminDeleteUser(id: string): Promise<void>;
     getSession(): Session | null;
-    /**
-     * Set current session (for restoring from storage)
-     */
     setSession(session: Session | null): void;
-    /**
-     * Verify access token and return payload
-     */
     private writeAuditLog;
     private generateOneTimeToken;
     private consumeOneTimeToken;

@@ -1,20 +1,3 @@
-/**
- * nano-supabase
- *
- * A lightweight Supabase emulator powered by PGlite
- * Provides full auth, PostgREST, and storage API emulation in-browser or in-process
- *
- * @example
- * ```typescript
- * import { PGlite } from '@electric-sql/pglite'
- * import { createSupabaseClient } from 'nano-supabase'
- *
- * const db = new PGlite()
- * const supabase = await createSupabaseClient(db)
- *
- * const { data } = await supabase.from('users').select('*')
- * ```
- */
 export { AUTH_SCHEMA_SQL, type AuthChangeEvent, type AuthError, AuthHandler, type AuthResponse, type AuthStateChangeCallback, type AuthSubscription, CLEAR_AUTH_CONTEXT_SQL, createAccessToken, extractSessionIdFromToken, extractUserIdFromToken, generateTokenPair, getSetAuthContextSQL, type Session, type SignInCredentials, type SignUpCredentials, type TokenPair, type User, verifyAccessToken, } from "./auth/index.ts";
 export { decodeJWT, type JWTPayload, signJWT, verifyJWT } from "./auth/jwt.ts";
 export { createFetchAdapter, createLocalSupabaseClient, initializeAuth, type LocalSupabaseClientConfig, type LocalSupabaseClientResult, } from "./client.ts";
