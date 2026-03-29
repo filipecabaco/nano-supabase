@@ -1,0 +1,23 @@
+{
+  "timestamp": "20260329T182645Z",
+  "config": {
+    "accounts": 50,
+    "tellers": 5,
+    "branches": 1,
+    "iterations_per_client": 100,
+    "concurrent_clients": 2,
+    "tenant_count": 3
+  },
+  "system": {
+  "node_version": "v22.22.0",
+  "platform": "Linux",
+  "arch": "x86_64",
+  "cpus": 4,
+  "pgbench_version": "pgbench (PostgreSQL) 16.11 (Ubuntu 16.11-0ubuntu0.24.04.1)"
+},
+  "cli_mode": {"tps": 244.828008, "latency_avg_ms": 8.169, "latency_stddev_ms": 0, "transactions": 200},
+  "service_mode": {
+    "tenant_count": 3,
+    "tenants": [{"slug": "bench-tenant-1", "results": {"tps": 234.128159, "latency_avg_ms": 8.542, "latency_stddev_ms": 0, "transactions": 200}},{"slug": "bench-tenant-2", "results": {"tps": 275.789413, "latency_avg_ms": 7.252, "latency_stddev_ms": 0, "transactions": 200}},{"slug": "bench-tenant-3", "results": {"tps": 303.428438, "latency_avg_ms": 6.591, "latency_stddev_ms": 0, "transactions": 200}}]
+  }
+}
