@@ -100,8 +100,7 @@ export async function handleAuthRoute(
 
     const result = await authHandler.signUp(email, password, options);
     if (result.error) return authErr(result.error);
-    if (!result.data.session)
-      return jsonResponse(SESSION_CREATION_FAILED, 500);
+    if (!result.data.session) return jsonResponse(SESSION_CREATION_FAILED, 500);
     return jsonResponse(sessionPayload(result.data.session, result.data.user));
   }
 

@@ -39,9 +39,13 @@ export async function handleDataRoute(
       body = await parseBody(request);
     }
 
-    const parserMethod = method === "HEAD" ? "GET" : method === "PUT" ? "POST" : method;
+    const parserMethod =
+      method === "HEAD" ? "GET" : method === "PUT" ? "POST" : method;
     if (!["GET", "POST", "PATCH", "DELETE"].includes(parserMethod)) {
-      return jsonResponse({ message: "Method not allowed", code: "PGRST105" }, 405);
+      return jsonResponse(
+        { message: "Method not allowed", code: "PGRST105" },
+        405,
+      );
     }
     const hasBody = ["POST", "PATCH", "PUT"].includes(method);
     const parsed = parser.parseRequest(
@@ -83,10 +87,16 @@ export async function handleDataRoute(
         `0-${result.rows.length - 1}/${result.rows.length}`;
       return new Response(null, { status: 200, headers: responseHeaders });
     }
-    if (method === "GET") return jsonResponse(result.rows, 200, responseHeaders);
-    if (method === "POST" && !returnMinimal) return jsonResponse(result.rows, 201, responseHeaders);
-    if (returnRepresentation) return jsonResponse(result.rows, 200, responseHeaders);
-    return new Response(null, { status: method === "POST" ? 201 : 204, headers: responseHeaders });
+    if (method === "GET")
+      return jsonResponse(result.rows, 200, responseHeaders);
+    if (method === "POST" && !returnMinimal)
+      return jsonResponse(result.rows, 201, responseHeaders);
+    if (returnRepresentation)
+      return jsonResponse(result.rows, 200, responseHeaders);
+    return new Response(null, {
+      status: method === "POST" ? 201 : 204,
+      headers: responseHeaders,
+    });
   } catch (err) {
     return postgresErrorResponse(err);
   }

@@ -50,7 +50,10 @@ function authError(message: string, status: number, code?: string): AuthError {
 }
 
 function fail(message: string, status: number, code?: string): AuthResponse {
-  return { data: { user: null, session: null }, error: authError(message, status, code) };
+  return {
+    data: { user: null, session: null },
+    error: authError(message, status, code),
+  };
 }
 
 export class AuthHandler {
@@ -353,7 +356,10 @@ export class AuthHandler {
     }
   }
 
-  private async verifyNonce(userId: string, nonce: string): Promise<AuthResponse | null> {
+  private async verifyNonce(
+    userId: string,
+    nonce: string,
+  ): Promise<AuthResponse | null> {
     const nonceCheck = await this.db.query<{
       reauthentication_token: string | null;
       reauthentication_sent_at: string | null;
@@ -700,7 +706,11 @@ export class AuthHandler {
       );
       const storedUser = result.rows[0];
       if (!storedUser) {
-        return fail("Failed to create anonymous user", 500, "anonymous_sign_in_failed");
+        return fail(
+          "Failed to create anonymous user",
+          500,
+          "anonymous_sign_in_failed",
+        );
       }
       return this.signInAndCreateSession(storedUser);
     } catch (err) {
