@@ -149,7 +149,13 @@ DATA_TABLES=$(echo "$MIGRATE_RESULT" | python3 -c "import sys,json; print(json.l
 STORAGE_BUCKETS=$(echo "$MIGRATE_RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin)['storage']['buckets'])")
 STORAGE_OBJECTS=$(echo "$MIGRATE_RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin)['storage']['objects'])")
 
-echo "Schema tables: $SCHEMA_TABLES, Auth users: $AUTH_USERS, Data rows: $DATA_ROWS"
+SCHEMA_VIEWS=$(echo "$MIGRATE_RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin)['schema'].get('views', 0))")
+SCHEMA_FUNCTIONS=$(echo "$MIGRATE_RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin)['schema'].get('functions', 0))")
+SCHEMA_TRIGGERS=$(echo "$MIGRATE_RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin)['schema'].get('triggers', 0))")
+SCHEMA_POLICIES=$(echo "$MIGRATE_RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin)['schema'].get('policies', 0))")
+
+echo "Schema tables: $SCHEMA_TABLES, views: $SCHEMA_VIEWS, functions: $SCHEMA_FUNCTIONS, triggers: $SCHEMA_TRIGGERS, policies: $SCHEMA_POLICIES"
+echo "Auth users: $AUTH_USERS, Data rows: $DATA_ROWS"
 echo "Storage buckets: $STORAGE_BUCKETS, Storage objects: $STORAGE_OBJECTS"
 
 if [ "$SCHEMA_TABLES" -lt 1 ]; then echo "FAIL: expected at least 1 schema table"; exit 1; fi
@@ -157,6 +163,7 @@ if [ "$AUTH_USERS" -lt 1 ]; then echo "FAIL: expected at least 1 auth user"; exi
 if [ "$DATA_ROWS" -lt 3 ]; then echo "FAIL: expected at least 3 data rows"; exit 1; fi
 if [ "$DATA_TABLES" -lt 1 ]; then echo "FAIL: expected at least 1 data table"; exit 1; fi
 if [ "$STORAGE_BUCKETS" -lt 1 ]; then echo "FAIL: expected at least 1 storage bucket"; exit 1; fi
+if [ "$SCHEMA_POLICIES" -lt 2 ]; then echo "FAIL: expected at least 2 RLS policies, got $SCHEMA_POLICIES"; exit 1; fi
 echo "OK: migrate counts look good"
 
 echo ""
@@ -194,10 +201,13 @@ echo "  PHASE 4: Application-level verification"
 echo "  (Use Supabase APIs with migrated data)"
 echo "========================================="
 
-psql "$SUPABASE_DB_URL" -c "ALTER TABLE public.todos ENABLE ROW LEVEL SECURITY" 2>/dev/null || true
-psql "$SUPABASE_DB_URL" -c "CREATE POLICY \"todos_select\" ON public.todos FOR SELECT USING (true)" 2>/dev/null || true
-psql "$SUPABASE_DB_URL" -c "CREATE POLICY \"todos_insert\" ON public.todos FOR INSERT WITH CHECK (true)" 2>/dev/null || true
-echo "OK: RLS policies applied on Supabase"
+RLS_ENABLED=$(psql "$SUPABASE_DB_URL" -t -A -c "SELECT relrowsecurity FROM pg_class WHERE relname = 'todos'")
+if [ "$RLS_ENABLED" != "t" ]; then echo "FAIL: RLS not enabled on todos table after migrate"; exit 1; fi
+echo "OK: RLS enabled on todos table (migrated)"
+
+POLICY_COUNT=$(psql "$SUPABASE_DB_URL" -t -A -c "SELECT count(*) FROM pg_policy pol JOIN pg_class c ON pol.polrelid = c.oid WHERE c.relname = 'todos'")
+if [ "$POLICY_COUNT" -lt 2 ]; then echo "FAIL: expected at least 2 RLS policies on todos, got $POLICY_COUNT"; exit 1; fi
+echo "OK: $POLICY_COUNT RLS policies found on todos table (migrated)"
 
 echo "Signing in via Supabase GoTrue with migrated credentials..."
 SIGNIN_RESULT=$(api "supabase auth signin" -X POST "$SUPABASE_API_URL/auth/v1/token?grant_type=password" \
@@ -261,7 +271,7 @@ echo "  ALL E2E MIGRATE TESTS PASSED"
 echo "========================================="
 echo ""
 echo "Summary:"
-echo "  - Schema: $SCHEMA_TABLES table(s) migrated"
+echo "  - Schema: $SCHEMA_TABLES table(s), $SCHEMA_POLICIES RLS policy(ies), $SCHEMA_VIEWS view(s), $SCHEMA_FUNCTIONS function(s), $SCHEMA_TRIGGERS trigger(s)"
 echo "  - Auth: $AUTH_USERS user(s) migrated, signin works on Supabase GoTrue"
 echo "  - Data: $DATA_ROWS row(s) migrated, PostgREST queries + inserts work"
 echo "  - Storage: $STORAGE_BUCKETS bucket(s) migrated"
