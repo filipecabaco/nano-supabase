@@ -1,16 +1,3 @@
-/**
- * Storage schema SQL for PGlite
- *
- * Mirrors the official Supabase Storage tenant migrations
- * (https://github.com/supabase/storage/tree/master/migrations/tenant)
- * collapsed into a single idempotent schema compatible with PGlite.
- *
- * Omissions (not needed for nano-supabase):
- *  - protect_delete trigger (migration 0055) — we delete directly from the storage handler
- *  - BucketType enum / analytics / vector / iceberg tables (migrations 0038+)
- *  - CONCURRENTLY index creation (not supported in PGlite transaction context)
- */
-
 export const STORAGE_SCHEMA_SQL = `
 CREATE SCHEMA IF NOT EXISTS storage;
 

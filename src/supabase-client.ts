@@ -1,14 +1,6 @@
-/**
- * Supabase-compatible client for PGlite
- * Intercepts PostgREST-style API calls and converts them to SQL
- */
-
 import type { PGliteInterface } from "@electric-sql/pglite";
 import { type ParsedQuery, PostgrestParser } from "./postgrest-parser.ts";
 
-/**
- * Query builder interface compatible with Supabase-js
- */
 export interface QueryBuilder<T = unknown> {
   select(columns?: string): QueryBuilder<T>;
   insert(
@@ -41,9 +33,6 @@ export interface QueryBuilder<T = unknown> {
   ): Promise<TResult>;
 }
 
-/**
- * Supabase-compatible database client
- */
 export class SupabaseClient {
   private readonly db: PGliteInterface;
   private readonly parser: PostgrestParser;
@@ -53,16 +42,10 @@ export class SupabaseClient {
     this.parser = parser;
   }
 
-  /**
-   * Access a table for querying
-   */
   from<T = unknown>(table: string): QueryBuilder<T> {
     return new PostgrestQueryBuilder<T>(this.db, this.parser, table);
   }
 
-  /**
-   * Call a stored procedure
-   */
   async rpc<T = unknown>(
     functionName: string,
     params?: Record<string, unknown>,
@@ -77,9 +60,6 @@ export class SupabaseClient {
   }
 }
 
-/**
- * Query builder implementation
- */
 class PostgrestQueryBuilder<T> implements QueryBuilder<T> {
   private readonly db: PGliteInterface;
   private readonly parser: PostgrestParser;
@@ -286,15 +266,11 @@ class PostgrestQueryBuilder<T> implements QueryBuilder<T> {
   }
 }
 
-/**
- * Create a Supabase-compatible client with schema introspection
- */
 export async function createSupabaseClient(
   db: PGliteInterface,
 ): Promise<SupabaseClient> {
   await PostgrestParser.init();
 
-  // Initialize schema introspection from the database
   await PostgrestParser.initSchema(async (sql: string) => {
     const result = await db.query(sql);
     return { rows: result.rows };

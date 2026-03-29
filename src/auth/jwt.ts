@@ -1,19 +1,8 @@
-/**
- * JWT utilities using Web Crypto API
- * Compatible with: Browser, Cloudflare Workers, Deno, Bun
- */
-
-/**
- * Base64URL encode (no padding)
- */
 function base64UrlEncode(data: Uint8Array): string {
   const base64 = btoa(String.fromCharCode(...data));
   return base64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
 }
 
-/**
- * Base64URL decode
- */
 function base64UrlDecode(str: string): Uint8Array<ArrayBuffer> {
   const base64 = str
     .replace(/-/g, "+")
@@ -28,46 +17,34 @@ function base64UrlDecode(str: string): Uint8Array<ArrayBuffer> {
   return bytes;
 }
 
-/**
- * Text encoder/decoder (available in all modern runtimes)
- */
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
-/**
- * JWT payload structure
- */
 export interface JWTPayload {
-  sub: string; // user ID
-  aud: string; // audience ('authenticated')
-  role: string; // user role
-  email?: string; // user email
-  session_id: string; // session ID
-  iat: number; // issued at (seconds)
-  exp: number; // expires at (seconds)
+  sub: string;
+  aud: string;
+  role: string;
+  email?: string;
+  session_id: string;
+  iat: number;
+  exp: number;
   user_metadata: Record<string, unknown>;
   app_metadata: Record<string, unknown>;
 }
 
-/**
- * Sign a JWT using HMAC-SHA256 (Web Crypto API)
- */
 export async function signJWT(
   payload: JWTPayload,
   secret: string,
 ): Promise<string> {
-  // Create header
   const header = {
     alg: "HS256",
     typ: "JWT",
   };
 
-  // Encode header and payload
   const headerB64 = base64UrlEncode(encoder.encode(JSON.stringify(header)));
   const payloadB64 = base64UrlEncode(encoder.encode(JSON.stringify(payload)));
   const data = `${headerB64}.${payloadB64}`;
 
-  // Sign with HMAC-SHA256
   const key = await crypto.subtle.importKey(
     "raw",
     encoder.encode(secret),
@@ -83,9 +60,6 @@ export async function signJWT(
   return `${data}.${signatureB64}`;
 }
 
-/**
- * Verify a JWT signature using HMAC-SHA256 (Web Crypto API)
- */
 export async function verifyJWT(
   token: string,
   secret: string,
@@ -108,7 +82,6 @@ export async function verifyJWT(
 
     const data = `${headerB64}.${payloadB64}`;
 
-    // Verify signature
     const key = await crypto.subtle.importKey(
       "raw",
       encoder.encode(secret),
@@ -129,11 +102,9 @@ export async function verifyJWT(
       return { valid: false, error: "Invalid signature" };
     }
 
-    // Decode payload
     const payloadJson = decoder.decode(base64UrlDecode(payloadB64));
     const payload = JSON.parse(payloadJson) as JWTPayload;
 
-    // Check expiration
     const now = Math.floor(Date.now() / 1000);
     if (payload.exp && payload.exp < now) {
       return { valid: false, error: "Token expired" };
@@ -148,9 +119,6 @@ export async function verifyJWT(
   }
 }
 
-/**
- * Decode JWT payload without verification (for quick checks)
- */
 export function decodeJWT(token: string): JWTPayload | null {
   try {
     const parts = token.split(".");

@@ -11,6 +11,33 @@ const MISSING_AUTH = {
   error_description: "Missing authorization header",
 } as const;
 
+function authErr(error: {
+  code?: string;
+  message: string;
+  status: number;
+}): Response {
+  return jsonResponse(
+    { error: error.code, error_description: error.message },
+    error.status,
+  );
+}
+
+function requireEmail(body: Record<string, unknown>): string | Response {
+  const email = typeof body.email === "string" ? body.email : undefined;
+  if (!email)
+    return jsonResponse(
+      { error: "missing_email", error_description: "Email is required" },
+      400,
+    );
+  return email;
+}
+
+function requireToken(headers: Headers): string | Response {
+  const token = extractBearerToken(headers);
+  if (!token) return jsonResponse(MISSING_AUTH, 401);
+  return token;
+}
+
 export async function handleAuthRoute(
   request: Request,
   pathname: string,
@@ -53,14 +80,7 @@ export async function handleAuthRoute(
 
     if (!email && !password) {
       const anonResult = await authHandler.signInAnonymously();
-      if (anonResult.error)
-        return jsonResponse(
-          {
-            error: anonResult.error.code,
-            error_description: anonResult.error.message,
-          },
-          anonResult.error.status,
-        );
+      if (anonResult.error) return authErr(anonResult.error);
       if (!anonResult.data.session)
         return jsonResponse(SESSION_CREATION_FAILED, 500);
       return jsonResponse(
@@ -79,22 +99,12 @@ export async function handleAuthRoute(
     }
 
     const result = await authHandler.signUp(email, password, options);
-
-    if (result.error) {
-      return jsonResponse(
-        { error: result.error.code, error_description: result.error.message },
-        result.error.status,
-      );
-    }
-
-    if (!result.data.session) {
+    if (result.error) return authErr(result.error);
+    if (!result.data.session)
       return jsonResponse(SESSION_CREATION_FAILED, 500);
-    }
-
     return jsonResponse(sessionPayload(result.data.session, result.data.user));
   }
 
-  // POST /auth/v1/token?grant_type=password (sign in)
   if (method === "POST" && pathname === "/auth/v1/token") {
     const grantType = searchParams.get("grant_type");
 
@@ -120,10 +130,8 @@ export async function handleAuthRoute(
         );
       }
 
-      if (!result.data.session) {
+      if (!result.data.session)
         return jsonResponse(SESSION_CREATION_FAILED, 500);
-      }
-
       return jsonResponse(
         sessionPayload(result.data.session, result.data.user),
       );
@@ -131,15 +139,9 @@ export async function handleAuthRoute(
 
     if (grantType === "anonymous") {
       const result = await authHandler.signInAnonymously();
-      if (result.error) {
-        return jsonResponse(
-          { error: result.error.code, error_description: result.error.message },
-          result.error.status,
-        );
-      }
-      if (!result.data.session) {
+      if (result.error) return authErr(result.error);
+      if (!result.data.session)
         return jsonResponse(SESSION_CREATION_FAILED, 500);
-      }
       return jsonResponse(
         sessionPayload(result.data.session, result.data.user),
       );
@@ -169,10 +171,8 @@ export async function handleAuthRoute(
         );
       }
 
-      if (!result.data.session) {
+      if (!result.data.session)
         return jsonResponse(SESSION_CREATION_FAILED, 500);
-      }
-
       return jsonResponse(
         sessionPayload(result.data.session, result.data.user),
       );
@@ -187,48 +187,24 @@ export async function handleAuthRoute(
     );
   }
 
-  // POST /auth/v1/logout
   if (method === "POST" && pathname === "/auth/v1/logout") {
     const token = extractBearerToken(request.headers);
     const result = await authHandler.signOut(token || undefined);
-
-    if (result.error) {
-      return jsonResponse(
-        { error: result.error.code, error_description: result.error.message },
-        result.error.status,
-      );
-    }
-
+    if (result.error) return authErr(result.error);
     return jsonResponse({});
   }
 
-  // GET /auth/v1/user
   if (method === "GET" && pathname === "/auth/v1/user") {
-    const token = extractBearerToken(request.headers);
-
-    if (!token) {
-      return jsonResponse(MISSING_AUTH, 401);
-    }
-
+    const token = requireToken(request.headers);
+    if (token instanceof Response) return token;
     const result = await authHandler.getUser(token);
-
-    if (result.error) {
-      return jsonResponse(
-        { error: result.error.code, error_description: result.error.message },
-        result.error.status,
-      );
-    }
-
+    if (result.error) return authErr(result.error);
     return jsonResponse(result.data.user);
   }
 
-  // PUT /auth/v1/user
   if (method === "PUT" && pathname === "/auth/v1/user") {
-    const token = extractBearerToken(request.headers);
-
-    if (!token) {
-      return jsonResponse(MISSING_AUTH, 401);
-    }
+    const token = requireToken(request.headers);
+    if (token instanceof Response) return token;
 
     const body = await parseBody(request);
     const result = await authHandler.updateUser(token, {
@@ -243,17 +219,10 @@ export async function handleAuthRoute(
           : undefined,
     });
 
-    if (result.error) {
-      return jsonResponse(
-        { error: result.error.code, error_description: result.error.message },
-        result.error.status,
-      );
-    }
-
+    if (result.error) return authErr(result.error);
     return jsonResponse(result.data.user);
   }
 
-  // GET /auth/v1/session
   if (method === "GET" && pathname === "/auth/v1/session") {
     const token = extractBearerToken(request.headers);
     if (!token) return jsonResponse({ session: null });
@@ -271,24 +240,16 @@ export async function handleAuthRoute(
 
   if (method === "POST" && pathname === "/auth/v1/otp") {
     const body = await parseBody(request);
-    const email = typeof body.email === "string" ? body.email : undefined;
-    if (!email)
-      return jsonResponse(
-        { error: "missing_email", error_description: "Email is required" },
-        400,
-      );
+    const email = requireEmail(body);
+    if (email instanceof Response) return email;
     const { token } = await authHandler.sendOtp(email);
     return jsonResponse({ token });
   }
 
   if (method === "POST" && pathname === "/auth/v1/recover") {
     const body = await parseBody(request);
-    const email = typeof body.email === "string" ? body.email : undefined;
-    if (!email)
-      return jsonResponse(
-        { error: "missing_email", error_description: "Email is required" },
-        400,
-      );
+    const email = requireEmail(body);
+    if (email instanceof Response) return email;
     const { token } = await authHandler.sendRecovery(email);
     return jsonResponse({ token });
   }
@@ -303,11 +264,7 @@ export async function handleAuthRoute(
         400,
       );
     const result = await authHandler.verifyOtp(token, type);
-    if (result.error)
-      return jsonResponse(
-        { error: result.error.code, error_description: result.error.message },
-        result.error.status,
-      );
+    if (result.error) return authErr(result.error);
     if (!result.data.session) return jsonResponse(SESSION_CREATION_FAILED, 500);
     return jsonResponse(sessionPayload(result.data.session, result.data.user));
   }
@@ -321,16 +278,11 @@ export async function handleAuthRoute(
         400,
       );
     const result = await authHandler.verifyOtp(token, type);
-    if (result.error)
-      return jsonResponse(
-        { error: result.error.code, error_description: result.error.message },
-        result.error.status,
-      );
+    if (result.error) return authErr(result.error);
     if (!result.data.session) return jsonResponse(SESSION_CREATION_FAILED, 500);
     return jsonResponse(sessionPayload(result.data.session, result.data.user));
   }
 
-  // GET /auth/v1/settings — return feature flags
   if (method === "GET" && pathname === "/auth/v1/settings") {
     return jsonResponse({
       disable_signup: false,
@@ -342,8 +294,6 @@ export async function handleAuthRoute(
       saml_enabled: false,
     });
   }
-
-  // ── Admin routes ────────────────────────────────────────────────────
 
   const requiresServiceRole =
     pathname.startsWith("/auth/v1/admin/") || pathname === "/auth/v1/invite";
@@ -360,7 +310,6 @@ export async function handleAuthRoute(
     }
   }
 
-  // GET /auth/v1/admin/users
   if (method === "GET" && pathname === "/auth/v1/admin/users") {
     const page = parseInt(searchParams.get("page") ?? "1", 10);
     const perPage = parseInt(searchParams.get("per_page") ?? "50", 10);
@@ -368,7 +317,6 @@ export async function handleAuthRoute(
     return jsonResponse({ users, aud: "authenticated", total_count: total });
   }
 
-  // POST /auth/v1/admin/users — create user
   if (method === "POST" && pathname === "/auth/v1/admin/users") {
     const body = await parseBody(request);
     try {
@@ -404,7 +352,6 @@ export async function handleAuthRoute(
     }
   }
 
-  // Admin /auth/v1/admin/users/:id
   const adminUserMatch = pathname.match(/^\/auth\/v1\/admin\/users\/([^/]+)$/);
   if (adminUserMatch) {
     const userId = adminUserMatch[1] ?? "";
@@ -463,53 +410,38 @@ export async function handleAuthRoute(
   }
 
   if (method === "GET" && pathname === "/auth/v1/reauthenticate") {
-    const token = extractBearerToken(request.headers);
-    if (!token) return jsonResponse(MISSING_AUTH, 401);
+    const token = requireToken(request.headers);
+    if (token instanceof Response) return token;
     const result = await authHandler.reauthenticate(token);
-    if (result.error)
-      return jsonResponse(
-        { error: result.error.code, error_description: result.error.message },
-        result.error.status,
-      );
+    if (result.error) return authErr(result.error);
     return jsonResponse({});
   }
 
-  // GET /auth/v1/authorize — OAuth not supported locally
   if (method === "GET" && pathname === "/auth/v1/authorize") {
     return notSupported("OAuth providers not supported in local mode");
   }
 
-  // POST /auth/v1/sso — SSO not supported locally
   if (method === "POST" && pathname === "/auth/v1/sso") {
     return notSupported("SSO not supported in local mode");
   }
 
-  // GET /auth/v1/.well-known/jwks.json
   if (method === "GET" && pathname === "/auth/v1/.well-known/jwks.json") {
     return jsonResponse({ keys: [] });
   }
 
   if (method === "POST" && pathname === "/auth/v1/invite") {
     const body = await parseBody(request);
-    const email = typeof body.email === "string" ? body.email : undefined;
-    if (!email)
-      return jsonResponse(
-        { error: "missing_email", error_description: "Email is required" },
-        400,
-      );
+    const email = requireEmail(body);
+    if (email instanceof Response) return email;
     const { token } = await authHandler.sendInvite(email);
     return jsonResponse({ token });
   }
 
   if (method === "POST" && pathname === "/auth/v1/admin/generate_link") {
     const body = await parseBody(request);
-    const email = typeof body.email === "string" ? body.email : undefined;
+    const email = requireEmail(body);
+    if (email instanceof Response) return email;
     const type = typeof body.type === "string" ? body.type : "magiclink";
-    if (!email)
-      return jsonResponse(
-        { error: "missing_email", error_description: "Email is required" },
-        400,
-      );
     const { token } = await authHandler.sendOtp(email);
     const actionLink = `http://localhost:54321/auth/v1/verify?token=${token}&type=${type}`;
     return jsonResponse({
@@ -520,8 +452,8 @@ export async function handleAuthRoute(
   }
 
   if (method === "POST" && pathname === "/auth/v1/factors") {
-    const token = extractBearerToken(request.headers);
-    if (!token) return jsonResponse(MISSING_AUTH, 401);
+    const token = requireToken(request.headers);
+    if (token instanceof Response) return token;
     const body = await parseBody(request);
     const factorType =
       typeof body.factor_type === "string" ? body.factor_type : "totp";
@@ -543,15 +475,11 @@ export async function handleAuthRoute(
 
   const factorDeleteMatch = pathname.match(/^\/auth\/v1\/factors\/([^/]+)$/);
   if (factorDeleteMatch && method === "DELETE") {
-    const token = extractBearerToken(request.headers);
-    if (!token) return jsonResponse(MISSING_AUTH, 401);
+    const token = requireToken(request.headers);
+    if (token instanceof Response) return token;
     const factorId = factorDeleteMatch[1] ?? "";
     const result = await authHandler.unenrollFactor(token, factorId);
-    if (result.error)
-      return jsonResponse(
-        { error: result.error.code, error_description: result.error.message },
-        result.error.status,
-      );
+    if (result.error) return authErr(result.error);
     return jsonResponse({});
   }
 
@@ -559,8 +487,8 @@ export async function handleAuthRoute(
     /^\/auth\/v1\/factors\/([^/]+)\/challenge$/,
   );
   if (factorChallengeMatch && method === "POST") {
-    const token = extractBearerToken(request.headers);
-    if (!token) return jsonResponse(MISSING_AUTH, 401);
+    const token = requireToken(request.headers);
+    if (token instanceof Response) return token;
     const factorId = factorChallengeMatch[1] ?? "";
     const result = await authHandler.challengeTOTP(token, factorId);
     if (!result)
@@ -578,8 +506,8 @@ export async function handleAuthRoute(
     /^\/auth\/v1\/factors\/([^/]+)\/verify$/,
   );
   if (factorVerifyMatch && method === "POST") {
-    const token = extractBearerToken(request.headers);
-    if (!token) return jsonResponse(MISSING_AUTH, 401);
+    const token = requireToken(request.headers);
+    if (token instanceof Response) return token;
     const factorId = factorVerifyMatch[1] ?? "";
     const body = await parseBody(request);
     const challengeId =
@@ -591,21 +519,15 @@ export async function handleAuthRoute(
       challengeId,
       code,
     );
-    if (result.error)
-      return jsonResponse(
-        { error: result.error.code, error_description: result.error.message },
-        result.error.status,
-      );
+    if (result.error) return authErr(result.error);
     if (!result.data.session) return jsonResponse(SESSION_CREATION_FAILED, 500);
     return jsonResponse(sessionPayload(result.data.session, result.data.user));
   }
 
-  // GET /auth/v1/user/identities/authorize — OAuth not supported
   if (method === "GET" && pathname === "/auth/v1/user/identities/authorize") {
     return notSupported("OAuth not supported in local mode");
   }
 
-  // DELETE /auth/v1/user/identities/:id
   const identityDeleteMatch = pathname.match(
     /^\/auth\/v1\/user\/identities\/([^/]+)$/,
   );
@@ -613,14 +535,9 @@ export async function handleAuthRoute(
     return jsonResponse({});
   }
 
-  // GET /auth/v1/user/oauth/grants
-  if (method === "GET" && pathname === "/auth/v1/user/oauth/grants") {
-    return jsonResponse({ grants: [] });
-  }
-
-  // DELETE /auth/v1/user/oauth/grants
-  if (method === "DELETE" && pathname === "/auth/v1/user/oauth/grants") {
-    return jsonResponse({});
+  if (pathname === "/auth/v1/user/oauth/grants") {
+    if (method === "GET") return jsonResponse({ grants: [] });
+    if (method === "DELETE") return jsonResponse({});
   }
 
   const adminUserFactorsMatch = pathname.match(
@@ -632,7 +549,6 @@ export async function handleAuthRoute(
     return jsonResponse({ factors });
   }
 
-  // DELETE /auth/v1/admin/users/:id/factors/:factorId
   const adminUserFactorDeleteMatch = pathname.match(
     /^\/auth\/v1\/admin\/users\/([^/]+)\/factors\/([^/]+)$/,
   );
@@ -640,46 +556,33 @@ export async function handleAuthRoute(
     return jsonResponse({});
   }
 
-  // Admin OAuth clients
-  if (pathname === "/auth/v1/admin/oauth/clients" && method === "GET") {
-    return jsonResponse({ clients: [], total: 0 });
-  }
-  if (pathname === "/auth/v1/admin/oauth/clients" && method === "POST") {
-    return notSupported();
+  if (pathname === "/auth/v1/admin/oauth/clients") {
+    if (method === "GET") return jsonResponse({ clients: [], total: 0 });
+    if (method === "POST") return notSupported();
   }
   const adminOauthClientMatch = pathname.match(
     /^\/auth\/v1\/admin\/oauth\/clients\/([^/]+)$/,
   );
   if (adminOauthClientMatch) {
-    if (method === "GET") return notFound();
-    if (method === "PUT") return notFound();
-    if (method === "DELETE") return notFound();
+    return notFound();
   }
 
-  // Admin custom providers
-  if (pathname === "/auth/v1/admin/custom-providers" && method === "GET") {
-    return jsonResponse({ custom_providers: [] });
-  }
-  if (pathname === "/auth/v1/admin/custom-providers" && method === "POST") {
-    return notSupported();
+  if (pathname === "/auth/v1/admin/custom-providers") {
+    if (method === "GET") return jsonResponse({ custom_providers: [] });
+    if (method === "POST") return notSupported();
   }
   const adminCustomProviderMatch = pathname.match(
     /^\/auth\/v1\/admin\/custom-providers\/([^/]+)$/,
   );
   if (adminCustomProviderMatch) {
-    if (method === "GET") return notFound();
-    if (method === "PUT") return notFound();
     if (method === "DELETE") return jsonResponse({});
+    return notFound();
   }
 
   if (method === "POST" && pathname === "/auth/v1/resend") {
     const body = await parseBody(request);
-    const email = typeof body.email === "string" ? body.email : undefined;
-    if (!email)
-      return jsonResponse(
-        { error: "missing_email", error_description: "Email is required" },
-        400,
-      );
+    const email = requireEmail(body);
+    if (email instanceof Response) return email;
     const { token } = await authHandler.sendOtp(email);
     return jsonResponse({ token });
   }

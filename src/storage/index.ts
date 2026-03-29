@@ -1,7 +1,3 @@
-/**
- * Storage module — local Supabase Storage emulation
- */
-
 export {
   type BlobMetadata,
   MemoryStorageBackend,

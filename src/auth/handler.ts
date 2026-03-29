@@ -49,6 +49,10 @@ function authError(message: string, status: number, code?: string): AuthError {
   return { message, status, code };
 }
 
+function fail(message: string, status: number, code?: string): AuthResponse {
+  return { data: { user: null, session: null }, error: authError(message, status, code) };
+}
+
 export class AuthHandler {
   private readonly db: PGliteInterface;
   private initPromise: Promise<unknown> | null = null;
@@ -114,24 +118,15 @@ export class AuthHandler {
     await this.db.exec("RESET ROLE");
 
     try {
-      // Check if user already exists
       const existingUser = await this.db.query<StoredUser>(
         "SELECT * FROM auth.users WHERE email = $1",
         [email],
       );
 
       if (existingUser.rows.length > 0) {
-        return {
-          data: { user: null, session: null },
-          error: authError(
-            "User already registered",
-            400,
-            "user_already_exists",
-          ),
-        };
+        return fail("User already registered", 400, "user_already_exists");
       }
 
-      // Create user using database function
       const userMetadata = options?.data ? JSON.stringify(options.data) : "{}";
       const result = await this.db.query<StoredUser>(
         `SELECT * FROM auth.create_user($1, $2, $3::jsonb)`,
@@ -140,24 +135,14 @@ export class AuthHandler {
 
       const storedUser = result.rows[0];
       if (!storedUser) {
-        return {
-          data: { user: null, session: null },
-          error: authError(
-            "Failed to create user",
-            500,
-            "user_creation_failed",
-          ),
-        };
+        return fail("Failed to create user", 500, "user_creation_failed");
       }
 
       await this.writeAuditLog("signup", storedUser.id, email, "account");
       return this.signInAndCreateSession(storedUser);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Sign up failed";
-      return {
-        data: { user: null, session: null },
-        error: authError(message, 500, "sign_up_failed"),
-      };
+      return fail(message, 500, "sign_up_failed");
     }
   }
 
@@ -170,7 +155,6 @@ export class AuthHandler {
     await this.db.exec("RESET ROLE");
 
     try {
-      // Verify credentials using database function
       const result = await this.db.query<StoredUser>(
         "SELECT * FROM auth.verify_user_credentials($1, $2)",
         [email, password],
@@ -179,14 +163,7 @@ export class AuthHandler {
       const storedUser = result.rows[0];
       if (!storedUser || !storedUser.id) {
         await this.writeAuditLog("login_failed", null, email, "account");
-        return {
-          data: { user: null, session: null },
-          error: authError(
-            "Invalid login credentials",
-            400,
-            "invalid_credentials",
-          ),
-        };
+        return fail("Invalid login credentials", 400, "invalid_credentials");
       }
 
       await this.writeAuditLog(
@@ -198,10 +175,7 @@ export class AuthHandler {
       return this.signInAndCreateSession(storedUser);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Sign in failed";
-      return {
-        data: { user: null, session: null },
-        error: authError(message, 500, "sign_in_failed"),
-      };
+      return fail(message, 500, "sign_in_failed");
     }
   }
 
@@ -247,7 +221,6 @@ export class AuthHandler {
     await this.initialize();
 
     try {
-      // Use database function to refresh token
       const result = await this.db.query<{
         new_token: string;
         user_id: string;
@@ -256,19 +229,11 @@ export class AuthHandler {
 
       const tokenResult = result.rows[0];
       if (!tokenResult || !tokenResult.new_token) {
-        return {
-          data: { user: null, session: null },
-          error: authError(
-            "Invalid refresh token",
-            401,
-            "invalid_refresh_token",
-          ),
-        };
+        return fail("Invalid refresh token", 401, "invalid_refresh_token");
       }
 
       const { new_token, user_id, session_id } = tokenResult;
 
-      // Get user
       const userResult = await this.db.query<StoredUser>(
         "SELECT * FROM auth.users WHERE id = $1",
         [user_id],
@@ -276,15 +241,11 @@ export class AuthHandler {
 
       const storedUser = userResult.rows[0];
       if (!storedUser) {
-        return {
-          data: { user: null, session: null },
-          error: authError("User not found", 404, "user_not_found"),
-        };
+        return fail("User not found", 404, "user_not_found");
       }
 
       const user = toPublicUser(storedUser);
 
-      // Generate new access token
       const accessToken = await createAccessToken(
         this.db,
         user,
@@ -310,10 +271,7 @@ export class AuthHandler {
     } catch (err) {
       const message =
         err instanceof Error ? err.message : "Token refresh failed";
-      return {
-        data: { user: null, session: null },
-        error: authError(message, 500, "refresh_failed"),
-      };
+      return fail(message, 500, "refresh_failed");
     }
   }
 
@@ -336,7 +294,6 @@ export class AuthHandler {
         }
       }
 
-      // Reset role to default after sign out
       await this.db.exec("RESET ROLE");
 
       if (signOutUserId)
@@ -370,7 +327,6 @@ export class AuthHandler {
         };
       }
 
-      // Get fresh user data from database
       const result = await this.db.query<StoredUser>(
         "SELECT * FROM auth.users WHERE id = $1",
         [verified.payload.sub],
@@ -397,6 +353,31 @@ export class AuthHandler {
     }
   }
 
+  private async verifyNonce(userId: string, nonce: string): Promise<AuthResponse | null> {
+    const nonceCheck = await this.db.query<{
+      reauthentication_token: string | null;
+      reauthentication_sent_at: string | null;
+    }>(
+      "SELECT reauthentication_token, reauthentication_sent_at FROM auth.users WHERE id = $1",
+      [userId],
+    );
+    const stored = nonceCheck.rows[0]?.reauthentication_token;
+    if (!stored || stored !== nonce) {
+      return fail("Invalid nonce", 422, "invalid_nonce");
+    }
+    const sentAt = new Date(
+      nonceCheck.rows[0]?.reauthentication_sent_at ?? 0,
+    ).getTime();
+    if (Date.now() - sentAt > 10 * 60 * 1000) {
+      return fail("Reauthentication token expired", 401, "nonce_expired");
+    }
+    await this.db.query(
+      "UPDATE auth.users SET reauthentication_token = NULL, updated_at = NOW() WHERE id = $1",
+      [userId],
+    );
+    return null;
+  }
+
   async updateUser(
     accessToken: string,
     attributes: {
@@ -412,51 +393,16 @@ export class AuthHandler {
       const verified = await verifyAccessToken(this.db, accessToken);
 
       if (!verified.valid || !verified.payload) {
-        return {
-          data: { user: null, session: null },
-          error: authError(
-            verified.error || "Invalid token",
-            401,
-            "invalid_token",
-          ),
-        };
+        return fail(verified.error || "Invalid token", 401, "invalid_token");
       }
 
       const userId = verified.payload.sub;
 
       if (attributes.nonce !== undefined) {
-        const nonceCheck = await this.db.query<{
-          reauthentication_token: string | null;
-          reauthentication_sent_at: string | null;
-        }>(
-          "SELECT reauthentication_token, reauthentication_sent_at FROM auth.users WHERE id = $1",
-          [userId],
-        );
-        const stored = nonceCheck.rows[0]?.reauthentication_token;
-        if (!stored || stored !== attributes.nonce) {
-          return {
-            data: { user: null, session: null },
-            error: authError("Invalid nonce", 422, "invalid_nonce"),
-          };
-        }
-        const sentAt = new Date(
-          nonceCheck.rows[0]?.reauthentication_sent_at ?? 0,
-        ).getTime();
-        if (Date.now() - sentAt > 10 * 60 * 1000) {
-          return {
-            data: { user: null, session: null },
-            error: authError(
-              "Reauthentication token expired",
-              401,
-              "nonce_expired",
-            ),
-          };
-        }
-        await this.db.query(
-          "UPDATE auth.users SET reauthentication_token = NULL, updated_at = NOW() WHERE id = $1",
-          [userId],
-        );
+        const nonceError = await this.verifyNonce(userId, attributes.nonce);
+        if (nonceError) return nonceError;
       }
+
       const updates: string[] = [];
       const params: unknown[] = [];
       let paramIndex = 1;
@@ -482,17 +428,13 @@ export class AuthHandler {
       }
 
       if (updates.length === 0) {
-        // No updates, just return current user
         const result = await this.db.query<StoredUser>(
           "SELECT * FROM auth.users WHERE id = $1",
           [userId],
         );
         const storedUser = result.rows[0];
         if (!storedUser) {
-          return {
-            data: { user: null, session: null },
-            error: authError("User not found", 404, "user_not_found"),
-          };
+          return fail("User not found", 404, "user_not_found");
         }
         return {
           data: {
@@ -513,15 +455,11 @@ export class AuthHandler {
 
       const storedUser = result.rows[0];
       if (!storedUser) {
-        return {
-          data: { user: null, session: null },
-          error: authError("User not found", 404, "user_not_found"),
-        };
+        return fail("User not found", 404, "user_not_found");
       }
 
       const user = toPublicUser(storedUser);
 
-      // Update session with new user data if we have a current session
       let session = this.currentSession;
       if (session) {
         const newAccessToken = await createAccessToken(
@@ -545,14 +483,9 @@ export class AuthHandler {
       };
     } catch (err) {
       const message = err instanceof Error ? err.message : "Update user failed";
-      return {
-        data: { user: null, session: null },
-        error: authError(message, 500, "update_user_failed"),
-      };
+      return fail(message, 500, "update_user_failed");
     }
   }
-
-  // ── Admin methods ──────────────────────────────────────────────────
 
   async adminListUsers(
     page = 1,
@@ -642,13 +575,13 @@ export class AuthHandler {
       updates.push(`encrypted_password = auth.hash_password($${paramIndex++})`);
       params.push(attrs.password);
     }
-    if (attrs.user_metadata) {
+    if (attrs.user_metadata !== undefined) {
       updates.push(
         `raw_user_meta_data = raw_user_meta_data || $${paramIndex++}::jsonb`,
       );
       params.push(JSON.stringify(attrs.user_metadata));
     }
-    if (attrs.app_metadata) {
+    if (attrs.app_metadata !== undefined) {
       updates.push(
         `raw_app_meta_data = raw_app_meta_data || $${paramIndex++}::jsonb`,
       );
@@ -683,19 +616,12 @@ export class AuthHandler {
     return this.currentSession;
   }
 
-  /**
-   * Set current session (for restoring from storage)
-   */
   setSession(session: Session | null): void {
     this.currentSession = session;
     if (session) {
       this.emitAuthStateChange("SIGNED_IN", session);
     }
   }
-
-  /**
-   * Verify access token and return payload
-   */
 
   private async writeAuditLog(
     action: string,
@@ -774,23 +700,13 @@ export class AuthHandler {
       );
       const storedUser = result.rows[0];
       if (!storedUser) {
-        return {
-          data: { user: null, session: null },
-          error: authError(
-            "Failed to create anonymous user",
-            500,
-            "anonymous_sign_in_failed",
-          ),
-        };
+        return fail("Failed to create anonymous user", 500, "anonymous_sign_in_failed");
       }
       return this.signInAndCreateSession(storedUser);
     } catch (err) {
       const message =
         err instanceof Error ? err.message : "Anonymous sign in failed";
-      return {
-        data: { user: null, session: null },
-        error: authError(message, 500, "anonymous_sign_in_failed"),
-      };
+      return fail(message, 500, "anonymous_sign_in_failed");
     }
   }
 
@@ -843,10 +759,7 @@ export class AuthHandler {
           : "magiclink";
     const consumed = await this.consumeOneTimeToken(rawToken, tokenType);
     if (!consumed) {
-      return {
-        data: { user: null, session: null },
-        error: authError("Token has expired or is invalid", 403, "otp_expired"),
-      };
+      return fail("Token has expired or is invalid", 403, "otp_expired");
     }
     const userResult = await this.db.query<StoredUser>(
       "SELECT * FROM auth.users WHERE id = $1",
@@ -854,10 +767,7 @@ export class AuthHandler {
     );
     const storedUser = userResult.rows[0];
     if (!storedUser) {
-      return {
-        data: { user: null, session: null },
-        error: authError("User not found", 404, "user_not_found"),
-      };
+      return fail("User not found", 404, "user_not_found");
     }
     if (!storedUser.email_confirmed_at) {
       const updated = await this.db.query<StoredUser>(
@@ -866,14 +776,7 @@ export class AuthHandler {
       );
       const user = updated.rows[0];
       if (!user)
-        return {
-          data: { user: null, session: null },
-          error: authError(
-            "User not found after update",
-            500,
-            "internal_error",
-          ),
-        };
+        return fail("User not found after update", 500, "internal_error");
       return this.signInAndCreateSession(user);
     }
     return this.signInAndCreateSession(storedUser);
@@ -1000,10 +903,7 @@ export class AuthHandler {
     await this.initialize();
     const verified = await verifyAccessToken(this.db, accessToken);
     if (!verified.valid || !verified.payload) {
-      return {
-        data: { user: null, session: null },
-        error: authError("Invalid token", 401, "invalid_token"),
-      };
+      return fail("Invalid token", 401, "invalid_token");
     }
     const challengeResult = await this.db.query<{
       id: string;
@@ -1015,21 +915,11 @@ export class AuthHandler {
     );
     const challenge = challengeResult.rows[0];
     if (!challenge || challenge.verified_at) {
-      return {
-        data: { user: null, session: null },
-        error: authError(
-          "Invalid or expired challenge",
-          400,
-          "challenge_expired",
-        ),
-      };
+      return fail("Invalid or expired challenge", 400, "challenge_expired");
     }
     const challengeAge = Date.now() - new Date(challenge.created_at).getTime();
     if (challengeAge > 300000) {
-      return {
-        data: { user: null, session: null },
-        error: authError("Challenge expired", 400, "challenge_expired"),
-      };
+      return fail("Challenge expired", 400, "challenge_expired");
     }
     const factorResult = await this.db.query<{ secret: string }>(
       "SELECT secret FROM auth.mfa_factors WHERE id = $1 AND user_id = $2",
@@ -1037,20 +927,14 @@ export class AuthHandler {
     );
     const factor = factorResult.rows[0];
     if (!factor) {
-      return {
-        data: { user: null, session: null },
-        error: authError("Factor not found", 404, "factor_not_found"),
-      };
+      return fail("Factor not found", 404, "factor_not_found");
     }
     const { base32 } = await import("@scure/base");
     const { verifyTOTP: verifyTOTPCode } = await import("@oslojs/otp");
     const secretBytes = base32.decode(factor.secret);
     const valid = verifyTOTPCode(secretBytes, 30, 6, code);
     if (!valid) {
-      return {
-        data: { user: null, session: null },
-        error: authError("Invalid TOTP code", 422, "invalid_totp_code"),
-      };
+      return fail("Invalid TOTP code", 422, "invalid_totp_code");
     }
     await this.db.query(
       "UPDATE auth.mfa_challenges SET verified_at = NOW() WHERE id = $1",
@@ -1066,10 +950,7 @@ export class AuthHandler {
     );
     const storedUser = userResult.rows[0];
     if (!storedUser) {
-      return {
-        data: { user: null, session: null },
-        error: authError("User not found", 404, "user_not_found"),
-      };
+      return fail("User not found", 404, "user_not_found");
     }
     return this.signInAndCreateSession(storedUser);
   }

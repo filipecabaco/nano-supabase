@@ -1,7 +1,3 @@
-/**
- * Auth module exports
- */
-
 export {
   createAccessToken,
   extractSessionIdFromToken,
