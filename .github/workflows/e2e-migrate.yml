@@ -1,0 +1,44 @@
+name: E2E – Service Migrate
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - src/cli-service.ts
+      - src/cli-commands.ts
+      - src/cli.ts
+      - tests/e2e-migrate.sh
+      - .github/workflows/e2e-migrate.yml
+  push:
+    branches: [main]
+    paths:
+      - src/cli-service.ts
+      - src/cli-commands.ts
+      - src/cli.ts
+      - tests/e2e-migrate.sh
+      - .github/workflows/e2e-migrate.yml
+  workflow_dispatch:
+
+jobs:
+  e2e-migrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+
+      - name: Install Supabase CLI
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/supabase/cli/main/install.sh | sh -s -- -b /usr/local/bin
+
+      - name: Start Supabase
+        run: |
+          supabase init --force
+          supabase start
+          supabase status
+
+      - name: Build nano-supabase CLI
+        run: node scripts/build.js cli
+
+      - name: Run E2E migrate test
+        run: bash tests/e2e-migrate.sh
