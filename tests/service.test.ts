@@ -9,6 +9,8 @@ import {
 } from "@testcontainers/postgresql";
 import { Client } from "pg";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
+import { createPGlite } from "../src/pglite-factory.ts";
+import { createFetchAdapter } from "../src/client.ts";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CLI = join(__dirname, "../dist/cli.js");
@@ -1131,5 +1133,183 @@ describe("service migrate", () => {
     const parsed = JSON.parse(result.output);
     expect(parsed.auth.users).toBeGreaterThanOrEqual(1);
     expect(parsed.data.tables).toBeGreaterThanOrEqual(1);
+  }, 30_000);
+});
+
+describe("service local-to-service", () => {
+  let svcProcess: ChildProcess;
+  let svcDataDir: string;
+  let coldDir: string;
+  let localDataDir: string;
+  const port = 54497;
+  const tcpPort = 54498;
+  const base = `http://localhost:${port}`;
+
+  beforeAll(async () => {
+    svcDataDir = mkdtempSync(join(tmpdir(), "nano-svc-l2s-data-"));
+    coldDir = mkdtempSync(join(tmpdir(), "nano-svc-l2s-cold-"));
+    localDataDir = mkdtempSync(join(tmpdir(), "nano-local-l2s-"));
+    svcProcess = spawn(
+      "node",
+      [
+        CLI,
+        "service",
+        `--service-port=${port}`,
+        `--tcp-port=${tcpPort}`,
+        `--admin-token=${ADMIN_TOKEN}`,
+        `--data-dir=${svcDataDir}`,
+        `--cold-dir=${coldDir}`,
+        `--registry-db-url=${registryDbUrl}`,
+        `--secret=test-l2s-secret`,
+      ],
+      { stdio: "ignore", detached: false },
+    );
+    await waitForHealth(base);
+  }, 90_000);
+
+  afterAll(async () => {
+    svcProcess?.kill("SIGTERM");
+    await new Promise((r) => setTimeout(r, 500));
+    rmSync(svcDataDir, { recursive: true, force: true });
+    rmSync(coldDir, { recursive: true, force: true });
+    rmSync(localDataDir, { recursive: true, force: true });
+  });
+
+  test("migrates local PGlite data into a new service tenant", async () => {
+    const localDb = await createPGlite({ dataDir: localDataDir });
+    const { localFetch } = await createFetchAdapter({ db: localDb });
+
+    await localDb.exec(`
+      CREATE TABLE IF NOT EXISTS items (
+        id SERIAL PRIMARY KEY,
+        name TEXT NOT NULL,
+        active BOOLEAN DEFAULT true
+      )
+    `);
+    await localDb.query(
+      "INSERT INTO items (name, active) VALUES ('alpha', true), ('beta', false)",
+    );
+
+    await localFetch(
+      new Request("http://localhost:54321/auth/v1/signup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: "Bearer local-anon-key", apikey: "local-anon-key" },
+        body: JSON.stringify({
+          email: "localuser@test.com",
+          password: "password123",
+        }),
+      }),
+    );
+
+    await localDb.close();
+
+    const { cmdServiceLocalToService } = await import(
+      "../src/cli-commands.ts"
+    );
+    const result = await cmdServiceLocalToService([
+      `--url=${base}`,
+      `--admin-token=${ADMIN_TOKEN}`,
+      `--data-dir=${localDataDir}`,
+      "--no-storage",
+      "--json",
+      "l2s-test",
+    ]);
+
+    expect(result.exitCode).toBe(0);
+    const parsed = JSON.parse(result.output);
+    expect(parsed.schema.tables).toBeGreaterThanOrEqual(1);
+    expect(parsed.auth.users).toBeGreaterThanOrEqual(1);
+    expect(parsed.data.tables).toBeGreaterThanOrEqual(1);
+    expect(parsed.data.rows).toBeGreaterThanOrEqual(2);
+
+    const adminHeaders = {
+      Authorization: `Bearer ${ADMIN_TOKEN}`,
+      "Content-Type": "application/json",
+    };
+    const sqlRes = await fetch(`${base}/admin/tenants/l2s-test/sql`, {
+      method: "POST",
+      headers: adminHeaders,
+      body: JSON.stringify({ sql: "SELECT name, active FROM items ORDER BY id" }),
+    });
+    const sqlBody = await sqlRes.json();
+    expect(sqlBody.rows).toEqual([
+      { name: "alpha", active: true },
+      { name: "beta", active: false },
+    ]);
+
+    const usersRes = await fetch(`${base}/admin/tenants/l2s-test/sql`, {
+      method: "POST",
+      headers: adminHeaders,
+      body: JSON.stringify({
+        sql: "SELECT email FROM auth.users WHERE email = 'localuser@test.com'",
+      }),
+    });
+    const usersBody = await usersRes.json();
+    expect(usersBody.rows).toHaveLength(1);
+  }, 90_000);
+
+  test("fails when tenant already exists without --tenant-token", async () => {
+    const extraLocalDir = mkdtempSync(join(tmpdir(), "nano-local-l2s-dup-"));
+    const localDb = await createPGlite({ dataDir: extraLocalDir });
+    await localDb.close();
+
+    const { cmdServiceLocalToService } = await import(
+      "../src/cli-commands.ts"
+    );
+    const result = await cmdServiceLocalToService([
+      `--url=${base}`,
+      `--admin-token=${ADMIN_TOKEN}`,
+      `--data-dir=${extraLocalDir}`,
+      "--no-storage",
+      "--json",
+      "l2s-test",
+    ]);
+
+    expect(result.exitCode).toBe(1);
+    const parsed = JSON.parse(result.output);
+    expect(parsed.error).toBe("tenant_exists");
+
+    rmSync(extraLocalDir, { recursive: true, force: true });
+  }, 30_000);
+
+  test("dry-run does not write data", async () => {
+    const dryLocalDir = mkdtempSync(join(tmpdir(), "nano-local-l2s-dry-"));
+    const localDb = await createPGlite({ dataDir: dryLocalDir });
+    await localDb.exec(
+      "CREATE TABLE IF NOT EXISTS dryitems (id SERIAL PRIMARY KEY, val TEXT)",
+    );
+    await localDb.query("INSERT INTO dryitems (val) VALUES ('nope')");
+    await localDb.close();
+
+    const { cmdServiceLocalToService } = await import(
+      "../src/cli-commands.ts"
+    );
+    const result = await cmdServiceLocalToService([
+      `--url=${base}`,
+      `--admin-token=${ADMIN_TOKEN}`,
+      `--data-dir=${dryLocalDir}`,
+      "--no-storage",
+      "--no-auth",
+      "--dry-run",
+      "--json",
+      "l2s-dry",
+    ]);
+
+    expect(result.exitCode).toBe(0);
+    const parsed = JSON.parse(result.output);
+    expect(parsed.data.rows).toBeGreaterThan(0);
+
+    const adminHeaders = {
+      Authorization: `Bearer ${ADMIN_TOKEN}`,
+      "Content-Type": "application/json",
+    };
+    const checkRes = await fetch(`${base}/admin/tenants/l2s-dry/sql`, {
+      method: "POST",
+      headers: adminHeaders,
+      body: JSON.stringify({ sql: "SELECT 1 FROM dryitems LIMIT 1" }),
+    });
+    expect(checkRes.status).toBe(404);
+
+    rmSync(dryLocalDir, { recursive: true, force: true });
   }, 30_000);
 });

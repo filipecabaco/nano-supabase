@@ -1652,3 +1652,243 @@ export async function cmdServiceMigrate(
   }
   return ok(r, json, lines.join("\n"));
 }
+
+export async function cmdServiceLocalToService(
+  args: string[],
+): Promise<{ exitCode: number; output: string }> {
+  const json = args.includes("--json");
+  const token = getAdminToken(args);
+  if (!token)
+    return fail(
+      "missing_admin_token",
+      "--admin-token or NANO_ADMIN_TOKEN is required",
+      json,
+    );
+  const positional = args.filter((a) => !a.startsWith("--"));
+  const slug = positional[0];
+  if (!slug)
+    return fail(
+      "missing_slug",
+      "Usage: service local-to-service <slug> --data-dir=<path>",
+      json,
+    );
+
+  const dataDir = getArgValue(args, "--data-dir");
+  if (!dataDir)
+    return fail(
+      "missing_data_dir",
+      "Provide --data-dir pointing to the local nano-supabase data directory",
+      json,
+    );
+
+  const { existsSync } = await import("node:fs");
+  if (!existsSync(dataDir))
+    return fail(
+      "data_dir_not_found",
+      `Data directory not found: ${dataDir}`,
+      json,
+    );
+
+  const pidFile =
+    getArgValue(args, "--pid-file") ??
+    `/tmp/nano-supabase-${DEFAULT_HTTP_PORT}.pid`;
+  try {
+    const { readFile: readFileFn } = await import("node:fs/promises");
+    const pid = parseInt(await readFileFn(pidFile, "utf8"), 10);
+    if (!Number.isNaN(pid)) {
+      try {
+        process.kill(pid, 0);
+        return fail(
+          "local_instance_running",
+          `A local nano-supabase instance is running (pid ${pid}). Stop it first with 'nano-supabase stop'.`,
+          json,
+        );
+      } catch {}
+    }
+  } catch {}
+
+  const serviceUrl = getServiceUrl(args);
+  const skipSchema = args.includes("--no-schema");
+  const skipAuth = args.includes("--no-auth");
+  const skipData = args.includes("--no-data");
+  const skipStorage = args.includes("--no-storage");
+  const dryRun = args.includes("--dry-run");
+  const migrationsDir = getArgValue(args, "--migrations-dir");
+
+  const { migrateDatabase } = await import("./migrate-database.ts");
+  const { createPGlite } = await import("./pglite-factory.ts");
+  const { createFetchAdapter } = await import("./client.ts");
+
+  let localDb: Awaited<ReturnType<typeof createPGlite>> | undefined;
+  try {
+    localDb = await createPGlite({ dataDir });
+
+    const tenantToken = getArgValue(args, "--tenant-token");
+    let tToken: string;
+
+    if (tenantToken) {
+      tToken = tenantToken;
+      const { ok: tenantOk } = await serviceRequest(
+        "GET",
+        `${serviceUrl}/admin/tenants/${slug}`,
+        token,
+      );
+      if (!tenantOk) {
+        return fail(
+          "tenant_not_found",
+          `Tenant "${slug}" not found on service. Create it first or omit --tenant-token to auto-create.`,
+          json,
+        );
+      }
+    } else {
+      const createBody: Record<string, unknown> = { slug };
+      const anonKey = getArgValue(args, "--anon-key");
+      const serviceRoleKey = getArgValue(args, "--service-role-key");
+      if (anonKey) createBody.anonKey = anonKey;
+      if (serviceRoleKey) createBody.serviceRoleKey = serviceRoleKey;
+
+      const {
+        ok: createOk,
+        data: createData,
+        status: createStatus,
+      } = await serviceRequest<Record<string, unknown>>(
+        "POST",
+        `${serviceUrl}/admin/tenants`,
+        token,
+        createBody,
+      );
+      if (!createOk) {
+        if (createStatus === 409) {
+          return fail(
+            "tenant_exists",
+            `Tenant "${slug}" already exists. Use --tenant-token=<token> to migrate into it, or remove it first.`,
+            json,
+          );
+        }
+        return apiError(createData, json);
+      }
+      tToken = createData.token as string;
+    }
+
+    const executeOnTarget = async (
+      sql: string,
+      params?: unknown[],
+    ): Promise<{ rows: Record<string, unknown>[] }> => {
+      const { ok: sqlOk, data } = await serviceRequest<{
+        rows: Record<string, unknown>[];
+        error?: string;
+      }>("POST", `${serviceUrl}/admin/tenants/${slug}/sql`, token, {
+        sql,
+        params,
+      });
+      if (!sqlOk) {
+        const errMsg =
+          (data as Record<string, unknown>).error ??
+          (data as Record<string, unknown>).message ??
+          "SQL execution failed";
+        throw new Error(String(errMsg));
+      }
+      return { rows: data.rows ?? [] };
+    };
+
+    const { localFetch } = await createFetchAdapter({ db: localDb });
+
+    let storageXfer: import("./migrate-database.ts").StorageTransfer | undefined;
+    if (!skipStorage) {
+      storageXfer = {
+        download: async (bucketId: string, name: string) => {
+          const dlRes = await localFetch(
+            new Request(
+              `http://localhost:54321/storage/v1/object/${bucketId}/${name}`,
+              {
+                headers: {
+                  Authorization: `Bearer ${DEFAULT_SERVICE_ROLE_KEY}`,
+                  apikey: DEFAULT_ANON_KEY,
+                },
+              },
+            ),
+          );
+          if (!dlRes.ok) return null;
+          return {
+            data: await dlRes.arrayBuffer(),
+            contentType:
+              dlRes.headers.get("Content-Type") ?? "application/octet-stream",
+          };
+        },
+        upload: async (
+          bucketId: string,
+          name: string,
+          data: ArrayBuffer,
+          contentType: string,
+        ) => {
+          const uploadRes = await fetch(
+            `${serviceUrl}/${slug}/storage/v1/object/${bucketId}/${name}`,
+            {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${tToken}`,
+                "Content-Type": contentType,
+                "x-upsert": "true",
+              },
+              body: data,
+            },
+          );
+          if (!uploadRes.ok) {
+            await uploadRes.arrayBuffer().catch(() => {});
+            return false;
+          }
+          return true;
+        },
+      };
+    }
+
+    const result = await migrateDatabase(
+      localDb,
+      executeOnTarget,
+      {
+        skipSchema,
+        skipAuth,
+        skipData,
+        skipStorage,
+        dryRun,
+        migrationsDir,
+      },
+      storageXfer,
+    );
+
+    await localDb.close();
+
+    if (json) return ok(result, json, "");
+    const dryTag = dryRun ? " (dry run)" : "";
+    const schemaExtra = [
+      result.schema.views > 0 ? `${result.schema.views} view(s)` : "",
+      result.schema.functions > 0
+        ? `${result.schema.functions} function(s)`
+        : "",
+      result.schema.triggers > 0
+        ? `${result.schema.triggers} trigger(s)`
+        : "",
+      result.schema.policies > 0
+        ? `${result.schema.policies} RLS policy(ies)`
+        : "",
+    ]
+      .filter(Boolean)
+      .join(", ");
+    const lines = [
+      `Migrate local (${dataDir}) → service tenant "${slug}"${dryTag}`,
+      ``,
+      `Schema:    ${result.schema.migrations} migration(s), ${result.schema.tables} table(s) introspected${schemaExtra ? `, ${schemaExtra}` : ""}`,
+      `Auth:      ${result.auth.users} user(s), ${result.auth.identities} identity(ies)`,
+      `Data:      ${result.data.rows} row(s) across ${result.data.tables} table(s)`,
+      `Storage:   ${result.storage.buckets} bucket(s), ${result.storage.objects} object(s)`,
+    ];
+    return ok(result, json, lines.join("\n"));
+  } catch (e: unknown) {
+    if (localDb) await localDb.close().catch(() => {});
+    return fail(
+      "migrate_failed",
+      e instanceof Error ? e.message : String(e),
+      json,
+    );
+  }
+}
