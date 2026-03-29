@@ -14,90 +14,49 @@ export async function handleDataRoute(
   const method = request.method.toUpperCase();
   const url = new URL(request.url);
 
-  // Strip the 'columns' parameter that Supabase JS client adds
-  // The parser should derive columns from the body, not from query params
-  // Build query string manually to avoid double-encoding
   const params = url.searchParams;
   const filteredParams: string[] = [];
   params.forEach((value, key) => {
     if (key !== "columns") {
-      // Don't use encodeURIComponent here - the parser expects unencoded values
       filteredParams.push(`${key}=${value}`);
     }
   });
   const queryString = filteredParams.join("&");
 
-  // Extract table/resource from path: /rest/v1/{table}
   const pathParts = pathname.split("/").filter(Boolean);
-  // pathParts: ['rest', 'v1', 'table'] or ['rest', 'v1', 'rpc', 'function_name']
   if (pathParts.length < 3) {
     return jsonResponse({ message: "Invalid path", code: "PGRST000" }, 400);
   }
 
-  const resourcePath = pathParts.slice(2).join("/"); // 'table' or 'rpc/function_name'
+  const resourcePath = pathParts.slice(2).join("/");
   const token = extractBearerToken(request.headers);
 
   try {
-    // Set auth context for RLS
     await setAuthContext(db, token);
 
-    let parsed: { sql: string; params: readonly unknown[] };
     let body: Record<string, unknown> | null = null;
-
-    // Parse body for POST/PATCH/PUT
     if (["POST", "PATCH", "PUT"].includes(method)) {
       body = await parseBody(request);
     }
 
-    switch (method) {
-      case "HEAD":
-      case "GET":
-        parsed = parser.parseRequest("GET", resourcePath, queryString);
-        break;
-      case "POST":
-        parsed = parser.parseRequest(
-          "POST",
-          resourcePath,
-          queryString,
-          body || undefined,
-        );
-        break;
-      case "PATCH":
-        parsed = parser.parseRequest(
-          "PATCH",
-          resourcePath,
-          queryString,
-          body || undefined,
-        );
-        break;
-      case "PUT":
-        // PUT is typically used for upsert, treat as POST with conflict handling
-        parsed = parser.parseRequest(
-          "POST",
-          resourcePath,
-          queryString,
-          body || undefined,
-        );
-        break;
-      case "DELETE":
-        parsed = parser.parseRequest("DELETE", resourcePath, queryString);
-        break;
-      default:
-        return jsonResponse(
-          { message: "Method not allowed", code: "PGRST105" },
-          405,
-        );
+    const parserMethod =
+      method === "HEAD" ? "GET" : method === "PUT" ? "POST" : method;
+    if (!["GET", "POST", "PATCH", "DELETE"].includes(parserMethod)) {
+      return jsonResponse(
+        { message: "Method not allowed", code: "PGRST105" },
+        405,
+      );
     }
+    const hasBody = ["POST", "PATCH", "PUT"].includes(method);
+    const parsed = parser.parseRequest(
+      parserMethod as "GET" | "POST" | "PATCH" | "DELETE",
+      resourcePath,
+      queryString,
+      hasBody ? body || undefined : undefined,
+    );
 
-    /**
-     * Workaround: Parser quotes asterisk in RETURNING clause
-     * The postgrest_parser incorrectly generates: RETURNING "*"
-     * PostgreSQL expects: RETURNING *
-     * TODO: Fix in postgrest_parser upstream
-     */
     let sql = parsed.sql.replace(/RETURNING "\*"/g, "RETURNING *");
 
-    // Add RETURNING clause if client wants representation and parser didn't add it
     const prefer = request.headers.get("Prefer") || "";
     const returnRepresentation = prefer.includes("return=representation");
     if (
@@ -108,7 +67,6 @@ export async function handleDataRoute(
       sql = `${sql} RETURNING *`;
     }
 
-    // Execute the actual query with parameters
     const result = await db.query(sql, [...parsed.params]);
 
     const returnMinimal = prefer.includes("return=minimal");
@@ -116,10 +74,6 @@ export async function handleDataRoute(
       prefer.includes("count=exact") ||
       prefer.includes("count=planned") ||
       prefer.includes("count=estimated");
-
-    const isCreate = method === "POST";
-    const isMutate = method === "PATCH" || method === "PUT";
-    const isDelete = method === "DELETE";
 
     const responseHeaders: Record<string, string> = {};
 
@@ -133,36 +87,16 @@ export async function handleDataRoute(
         `0-${result.rows.length - 1}/${result.rows.length}`;
       return new Response(null, { status: 200, headers: responseHeaders });
     }
-
-    if (method === "GET") {
+    if (method === "GET")
       return jsonResponse(result.rows, 200, responseHeaders);
-    }
-
-    if (isCreate) {
-      if (returnMinimal) {
-        return new Response(null, { status: 201, headers: responseHeaders });
-      }
+    if (method === "POST" && !returnMinimal)
       return jsonResponse(result.rows, 201, responseHeaders);
-    }
-
-    if (isMutate) {
-      if (returnMinimal) {
-        return new Response(null, { status: 204, headers: responseHeaders });
-      }
-      if (returnRepresentation) {
-        return jsonResponse(result.rows, 200, responseHeaders);
-      }
-      return new Response(null, { status: 204, headers: responseHeaders });
-    }
-
-    if (isDelete) {
-      if (returnRepresentation) {
-        return jsonResponse(result.rows, 200, responseHeaders);
-      }
-      return new Response(null, { status: 204, headers: responseHeaders });
-    }
-
-    return jsonResponse(result.rows, 200, responseHeaders);
+    if (returnRepresentation)
+      return jsonResponse(result.rows, 200, responseHeaders);
+    return new Response(null, {
+      status: method === "POST" ? 201 : 204,
+      headers: responseHeaders,
+    });
   } catch (err) {
     return postgresErrorResponse(err);
   }

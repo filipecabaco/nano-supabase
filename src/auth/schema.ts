@@ -1,8 +1,3 @@
-/**
- * SQL schema for auth tables (compatible with Supabase auth schema)
- * Uses pgcrypto extension for password hashing (available in PGlite)
- */
-
 export const AUTH_SCHEMA_SQL = `
 -- pgcrypto and uuid-ossp are pre-loaded via createPGlite factory
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
@@ -739,16 +734,10 @@ GRANT EXECUTE ON FUNCTION auth.create_access_token(UUID, UUID, TEXT, TEXT, JSONB
 GRANT EXECUTE ON FUNCTION auth.verify_access_token(TEXT) TO service_role;
 `;
 
-/**
- * Escape single quotes for SQL string literals
- */
 function escapeSqlString(value: string): string {
   return value.replace(/'/g, "''");
 }
 
-/**
- * SQL to set auth context for a request (called before each query when authenticated)
- */
 export function getSetAuthContextSQL(
   userId: string,
   role: string,
@@ -761,15 +750,11 @@ export function getSetAuthContextSQL(
     aud: "authenticated",
   });
 
-  // Properly escape all values for SQL
   const escapedUserId = escapeSqlString(userId);
   const escapedRole = escapeSqlString(role);
   const escapedEmail = escapeSqlString(email);
   const escapedClaims = escapeSqlString(claims);
 
-  // IMPORTANT: SET ROLE switches the database role to enforce RLS
-  // Without this, queries run as superuser which bypasses RLS entirely
-  // Note: Using SET ROLE (not SET LOCAL ROLE) because each db call may be in a separate transaction
   return `
     SET ROLE ${escapedRole};
     SELECT set_config('request.jwt.claim.sub', '${escapedUserId}', false);
@@ -779,9 +764,6 @@ export function getSetAuthContextSQL(
   `;
 }
 
-/**
- * SQL to clear auth context (for anonymous/unauthenticated requests)
- */
 export const CLEAR_AUTH_CONTEXT_SQL = `
   SET ROLE anon;
   SELECT set_config('request.jwt.claim.sub', '', false);

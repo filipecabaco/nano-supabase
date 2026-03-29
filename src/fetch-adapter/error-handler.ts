@@ -1,7 +1,3 @@
-/**
- * Error handling utilities for API routes
- */
-
 export interface PostgresError extends Error {
   detail?: string;
   hint?: string;
@@ -15,9 +11,6 @@ export interface ApiError {
   hint?: string;
 }
 
-/**
- * Extract PostgreSQL error details
- */
 export function extractPostgresError(err: unknown): ApiError {
   if (!(err instanceof Error)) {
     return {
@@ -35,9 +28,6 @@ export function extractPostgresError(err: unknown): ApiError {
   };
 }
 
-/**
- * Create JSON error response
- */
 export function postgresErrorResponse(
   err: unknown,
   status: number = 400,

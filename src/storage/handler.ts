@@ -1,16 +1,7 @@
-/**
- * StorageHandler — manages bucket and object operations against PGlite
- *
- * All metadata lives in storage.buckets / storage.objects (with RLS).
- * File blobs are stored in a pluggable StorageBackend (in-memory by default).
- */
-
 import type { PGliteInterface } from "@electric-sql/pglite";
 import type { BlobMetadata, StorageBackend } from "./backend.ts";
 import { MemoryStorageBackend } from "./backend.ts";
 import { STORAGE_SCHEMA_SQL } from "./schema.ts";
-
-// ─── Types ────────────────────────────────────────────────────────────
 
 export interface StorageBucket {
   id: string;
@@ -63,8 +54,6 @@ function fromUrlSafeBase64(b64url: string): string {
   return s;
 }
 
-// ─── Handler ──────────────────────────────────────────────────────────
-
 export class StorageHandler {
   private readonly db: PGliteInterface;
   private readonly backend: StorageBackend;
@@ -80,12 +69,9 @@ export class StorageHandler {
     await this.initPromise;
   }
 
-  /** Get the blob backend (for advanced use) */
   getBackend(): StorageBackend {
     return this.backend;
   }
-
-  // ── Bucket operations ────────────────────────────────────────────
 
   async listBuckets(): Promise<StorageBucket[]> {
     await this.initialize();
@@ -171,17 +157,14 @@ export class StorageHandler {
 
   async emptyBucket(id: string): Promise<void> {
     await this.initialize();
-    // Delete all object rows (RLS applies)
     await this.db.query("DELETE FROM storage.objects WHERE bucket_id = $1", [
       id,
     ]);
-    // Delete all blobs for this bucket
     await this.backend.deleteByPrefix(`${id}/`);
   }
 
   async deleteBucket(id: string): Promise<void> {
     await this.initialize();
-    // Check bucket is empty
     const objects = await this.db.query<{ count: string }>(
       "SELECT count(*)::text as count FROM storage.objects WHERE bucket_id = $1",
       [id],
@@ -191,8 +174,6 @@ export class StorageHandler {
     }
     await this.db.query("DELETE FROM storage.buckets WHERE id = $1", [id]);
   }
-
-  // ── Object operations ────────────────────────────────────────────
 
   async uploadObject(
     bucketId: string,
@@ -208,18 +189,15 @@ export class StorageHandler {
   ): Promise<StorageObject> {
     await this.initialize();
 
-    // Validate bucket exists and check constraints
     const bucket = await this.getBucket(bucketId);
     if (!bucket) throw new Error("Bucket not found");
 
-    // Check file size limit
     if (bucket.file_size_limit && data.byteLength > bucket.file_size_limit) {
       throw new Error(
         `File size ${data.byteLength} exceeds bucket limit of ${bucket.file_size_limit}`,
       );
     }
 
-    // Check allowed MIME types
     if (bucket.allowed_mime_types && bucket.allowed_mime_types.length > 0) {
       const allowed = bucket.allowed_mime_types.some((mime) => {
         if (mime.endsWith("/*")) {
@@ -286,7 +264,6 @@ export class StorageHandler {
     const obj = result.rows[0];
     if (!obj) throw new Error("Failed to create object");
 
-    // Store the blob
     const blobKey = `${bucketId}/${objectName}`;
     await this.backend.put(blobKey, data, {
       contentType,
@@ -307,7 +284,6 @@ export class StorageHandler {
   } | null> {
     await this.initialize();
 
-    // Check object exists in DB (RLS applies)
     const result = await this.db.query<StorageObject>(
       `UPDATE storage.objects
        SET last_accessed_at = now()
@@ -318,7 +294,6 @@ export class StorageHandler {
     const obj = result.rows[0];
     if (!obj) return null;
 
-    // Get blob
     const blobKey = `${bucketId}/${objectName}`;
     const blob = await this.backend.get(blobKey);
     if (!blob) return null;
@@ -354,7 +329,6 @@ export class StorageHandler {
     await this.initialize();
     if (paths.length === 0) return [];
 
-    // Delete from DB (RLS applies)
     const placeholders = paths.map((_, i) => `$${i + 2}`).join(", ");
     const result = await this.db.query<StorageObject>(
       `DELETE FROM storage.objects
@@ -363,7 +337,6 @@ export class StorageHandler {
       [bucketId, ...paths],
     );
 
-    // Delete blobs
     for (const obj of result.rows) {
       await this.backend.delete(`${bucketId}/${obj.name}`);
     }
@@ -390,7 +363,6 @@ export class StorageHandler {
     const sortOrder =
       options?.sortBy?.order?.toLowerCase() === "desc" ? "DESC" : "ASC";
 
-    // Allowed sort columns for safety
     const allowedColumns = [
       "name",
       "created_at",
@@ -401,10 +373,6 @@ export class StorageHandler {
       ? sortColumn
       : "name";
 
-    // Use storage.search() for folder-aware listing:
-    // - returns virtual folder entries (null id, null metadata) for subdirectories
-    // - returns only objects at the current depth level (not nested)
-    // levels must match the depth of the prefix so we list one level deeper than the prefix
     const searchStr = options?.search ?? "";
     const levels = prefix.split("/").filter(Boolean).length + 1;
     const result = await this.db.query<StorageObject>(
@@ -434,7 +402,6 @@ export class StorageHandler {
 
     const destBucket = destinationBucket ?? bucketId;
 
-    // Update DB row
     const result = await this.db.query<StorageObject>(
       `UPDATE storage.objects
        SET bucket_id = $3, name = $4, updated_at = now()
@@ -447,7 +414,6 @@ export class StorageHandler {
       throw new Error("Object not found");
     }
 
-    // Move blob
     const fromKey = `${bucketId}/${sourceKey}`;
     const toKey = `${destBucket}/${destinationKey}`;
     const copied = await this.backend.copy(fromKey, toKey);
@@ -466,7 +432,6 @@ export class StorageHandler {
 
     const destBucket = destinationBucket ?? bucketId;
 
-    // Get source object (RLS applies)
     const source = await this.db.query<StorageObject>(
       "SELECT * FROM storage.objects WHERE bucket_id = $1 AND name = $2",
       [bucketId, sourceKey],
@@ -474,7 +439,6 @@ export class StorageHandler {
     const srcObj = source.rows[0];
     if (!srcObj) throw new Error("Object not found");
 
-    // Insert new object row
     const result = await this.db.query<StorageObject>(
       `INSERT INTO storage.objects (bucket_id, name, owner_id, metadata, user_metadata, version)
        VALUES ($1, $2, $3, $4, $5, gen_random_uuid()::text)
@@ -496,7 +460,6 @@ export class StorageHandler {
     const newObj = result.rows[0];
     if (!newObj) throw new Error("Failed to copy object");
 
-    // Copy blob
     const fromKey = `${bucketId}/${sourceKey}`;
     const toKey = `${destBucket}/${destinationKey}`;
     await this.backend.copy(fromKey, toKey);
@@ -504,12 +467,6 @@ export class StorageHandler {
     return `${destBucket}/${destinationKey}`;
   }
 
-  // ── Signed URLs ──────────────────────────────────────────────────
-
-  /**
-   * Create a signed URL token.
-   * We use a simple HMAC-based approach reusing the auth signing key.
-   */
   async createSignedUrl(
     bucketId: string,
     objectName: string,
@@ -517,16 +474,12 @@ export class StorageHandler {
   ): Promise<string> {
     await this.initialize();
 
-    // Note: existence is verified at download time, not signing time
-    // (matches real Supabase behavior — signed URLs can be pre-generated)
-
     const payload: SignedUrlToken = {
       bucket_id: bucketId,
       object_name: objectName,
       exp: Math.floor(Date.now() / 1000) + expiresIn,
     };
 
-    // Get signing key via SECURITY DEFINER function
     const keyResult = await this.db.query<{ get_signing_key: string }>(
       "SELECT auth.get_signing_key()",
     );
@@ -557,9 +510,6 @@ export class StorageHandler {
     return `${payloadB64}.${sigB64}`;
   }
 
-  /**
-   * Verify a signed URL token and return the payload
-   */
   async verifySignedUrl(token: string): Promise<SignedUrlToken | null> {
     const parts = token.split(".");
     if (parts.length !== 2) return null;
@@ -603,9 +553,6 @@ export class StorageHandler {
     }
   }
 
-  // ── Helpers ──────────────────────────────────────────────────────
-
-  /** Simple hash for ETags */
   private async computeETag(data: Uint8Array): Promise<string> {
     try {
       const buffer = data.buffer.slice(
@@ -618,7 +565,6 @@ export class StorageHandler {
         .map((b) => b.toString(16).padStart(2, "0"))
         .join("");
     } catch {
-      // Fallback for environments without crypto.subtle
       return Math.random().toString(36).slice(2, 18);
     }
   }

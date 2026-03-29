@@ -4,10 +4,6 @@ import { setAuthContext } from "./auth-context.ts";
 import { extractBearerToken, parseBody } from "./index.ts";
 import { errorResponse, jsonResponse } from "./response.ts";
 
-/**
- * Read the request body as a Uint8Array (for file uploads)
- * Handles multipart/form-data and raw body
- */
 async function readFileBody(
   request: Request,
 ): Promise<{ data: Uint8Array; contentType: string }> {
@@ -15,8 +11,6 @@ async function readFileBody(
 
   if (requestContentType.includes("multipart/form-data")) {
     const formData = await request.formData();
-    // supabase-js puts the file in a field called "" (empty string) or the first field
-    // Try common field names
     for (const fieldName of ["", "file", "data"]) {
       const value = formData.get(fieldName);
       if (value instanceof Blob) {
@@ -30,15 +24,12 @@ async function readFileBody(
     throw new Error("No file found in form data");
   }
 
-  // Raw body
   const arrayBuffer = await request.arrayBuffer();
   return {
     data: new Uint8Array(arrayBuffer),
     contentType: requestContentType || "application/octet-stream",
   };
 }
-
-// ─── TUS Resumable Upload Sessions ────────────────────────────────────
 
 interface TusSession {
   bucketId: string;
@@ -64,7 +55,70 @@ function parseTusMetadata(header: string): Record<string, string> {
   return result;
 }
 
-// ─── Main Router ──────────────────────────────────────────────────────
+function downloadResponse(
+  result: {
+    data: Uint8Array;
+    metadata: { contentType: string; size: number; cacheControl?: string };
+    object: { metadata: unknown };
+  },
+  includeETag = false,
+): Response {
+  const headers: Record<string, string> = {
+    "Content-Type": result.metadata.contentType,
+    "Content-Length": result.metadata.size.toString(),
+    "Cache-Control": result.metadata.cacheControl ?? "max-age=3600",
+  };
+  if (includeETag) {
+    headers.ETag =
+      (result.object.metadata as Record<string, string>)?.eTag ?? "";
+  }
+  return new Response(
+    result.data.buffer.slice(
+      result.data.byteOffset,
+      result.data.byteOffset + result.data.byteLength,
+    ) as ArrayBuffer,
+    { status: 200, headers },
+  );
+}
+
+function parseListBody(body: Record<string, unknown>) {
+  return {
+    prefix: typeof body.prefix === "string" ? body.prefix : undefined,
+    limit: typeof body.limit === "number" ? body.limit : undefined,
+    offset: typeof body.offset === "number" ? body.offset : undefined,
+    sortBy:
+      typeof body.sortBy === "object" && body.sortBy !== null
+        ? (body.sortBy as { column: string; order: string })
+        : undefined,
+    search: typeof body.search === "string" ? body.search : undefined,
+  };
+}
+
+function mapListResults(
+  objects: Array<{
+    name: string;
+    id: string;
+    updated_at: string;
+    created_at: string;
+    last_accessed_at: string;
+    metadata: unknown;
+  }>,
+  prefix: string,
+) {
+  return objects.map((obj) => {
+    const relativeName = obj.name.startsWith(prefix)
+      ? obj.name.slice(prefix.length)
+      : obj.name;
+    return {
+      name: relativeName,
+      id: obj.id,
+      updated_at: obj.updated_at,
+      created_at: obj.created_at,
+      last_accessed_at: obj.last_accessed_at,
+      metadata: obj.metadata,
+    };
+  });
+}
 
 export async function handleStorageRoute(
   request: Request,
@@ -73,7 +127,6 @@ export async function handleStorageRoute(
   storageHandler: StorageHandler,
   tusSessions: TusSessionMap,
 ): Promise<Response> {
-  // Expire TUS sessions older than 24 hours
   const cutoff = Date.now() - 86_400_000;
   for (const [id, session] of tusSessions) {
     if (session.createdAt < cutoff) tusSessions.delete(id);
@@ -81,51 +134,63 @@ export async function handleStorageRoute(
   const method = request.method.toUpperCase();
   const token = extractBearerToken(request.headers);
 
-  // Set auth context variables (for RLS policies that reference auth.uid()),
-  // then RESET ROLE so storage operations run as superuser — matching real
-  // Supabase where the storage server uses supabase_storage_admin.
   const authCtx = await setAuthContext(db, token);
   await db.exec("RESET ROLE");
 
   try {
-    // ── Bucket routes: /storage/v1/bucket ──────────────────────────
-
     if (pathname === "/storage/v1/bucket" && method === "GET") {
-      return await handleListBuckets(storageHandler);
+      const buckets = await storageHandler.listBuckets();
+      return jsonResponse(buckets);
     }
 
     if (pathname === "/storage/v1/bucket" && method === "POST") {
       return await handleCreateBucket(request, storageHandler);
     }
 
-    // /storage/v1/bucket/:id/empty
     const emptyMatch = pathname.match(
       /^\/storage\/v1\/bucket\/([^/]+)\/empty$/,
     );
     if (emptyMatch && method === "POST") {
-      return await handleEmptyBucket(emptyMatch[1] ?? "", storageHandler);
+      const id = emptyMatch[1] ?? "";
+      try {
+        await storageHandler.emptyBucket(id);
+        return jsonResponse({ message: "Successfully emptied" });
+      } catch (err) {
+        const message =
+          err instanceof Error ? err.message : "Failed to empty bucket";
+        return errorResponse(message, 500);
+      }
     }
 
-    // /storage/v1/bucket/:id
     const bucketIdMatch = pathname.match(/^\/storage\/v1\/bucket\/([^/]+)$/);
     if (bucketIdMatch) {
       const bucketId = bucketIdMatch[1] ?? "";
-      if (method === "GET")
-        return await handleGetBucket(bucketId, storageHandler);
+      if (method === "GET") {
+        const bucket = await storageHandler.getBucket(bucketId);
+        if (!bucket) return errorResponse("Bucket not found", 404);
+        return jsonResponse(bucket);
+      }
       if (method === "PUT")
         return await handleUpdateBucket(bucketId, request, storageHandler);
-      if (method === "DELETE")
-        return await handleDeleteBucket(bucketId, storageHandler);
+      if (method === "DELETE") {
+        try {
+          await storageHandler.deleteBucket(bucketId);
+          return jsonResponse({ message: "Successfully deleted" });
+        } catch (err) {
+          const message =
+            err instanceof Error ? err.message : "Failed to delete bucket";
+          if (message.includes("not empty")) {
+            return errorResponse("Bucket not empty", 409);
+          }
+          return errorResponse(message, 500);
+        }
+      }
     }
 
-    // ── Object routes ──────────────────────────────────────────────
-
-    // POST /storage/v1/object/move
     if (pathname === "/storage/v1/object/move" && method === "POST") {
       return await handleMoveObject(request, storageHandler);
     }
 
-    // POST /storage/v1/object/copy
     if (pathname === "/storage/v1/object/copy" && method === "POST") {
       return await handleCopyObject(request, storageHandler);
     }
@@ -162,7 +227,6 @@ export async function handleStorageRoute(
       );
     }
 
-    // GET /storage/v1/object/public/:bucketId/:path — public download
     const publicMatch = pathname.match(
       /^\/storage\/v1\/object\/public\/([^/]+)\/(.+)$/,
     );
@@ -175,7 +239,6 @@ export async function handleStorageRoute(
       );
     }
 
-    // GET /storage/v1/object/info/:bucketId/:path — object info
     const infoMatch = pathname.match(
       /^\/storage\/v1\/object\/info\/([^/]+)\/(.+)$/,
     );
@@ -187,7 +250,6 @@ export async function handleStorageRoute(
       );
     }
 
-    // POST /storage/v1/object/list/:bucketId — list objects
     const listMatch = pathname.match(/^\/storage\/v1\/object\/list\/([^/]+)$/);
     if (listMatch && method === "POST") {
       return await handleListObjects(
@@ -197,7 +259,6 @@ export async function handleStorageRoute(
       );
     }
 
-    // DELETE /storage/v1/object/:bucketId — remove objects (batch)
     const removeMatch = pathname.match(/^\/storage\/v1\/object\/([^/]+)$/);
     if (removeMatch && method === "DELETE") {
       return await handleRemoveObjects(
@@ -207,7 +268,6 @@ export async function handleStorageRoute(
       );
     }
 
-    // POST /storage/v1/object/:bucketId/:path — upload
     const uploadMatch = pathname.match(
       /^\/storage\/v1\/object\/([^/]+)\/(.+)$/,
     );
@@ -231,7 +291,6 @@ export async function handleStorageRoute(
       );
     }
 
-    // GET /storage/v1/object/:bucketId/:path — download
     const downloadMatch = pathname.match(
       /^\/storage\/v1\/object\/([^/]+)\/(.+)$/,
     );
@@ -243,18 +302,15 @@ export async function handleStorageRoute(
       );
     }
 
-    // HEAD /storage/v1/object/:bucketId/:path — exists check
     if (downloadMatch && method === "HEAD") {
-      return await handleExists(
+      const exists = await storageHandler.objectExists(
         downloadMatch[1] ?? "",
         downloadMatch[2] ?? "",
-        storageHandler,
       );
+      if (!exists) return new Response(null, { status: 404 });
+      return new Response(null, { status: 200 });
     }
 
-    // ── TUS resumable upload ───────────────────────────────────────
-
-    // POST /storage/v1/upload/resumable — create session
     if (pathname === "/storage/v1/upload/resumable" && method === "POST") {
       const meta = parseTusMetadata(
         request.headers.get("Upload-Metadata") ?? "",
@@ -296,7 +352,6 @@ export async function handleStorageRoute(
       });
     }
 
-    // HEAD /storage/v1/upload/resumable?uploadId=... — check offset
     if (pathname === "/storage/v1/upload/resumable" && method === "HEAD") {
       const uploadId = new URL(request.url).searchParams.get("uploadId") ?? "";
       const session = tusSessions.get(uploadId);
@@ -312,7 +367,6 @@ export async function handleStorageRoute(
       });
     }
 
-    // PATCH /storage/v1/upload/resumable?uploadId=... — upload chunk
     if (pathname === "/storage/v1/upload/resumable" && method === "PATCH") {
       const uploadId = new URL(request.url).searchParams.get("uploadId") ?? "";
       const session = tusSessions.get(uploadId);
@@ -368,9 +422,6 @@ export async function handleStorageRoute(
       });
     }
 
-    // ── Signed upload URL ─────────────────────────────────────────
-
-    // POST /storage/v1/object/upload/sign/:bucketId/:path — create signed upload URL
     const signedUploadCreateMatch = pathname.match(
       /^\/storage\/v1\/object\/upload\/sign\/([^/]+)\/(.+)$/,
     );
@@ -401,7 +452,6 @@ export async function handleStorageRoute(
       }
     }
 
-    // PUT /storage/v1/object/upload/sign/:bucketId/:path?token=... — upload via signed URL
     if (signedUploadCreateMatch && method === "PUT") {
       const signedToken = new URL(request.url).searchParams.get("token");
       if (!signedToken) return errorResponse("Missing token", 400);
@@ -418,59 +468,36 @@ export async function handleStorageRoute(
       );
     }
 
-    // ── List objects v2 ─────────────────────────────────────────────
-
-    // POST /storage/v1/object/list-v2/:bucketId
     const listV2Match = pathname.match(
       /^\/storage\/v1\/object\/list-v2\/([^/]+)$/,
     );
     if (listV2Match && method === "POST") {
       const body = await parseBody(request);
-      const objects = await storageHandler.listObjects(listV2Match[1] ?? "", {
-        prefix: typeof body.prefix === "string" ? body.prefix : undefined,
-        limit: typeof body.limit === "number" ? body.limit : undefined,
-        offset: typeof body.offset === "number" ? body.offset : undefined,
-        sortBy:
-          typeof body.sortBy === "object" && body.sortBy !== null
-            ? (body.sortBy as { column: string; order: string })
-            : undefined,
-        search: typeof body.search === "string" ? body.search : undefined,
-      });
+      const objects = await storageHandler.listObjects(
+        listV2Match[1] ?? "",
+        parseListBody(body),
+      );
 
       const prefix = typeof body.prefix === "string" ? body.prefix : "";
+      const mapped = mapListResults(objects, prefix);
       const prefixes: { name: string }[] = [];
       const items: Record<string, unknown>[] = [];
 
-      for (const obj of objects) {
-        const relativeName = obj.name.startsWith(prefix)
-          ? obj.name.slice(prefix.length)
-          : obj.name;
-
-        if (relativeName.endsWith("/")) {
-          prefixes.push({ name: relativeName });
+      for (const obj of mapped) {
+        if (obj.name.endsWith("/")) {
+          prefixes.push({ name: obj.name });
         } else {
-          items.push({
-            name: relativeName,
-            id: obj.id,
-            updated_at: obj.updated_at,
-            created_at: obj.created_at,
-            last_accessed_at: obj.last_accessed_at,
-            metadata: obj.metadata,
-          });
+          items.push(obj);
         }
       }
 
       return jsonResponse({ prefixes, objects: items });
     }
 
-    // ── Render routes (stub) ───────────────────────────────────────
-
-    // GET /storage/v1/render/image/authenticated/:bucketId/:path
     const renderMatch = pathname.match(
       /^\/storage\/v1\/render\/image\/(?:authenticated|public)\/([^/]+)\/(.+)$/,
     );
     if (renderMatch && method === "GET") {
-      // Return original image — no transforms in local emulation
       return await handleDownload(
         renderMatch[1] ?? "",
         renderMatch[2] ?? "",
@@ -478,7 +505,6 @@ export async function handleStorageRoute(
       );
     }
 
-    // GET /storage/v1/render/image/sign/:bucketId/:path?token=... — render signed image
     const renderSignedMatch = pathname.match(
       /^\/storage\/v1\/render\/image\/sign\/([^/]+)\/(.+)$/,
     );
@@ -501,22 +527,6 @@ export async function handleStorageRoute(
     const message = err instanceof Error ? err.message : "Internal error";
     return errorResponse(message, 500);
   }
-}
-
-// ─── Bucket Handlers ──────────────────────────────────────────────────
-
-async function handleListBuckets(handler: StorageHandler): Promise<Response> {
-  const buckets = await handler.listBuckets();
-  return jsonResponse(buckets);
-}
-
-async function handleGetBucket(
-  id: string,
-  handler: StorageHandler,
-): Promise<Response> {
-  const bucket = await handler.getBucket(id);
-  if (!bucket) return errorResponse("Bucket not found", 404);
-  return jsonResponse(bucket);
 }
 
 async function handleCreateBucket(
@@ -581,39 +591,6 @@ async function handleUpdateBucket(
   }
 }
 
-async function handleEmptyBucket(
-  id: string,
-  handler: StorageHandler,
-): Promise<Response> {
-  try {
-    await handler.emptyBucket(id);
-    return jsonResponse({ message: "Successfully emptied" });
-  } catch (err) {
-    const message =
-      err instanceof Error ? err.message : "Failed to empty bucket";
-    return errorResponse(message, 500);
-  }
-}
-
-async function handleDeleteBucket(
-  id: string,
-  handler: StorageHandler,
-): Promise<Response> {
-  try {
-    await handler.deleteBucket(id);
-    return jsonResponse({ message: "Successfully deleted" });
-  } catch (err) {
-    const message =
-      err instanceof Error ? err.message : "Failed to delete bucket";
-    if (message.includes("not empty")) {
-      return errorResponse("Bucket not empty", 409);
-    }
-    return errorResponse(message, 500);
-  }
-}
-
-// ─── Object Handlers ──────────────────────────────────────────────────
-
 async function handleUpload(
   bucketId: string,
   objectPath: string,
@@ -669,32 +646,7 @@ async function handleDownload(
 ): Promise<Response> {
   const result = await handler.downloadObject(bucketId, objectPath);
   if (!result) return errorResponse("Object not found", 404);
-
-  return new Response(
-    result.data.buffer.slice(
-      result.data.byteOffset,
-      result.data.byteOffset + result.data.byteLength,
-    ) as ArrayBuffer,
-    {
-      status: 200,
-      headers: {
-        "Content-Type": result.metadata.contentType,
-        "Content-Length": result.metadata.size.toString(),
-        "Cache-Control": result.metadata.cacheControl ?? "max-age=3600",
-        ETag: (result.object.metadata as Record<string, string>)?.eTag ?? "",
-      },
-    },
-  );
-}
-
-async function handleExists(
-  bucketId: string,
-  objectPath: string,
-  handler: StorageHandler,
-): Promise<Response> {
-  const exists = await handler.objectExists(bucketId, objectPath);
-  if (!exists) return new Response(null, { status: 404 });
-  return new Response(null, { status: 200 });
+  return downloadResponse(result, true);
 }
 
 async function handleRemoveObjects(
@@ -720,35 +672,9 @@ async function handleListObjects(
   handler: StorageHandler,
 ): Promise<Response> {
   const body = await parseBody(request);
-
-  const objects = await handler.listObjects(bucketId, {
-    prefix: typeof body.prefix === "string" ? body.prefix : undefined,
-    limit: typeof body.limit === "number" ? body.limit : undefined,
-    offset: typeof body.offset === "number" ? body.offset : undefined,
-    sortBy:
-      typeof body.sortBy === "object" && body.sortBy !== null
-        ? (body.sortBy as { column: string; order: string })
-        : undefined,
-    search: typeof body.search === "string" ? body.search : undefined,
-  });
-
+  const objects = await handler.listObjects(bucketId, parseListBody(body));
   const prefix = typeof body.prefix === "string" ? body.prefix : "";
-  const items = objects.map((obj) => {
-    const relativeName = obj.name.startsWith(prefix)
-      ? obj.name.slice(prefix.length)
-      : obj.name;
-
-    return {
-      name: relativeName,
-      id: obj.id,
-      updated_at: obj.updated_at,
-      created_at: obj.created_at,
-      last_accessed_at: obj.last_accessed_at,
-      metadata: obj.metadata,
-    };
-  });
-
-  return jsonResponse(items);
+  return jsonResponse(mapListResults(objects, prefix));
 }
 
 async function handleMoveObject(
@@ -838,7 +764,6 @@ async function handleCreateSignedUrl(
       objectPath,
       expiresIn,
     );
-    // Return the same format that supabase-js expects
     const signedUrl = `/object/sign/${bucketId}/${objectPath}?token=${token}`;
     return jsonResponse({ signedURL: signedUrl });
   } catch (err) {
@@ -884,7 +809,6 @@ async function handleSignedDownload(
   db: PGliteInterface,
   handler: StorageHandler,
 ): Promise<Response> {
-  // For signed downloads, we need to bypass RLS (use service role)
   await db.exec("RESET ROLE");
 
   const payload = await handler.verifySignedUrl(token);
@@ -896,20 +820,7 @@ async function handleSignedDownload(
   );
   if (!result) return errorResponse("Object not found", 404);
 
-  return new Response(
-    result.data.buffer.slice(
-      result.data.byteOffset,
-      result.data.byteOffset + result.data.byteLength,
-    ) as ArrayBuffer,
-    {
-      status: 200,
-      headers: {
-        "Content-Type": result.metadata.contentType,
-        "Content-Length": result.metadata.size.toString(),
-        "Cache-Control": result.metadata.cacheControl ?? "max-age=3600",
-      },
-    },
-  );
+  return downloadResponse(result);
 }
 
 async function handlePublicDownload(
@@ -918,7 +829,6 @@ async function handlePublicDownload(
   db: PGliteInterface,
   handler: StorageHandler,
 ): Promise<Response> {
-  // Bypass RLS for public bucket access — verify bucket is public first
   await db.exec("RESET ROLE");
 
   const bucket = await handler.getBucket(bucketId);
@@ -928,20 +838,7 @@ async function handlePublicDownload(
   const result = await handler.downloadObject(bucketId, objectPath);
   if (!result) return errorResponse("Object not found", 404);
 
-  return new Response(
-    result.data.buffer.slice(
-      result.data.byteOffset,
-      result.data.byteOffset + result.data.byteLength,
-    ) as ArrayBuffer,
-    {
-      status: 200,
-      headers: {
-        "Content-Type": result.metadata.contentType,
-        "Content-Length": result.metadata.size.toString(),
-        "Cache-Control": result.metadata.cacheControl ?? "max-age=3600",
-      },
-    },
-  );
+  return downloadResponse(result);
 }
 
 async function handleObjectInfo(
@@ -952,7 +849,6 @@ async function handleObjectInfo(
   const obj = await handler.getObjectInfo(bucketId, objectPath);
   if (!obj) return errorResponse("Object not found", 404);
 
-  // Return camelized format matching supabase-js expectations
   return jsonResponse({
     id: obj.id,
     name: obj.name,
