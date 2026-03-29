@@ -925,13 +925,52 @@ describe("service migrate", () => {
 
 		const remoteClient = new Client({ connectionString: registryDbUrl });
 		await remoteClient.connect();
-		await remoteClient.query("CREATE SCHEMA IF NOT EXISTS migrate_target");
+		await remoteClient.query("CREATE SCHEMA IF NOT EXISTS auth");
 		await remoteClient.query(`
-			SET search_path = migrate_target;
-			CREATE TABLE IF NOT EXISTS _setup_done (ok boolean);
+			CREATE TABLE IF NOT EXISTS auth.users (
+				instance_id UUID DEFAULT '00000000-0000-0000-0000-000000000000'::uuid,
+				id UUID NOT NULL UNIQUE DEFAULT gen_random_uuid(),
+				aud VARCHAR(255), role VARCHAR(255), email VARCHAR(255) UNIQUE,
+				encrypted_password VARCHAR(255), confirmed_at TIMESTAMPTZ,
+				email_confirmed_at TIMESTAMPTZ, invited_at TIMESTAMPTZ,
+				confirmation_token VARCHAR(255), confirmation_sent_at TIMESTAMPTZ,
+				recovery_token VARCHAR(255), recovery_sent_at TIMESTAMPTZ,
+				email_change_token_new VARCHAR(255), email_change VARCHAR(255),
+				email_change_sent_at TIMESTAMPTZ, email_change_confirm_status SMALLINT DEFAULT 0,
+				last_sign_in_at TIMESTAMPTZ, raw_app_meta_data JSONB DEFAULT '{}'::jsonb,
+				raw_user_meta_data JSONB DEFAULT '{}'::jsonb, is_super_admin BOOLEAN DEFAULT FALSE,
+				created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW(),
+				phone VARCHAR(255) UNIQUE, phone_confirmed_at TIMESTAMPTZ,
+				phone_change VARCHAR(255), phone_change_token VARCHAR(255),
+				phone_change_sent_at TIMESTAMPTZ, banned_until TIMESTAMPTZ,
+				reauthentication_token VARCHAR(255), reauthentication_sent_at TIMESTAMPTZ,
+				is_sso_user BOOLEAN DEFAULT FALSE, deleted_at TIMESTAMPTZ,
+				is_anonymous BOOLEAN DEFAULT FALSE,
+				CONSTRAINT users_pkey PRIMARY KEY (id)
+			)
+		`);
+		await remoteClient.query(`
+			CREATE TABLE IF NOT EXISTS auth.identities (
+				provider_id TEXT NOT NULL, user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+				identity_data JSONB NOT NULL, provider TEXT NOT NULL,
+				last_sign_in_at TIMESTAMPTZ, created_at TIMESTAMPTZ DEFAULT NOW(),
+				updated_at TIMESTAMPTZ DEFAULT NOW(),
+				email TEXT GENERATED ALWAYS AS (lower(identity_data->>'email')) STORED,
+				id UUID NOT NULL DEFAULT gen_random_uuid(),
+				CONSTRAINT identities_pkey PRIMARY KEY (id),
+				CONSTRAINT identities_provider_id_provider_unique UNIQUE (provider_id, provider)
+			)
+		`);
+		await remoteClient.query("CREATE SCHEMA IF NOT EXISTS storage");
+		await remoteClient.query(`
+			CREATE TABLE IF NOT EXISTS storage.buckets (
+				id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE, public BOOLEAN DEFAULT FALSE,
+				file_size_limit BIGINT, allowed_mime_types TEXT[],
+				created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW()
+			)
 		`);
 		await remoteClient.end();
-		remoteDbUrl = registryDbUrl + "&options=-csearch_path%3Dpublic";
+		remoteDbUrl = `${registryDbUrl}&options=-csearch_path%3Dpublic`;
 	}, 90_000);
 
 	afterAll(async () => {
@@ -1060,10 +1099,12 @@ describe("service migrate", () => {
 		const check = await remote
 			.query("SELECT 1 FROM dryrun_test LIMIT 1")
 			.catch(() => ({ rows: [] as unknown[] }));
-		expect(check.rows.filter((r: unknown) => {
-			const row = r as Record<string, unknown>;
-			return row.val === "should-not-appear";
-		})).toHaveLength(0);
+		expect(
+			check.rows.filter((r: unknown) => {
+				const row = r as Record<string, unknown>;
+				return row.val === "should-not-appear";
+			}),
+		).toHaveLength(0);
 		await remote.end();
 	}, 30_000);
 

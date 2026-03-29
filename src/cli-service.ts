@@ -1146,11 +1146,8 @@ export async function runServiceMode(opts: {
 
 						if (!body.skipSchema) {
 							const { existsSync, readdirSync } = await import("node:fs");
-							const { readFile: readFileFn } = await import(
-								"node:fs/promises"
-							);
-							const migDir =
-								body.migrationsDir ?? "./supabase/migrations";
+							const { readFile: readFileFn } = await import("node:fs/promises");
+							const migDir = body.migrationsDir ?? "./supabase/migrations";
 							const migPattern = /^(\d+)_.*\.sql$/;
 
 							let usedMigrationFiles = false;
@@ -1161,9 +1158,7 @@ export async function runServiceMode(opts: {
 								if (files.length > 0) {
 									usedMigrationFiles = true;
 									await remote
-										.query(
-											"CREATE SCHEMA IF NOT EXISTS supabase_migrations",
-										)
+										.query("CREATE SCHEMA IF NOT EXISTS supabase_migrations")
 										.catch(() => {});
 									await remote
 										.query(
@@ -1175,8 +1170,7 @@ export async function runServiceMode(opts: {
 											"SELECT version FROM supabase_migrations.schema_migrations ORDER BY version",
 										)
 										.catch(
-											() =>
-												({ rows: [] }) as { rows: { version: string }[] },
+											() => ({ rows: [] }) as { rows: { version: string }[] },
 										);
 									const applied = new Set(
 										appliedRes.rows.map((r) => r.version),
@@ -1188,17 +1182,13 @@ export async function runServiceMode(opts: {
 											.replace(/\.sql$/, "")
 											.slice(version.length + 1);
 										if (applied.has(version)) continue;
-										const sql = await readFileFn(
-											join(migDir, file),
-											"utf8",
-										);
+										const sql = await readFileFn(join(migDir, file), "utf8");
 										const statements = sql
 											.split(";")
 											.map((s: string) => s.trim())
 											.filter(Boolean);
 										if (!body.dryRun) {
-											for (const stmt of statements)
-												await remote.query(stmt);
+											for (const stmt of statements) await remote.query(stmt);
 											await remote.query(
 												"INSERT INTO supabase_migrations.schema_migrations(version, name, statements) VALUES($1, $2, $3)",
 												[version, name, statements],
@@ -1227,9 +1217,7 @@ export async function runServiceMode(opts: {
 									if (migRows.rows.length > 0) {
 										usedMigrationFiles = true;
 										await remote
-											.query(
-												"CREATE SCHEMA IF NOT EXISTS supabase_migrations",
-											)
+											.query("CREATE SCHEMA IF NOT EXISTS supabase_migrations")
 											.catch(() => {});
 										await remote
 											.query(
@@ -1253,8 +1241,7 @@ export async function runServiceMode(opts: {
 											if (applied.has(row.version)) continue;
 											const stmts = row.statements ?? [];
 											if (!body.dryRun) {
-												for (const stmt of stmts)
-													await remote.query(stmt);
+												for (const stmt of stmts) await remote.query(stmt);
 												await remote.query(
 													"INSERT INTO supabase_migrations.schema_migrations(version, name, statements) VALUES($1, $2, $3)",
 													[row.version, row.name, stmts],
@@ -1327,7 +1314,10 @@ export async function runServiceMode(opts: {
 
 									const colDefs: string[] = [];
 									for (const c of colsRes.rows) {
-										let typeStr = c.data_type === "USER-DEFINED" ? `"${c.udt_name}"` : c.data_type;
+										let typeStr =
+											c.data_type === "USER-DEFINED"
+												? `"${c.udt_name}"`
+												: c.data_type;
 										if (
 											c.character_maximum_length &&
 											(c.data_type === "character varying" ||
@@ -1373,9 +1363,9 @@ export async function runServiceMode(opts: {
 									);
 									const uniqueGroups: Record<string, string[]> = {};
 									for (const r of uqRes.rows) {
-										(uniqueGroups[r.constraint_name] ??= []).push(
-											`"${r.column_name}"`,
-										);
+										if (!uniqueGroups[r.constraint_name])
+											uniqueGroups[r.constraint_name] = [];
+										uniqueGroups[r.constraint_name].push(`"${r.column_name}"`);
 									}
 									for (const cols of Object.values(uniqueGroups))
 										colDefs.push(`UNIQUE (${cols.join(", ")})`);
@@ -1400,8 +1390,7 @@ export async function runServiceMode(opts: {
 										);
 
 									const ddl = `CREATE TABLE IF NOT EXISTS "${tn}" (\n  ${colDefs.join(",\n  ")}\n)`;
-									if (!body.dryRun)
-										await remote.query(ddl);
+									if (!body.dryRun) await remote.query(ddl);
 									result.schema.tables++;
 								}
 
@@ -1424,9 +1413,7 @@ export async function runServiceMode(opts: {
 						}
 
 						if (!body.skipAuth) {
-							const usersRes = await nano.db.query<
-								Record<string, unknown>
-							>(
+							const usersRes = await nano.db.query<Record<string, unknown>>(
 								`SELECT id, instance_id, aud, role, email, encrypted_password,
 								        email_confirmed_at, invited_at, confirmation_token,
 								        confirmation_sent_at, recovery_token, recovery_sent_at,
@@ -1551,14 +1538,12 @@ export async function runServiceMode(opts: {
 								 JOIN information_schema.constraint_column_usage ccu ON tc.constraint_name = ccu.constraint_name
 								 WHERE tc.table_schema = 'public' AND tc.constraint_type = 'FOREIGN KEY' AND tc.table_name != ccu.table_name`,
 							);
-							const tableNames = tablesRes.rows.map(
-								(r) => r.table_name,
-							);
+							const tableNames = tablesRes.rows.map((r) => r.table_name);
 							const deps = new Map<string, Set<string>>();
 							for (const t of tableNames) deps.set(t, new Set());
 							for (const fk of fkDeps.rows) {
 								if (deps.has(fk.child) && deps.has(fk.parent))
-									deps.get(fk.child)!.add(fk.parent);
+									deps.get(fk.child)?.add(fk.parent);
 							}
 							const sorted: string[] = [];
 							const visited = new Set<string>();
@@ -1580,32 +1565,22 @@ export async function runServiceMode(opts: {
 
 							if (!body.dryRun)
 								await remote
-									.query(
-										"SET session_replication_role = 'replica'",
-									)
+									.query("SET session_replication_role = 'replica'")
 									.catch(() => {});
 
 							for (const tn of sorted) {
-								const dataRes = await nano.db.query(
-									`SELECT * FROM "${tn}"`,
-								);
+								const dataRes = await nano.db.query(`SELECT * FROM "${tn}"`);
 								if (dataRes.rows.length === 0) continue;
 								const cols = Object.keys(
 									dataRes.rows[0] as Record<string, unknown>,
 								);
-								const colList = cols
-									.map((c) => `"${c}"`)
-									.join(", ");
+								const colList = cols.map((c) => `"${c}"`).join(", ");
 								const batchSize = 100;
-								for (
-									let i = 0;
-									i < dataRes.rows.length;
-									i += batchSize
-								) {
-									const batch = dataRes.rows.slice(
-										i,
-										i + batchSize,
-									) as Record<string, unknown>[];
+								for (let i = 0; i < dataRes.rows.length; i += batchSize) {
+									const batch = dataRes.rows.slice(i, i + batchSize) as Record<
+										string,
+										unknown
+									>[];
 									const valueSets: string[] = [];
 									const params: unknown[] = [];
 									let paramIdx = 1;
@@ -1615,9 +1590,7 @@ export async function runServiceMode(opts: {
 											paramIdx++;
 											return ph;
 										});
-										valueSets.push(
-											`(${placeholders.join(", ")})`,
-										);
+										valueSets.push(`(${placeholders.join(", ")})`);
 										for (const c of cols) {
 											const v = row[c];
 											params.push(
@@ -1643,9 +1616,7 @@ export async function runServiceMode(opts: {
 
 							if (!body.dryRun)
 								await remote
-									.query(
-										"SET session_replication_role = 'origin'",
-									)
+									.query("SET session_replication_role = 'origin'")
 									.catch(() => {});
 
 							for (const tn of sorted) {
@@ -1753,8 +1724,7 @@ export async function runServiceMode(opts: {
 												method: "POST",
 												headers: {
 													Authorization: `Bearer ${body.remoteServiceRoleKey}`,
-													apikey:
-														body.remoteServiceRoleKey,
+													apikey: body.remoteServiceRoleKey,
 													"Content-Type": contentType,
 													"x-upsert": "true",
 												},
@@ -1762,9 +1732,7 @@ export async function runServiceMode(opts: {
 											},
 										);
 										if (!uploadRes.ok) {
-											await uploadRes
-												.arrayBuffer()
-												.catch(() => {});
+											await uploadRes.arrayBuffer().catch(() => {});
 											continue;
 										}
 									}
@@ -1782,8 +1750,7 @@ export async function runServiceMode(opts: {
 						return new Response(
 							JSON.stringify({
 								error: "migrate_failed",
-								message:
-									e instanceof Error ? e.message : String(e),
+								message: e instanceof Error ? e.message : String(e),
 								partial: result,
 							}),
 							{ status: 500, headers: json },
