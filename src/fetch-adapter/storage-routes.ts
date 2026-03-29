@@ -1,4 +1,4 @@
-import type { PGlite } from "@electric-sql/pglite";
+import type { PGliteInterface } from "@electric-sql/pglite";
 import type { StorageHandler } from "../storage/handler.ts";
 import { setAuthContext } from "./auth-context.ts";
 import { extractBearerToken, parseBody } from "./index.ts";
@@ -69,7 +69,7 @@ function parseTusMetadata(header: string): Record<string, string> {
 export async function handleStorageRoute(
 	request: Request,
 	pathname: string,
-	db: PGlite,
+	db: PGliteInterface,
 	storageHandler: StorageHandler,
 	tusSessions: TusSessionMap,
 ): Promise<Response> {
@@ -881,7 +881,7 @@ async function handleCreateSignedUrls(
 
 async function handleSignedDownload(
 	token: string,
-	db: PGlite,
+	db: PGliteInterface,
 	handler: StorageHandler,
 ): Promise<Response> {
 	// For signed downloads, we need to bypass RLS (use service role)
@@ -915,7 +915,7 @@ async function handleSignedDownload(
 async function handlePublicDownload(
 	bucketId: string,
 	objectPath: string,
-	db: PGlite,
+	db: PGliteInterface,
 	handler: StorageHandler,
 ): Promise<Response> {
 	// Bypass RLS for public bucket access — verify bucket is public first

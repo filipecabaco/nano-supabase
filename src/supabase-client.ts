@@ -3,7 +3,7 @@
  * Intercepts PostgREST-style API calls and converts them to SQL
  */
 
-import type { PGlite } from "@electric-sql/pglite";
+import type { PGliteInterface } from "@electric-sql/pglite";
 import { type ParsedQuery, PostgrestParser } from "./postgrest-parser.ts";
 
 /**
@@ -45,10 +45,10 @@ export interface QueryBuilder<T = unknown> {
  * Supabase-compatible database client
  */
 export class SupabaseClient {
-	private readonly db: PGlite;
+	private readonly db: PGliteInterface;
 	private readonly parser: PostgrestParser;
 
-	constructor(db: PGlite, parser: PostgrestParser) {
+	constructor(db: PGliteInterface, parser: PostgrestParser) {
 		this.db = db;
 		this.parser = parser;
 	}
@@ -81,7 +81,7 @@ export class SupabaseClient {
  * Query builder implementation
  */
 class PostgrestQueryBuilder<T> implements QueryBuilder<T> {
-	private readonly db: PGlite;
+	private readonly db: PGliteInterface;
 	private readonly parser: PostgrestParser;
 	private readonly table: string;
 	private selectColumns?: string;
@@ -95,7 +95,7 @@ class PostgrestQueryBuilder<T> implements QueryBuilder<T> {
 	private expectSingle = false;
 	private expectMaybeSingle = false;
 
-	constructor(db: PGlite, parser: PostgrestParser, table: string) {
+	constructor(db: PGliteInterface, parser: PostgrestParser, table: string) {
 		this.db = db;
 		this.parser = parser;
 		this.table = table;
@@ -290,7 +290,7 @@ class PostgrestQueryBuilder<T> implements QueryBuilder<T> {
  * Create a Supabase-compatible client with schema introspection
  */
 export async function createSupabaseClient(
-	db: PGlite,
+	db: PGliteInterface,
 ): Promise<SupabaseClient> {
 	await PostgrestParser.init();
 

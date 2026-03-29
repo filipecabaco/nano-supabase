@@ -27,6 +27,7 @@ Run the nano-supabase CLI server locally — showcases TCP, migrations, MCP, ORM
 | [prisma](local/prisma/) | Prisma ORM via TCP wire protocol |
 | [react-file-manager](local/react-file-manager/) | Dropbox-style file storage app with auth, storage, and RLS |
 | [postgis-map](local/postgis-map/) | Interactive map with PostGIS spatial queries, OpenStreetMap tiles, and Leaflet |
+| [pglite-workers](local/pglite-workers/) | Full Supabase stack (auth, RLS, storage) in a Web Worker with multi-tab leader election |
 
 ## Service
 

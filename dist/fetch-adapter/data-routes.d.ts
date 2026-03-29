@@ -1,4 +1,4 @@
-import type { PGlite } from "@electric-sql/pglite";
+import type { PGliteInterface } from "@electric-sql/pglite";
 import type { PostgrestParser } from "../postgrest-parser.ts";
-export declare function handleDataRoute(request: Request, pathname: string, db: PGlite, parser: PostgrestParser): Promise<Response>;
+export declare function handleDataRoute(request: Request, pathname: string, db: PGliteInterface, parser: PostgrestParser): Promise<Response>;
 //# sourceMappingURL=data-routes.d.ts.map

@@ -1,4 +1,4 @@
-import type { PGlite } from "@electric-sql/pglite";
+import type { PGliteInterface } from "@electric-sql/pglite";
 import type { StorageHandler } from "../storage/handler.ts";
 interface TusSession {
     bucketId: string;
@@ -13,6 +13,6 @@ interface TusSession {
     createdAt: number;
 }
 export type TusSessionMap = Map<string, TusSession>;
-export declare function handleStorageRoute(request: Request, pathname: string, db: PGlite, storageHandler: StorageHandler, tusSessions: TusSessionMap): Promise<Response>;
+export declare function handleStorageRoute(request: Request, pathname: string, db: PGliteInterface, storageHandler: StorageHandler, tusSessions: TusSessionMap): Promise<Response>;
 export {};
 //# sourceMappingURL=storage-routes.d.ts.map

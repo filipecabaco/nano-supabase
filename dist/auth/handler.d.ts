@@ -1,11 +1,11 @@
-import type { PGlite } from "@electric-sql/pglite";
+import type { PGliteInterface } from "@electric-sql/pglite";
 import type { AuthError, AuthResponse, AuthStateChangeCallback, AuthSubscription, Session, User } from "./types.ts";
 export declare class AuthHandler {
     private readonly db;
     private initPromise;
     private subscriptions;
     private currentSession;
-    constructor(db: PGlite);
+    constructor(db: PGliteInterface);
     initialize(): Promise<void>;
     private emitAuthStateChange;
     onAuthStateChange(callback: AuthStateChangeCallback): AuthSubscription;

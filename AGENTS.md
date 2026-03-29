@@ -130,6 +130,68 @@ Full list: https://pglite.dev/extensions/
 - **No Edge Functions** — Supabase Edge Functions are not supported
 - **PostgREST subset** — covers select, insert, update, delete, upsert with filters, ordering, pagination, and embedded resources
 
+## PGlite Workers (Browser)
+
+All public APIs (`createFetchAdapter`, `createLocalSupabaseClient`, `AuthHandler`, `StorageHandler`, etc.) accept `PGliteInterface` — the shared interface implemented by both `PGlite` and `PGliteWorker`. This means `PGliteWorker` from `@electric-sql/pglite/worker` works as a drop-in replacement.
+
+**Why use workers in the browser:**
+
+- **Non-blocking UI** — PGlite WASM execution (queries, bcrypt hashing, schema init) moves to a background thread
+- **Multi-tab safety** — `navigator.locks` elects one tab as leader; others proxy via `BroadcastChannel`; no IndexedDB storage conflicts
+- **Automatic failover** — closing the leader tab promotes a follower with no data loss
+
+**Setup — worker file (`worker.ts`):**
+
+```typescript
+import { PGlite } from '@electric-sql/pglite'
+import { pgcrypto } from '@electric-sql/pglite/contrib/pgcrypto'
+import { uuid_ossp } from '@electric-sql/pglite/contrib/uuid_ossp'
+import { worker } from '@electric-sql/pglite/worker'
+
+worker({
+  async init(options) {
+    return new PGlite({
+      dataDir: options?.dataDir ?? 'idb://my-app',
+      extensions: { pgcrypto, uuid_ossp },
+    })
+  },
+})
+```
+
+**Setup — main thread:**
+
+```typescript
+import { PGliteWorker } from '@electric-sql/pglite/worker'
+import { createClient } from '@supabase/supabase-js'
+import { createFetchAdapter } from 'nano-supabase'
+
+const pg = await PGliteWorker.create(
+  new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' }),
+  { dataDir: 'idb://my-app' },
+)
+
+const { localFetch } = await createFetchAdapter({ db: pg })
+
+const supabase = createClient('http://localhost:54321', 'local-anon-key', {
+  global: { fetch: localFetch },
+})
+
+// Full Supabase API — auth, PostgREST, storage — all running off-main-thread
+await supabase.auth.signUp({ email: 'user@example.com', password: 'password' })
+const { data } = await supabase.from('todos').select('*')
+```
+
+**Leader election awareness:**
+
+```typescript
+console.log(pg.isLeader) // true if this tab runs Postgres
+pg.onLeaderChange(() => console.log('Leader changed:', pg.isLeader))
+```
+
+**Limitations:** Browser-only (requires `navigator.locks`, `BroadcastChannel`, `Worker`). Does not apply to Node.js, Deno, or edge runtimes. Extension namespaces from the worker are not exposed on the main-thread `PGliteWorker` instance.
+
+See `examples/local/pglite-workers/` for a complete React demo with auth, RLS, storage, multi-tab sync, and leader election UI.
+
 ## Persistence
 
 ```typescript

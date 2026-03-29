@@ -1,12 +1,12 @@
-import type { PGlite } from "@electric-sql/pglite";
+import type { PGliteInterface } from "@electric-sql/pglite";
 import { decodeJWT, type JWTPayload, signJWT, verifyJWT } from "./jwt.ts";
 import type { TokenPair, User } from "./types.ts";
 
 const DEFAULT_ACCESS_TOKEN_EXPIRY = 3600;
 
-const secretCache = new WeakMap<PGlite, string>();
+const secretCache = new WeakMap<PGliteInterface, string>();
 
-async function getJWTSecret(db: PGlite): Promise<string> {
+async function getJWTSecret(db: PGliteInterface): Promise<string> {
 	const cached = secretCache.get(db);
 	if (cached) return cached;
 
@@ -35,7 +35,7 @@ async function getJWTSecret(db: PGlite): Promise<string> {
 }
 
 export async function createAccessToken(
-	db: PGlite,
+	db: PGliteInterface,
 	user: User,
 	sessionId: string,
 	expiresIn: number = DEFAULT_ACCESS_TOKEN_EXPIRY,
@@ -59,7 +59,7 @@ export async function createAccessToken(
 }
 
 export async function verifyAccessToken(
-	db: PGlite,
+	db: PGliteInterface,
 	token: string,
 ): Promise<{
 	valid: boolean;
@@ -81,7 +81,7 @@ export async function verifyAccessToken(
 }
 
 export async function generateTokenPair(
-	db: PGlite,
+	db: PGliteInterface,
 	user: User,
 	sessionId: string,
 	refreshToken: string,

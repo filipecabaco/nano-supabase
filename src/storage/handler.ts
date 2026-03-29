@@ -5,7 +5,7 @@
  * File blobs are stored in a pluggable StorageBackend (in-memory by default).
  */
 
-import type { PGlite } from "@electric-sql/pglite";
+import type { PGliteInterface } from "@electric-sql/pglite";
 import type { BlobMetadata, StorageBackend } from "./backend.ts";
 import { MemoryStorageBackend } from "./backend.ts";
 import { STORAGE_SCHEMA_SQL } from "./schema.ts";
@@ -66,11 +66,11 @@ function fromUrlSafeBase64(b64url: string): string {
 // ─── Handler ──────────────────────────────────────────────────────────
 
 export class StorageHandler {
-	private readonly db: PGlite;
+	private readonly db: PGliteInterface;
 	private readonly backend: StorageBackend;
 	private initPromise: Promise<unknown> | null = null;
 
-	constructor(db: PGlite, backend?: StorageBackend) {
+	constructor(db: PGliteInterface, backend?: StorageBackend) {
 		this.db = db;
 		this.backend = backend ?? new MemoryStorageBackend();
 	}

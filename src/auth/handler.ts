@@ -1,4 +1,4 @@
-import type { PGlite } from "@electric-sql/pglite";
+import type { PGliteInterface } from "@electric-sql/pglite";
 import {
 	createAccessToken,
 	extractSessionIdFromToken,
@@ -50,12 +50,12 @@ function authError(message: string, status: number, code?: string): AuthError {
 }
 
 export class AuthHandler {
-	private readonly db: PGlite;
+	private readonly db: PGliteInterface;
 	private initPromise: Promise<unknown> | null = null;
 	private subscriptions = new Map<string, AuthStateChangeCallback>();
 	private currentSession: Session | null = null;
 
-	constructor(db: PGlite) {
+	constructor(db: PGliteInterface) {
 		this.db = db;
 	}
 
