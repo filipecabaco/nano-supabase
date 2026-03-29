@@ -1373,10 +1373,12 @@ export async function runServiceMode(opts: {
 									const fkRes = await nano.db.query<{
 										constraint_name: string;
 										column_name: string;
+										foreign_table_schema: string;
 										foreign_table_name: string;
 										foreign_column_name: string;
 									}>(
 										`SELECT tc.constraint_name, kcu.column_name,
+										        ccu.table_schema AS foreign_table_schema,
 										        ccu.table_name AS foreign_table_name, ccu.column_name AS foreign_column_name
 										 FROM information_schema.table_constraints tc
 										 JOIN information_schema.key_column_usage kcu ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema
@@ -1384,10 +1386,15 @@ export async function runServiceMode(opts: {
 										 WHERE tc.table_schema = 'public' AND tc.table_name = $1 AND tc.constraint_type = 'FOREIGN KEY'`,
 										[tn],
 									);
-									for (const fk of fkRes.rows)
+									for (const fk of fkRes.rows) {
+										const ref =
+											fk.foreign_table_schema !== "public"
+												? `"${fk.foreign_table_schema}"."${fk.foreign_table_name}"`
+												: `"${fk.foreign_table_name}"`;
 										colDefs.push(
-											`FOREIGN KEY ("${fk.column_name}") REFERENCES "${fk.foreign_table_name}"("${fk.foreign_column_name}")`,
+											`FOREIGN KEY ("${fk.column_name}") REFERENCES ${ref}("${fk.foreign_column_name}")`,
 										);
+									}
 
 									const ddl = `CREATE TABLE IF NOT EXISTS "${tn}" (\n  ${colDefs.join(",\n  ")}\n)`;
 									if (!body.dryRun) await remote.query(ddl);

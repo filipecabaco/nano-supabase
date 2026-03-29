@@ -37,13 +37,30 @@ for i in $(seq 1 30); do
 done
 echo "OK: service healthy"
 
-TENANT_TOKEN=$(curl -sf -X POST "$BASE/admin/tenants" \
+api() {
+  local desc="$1"; shift
+  local response
+  local http_code
+  response=$(curl -s -w "\n%{http_code}" "$@")
+  http_code=$(echo "$response" | tail -1)
+  local body
+  body=$(echo "$response" | sed '$d')
+  if [ "$http_code" -ge 400 ]; then
+    echo "FAIL: $desc (HTTP $http_code)"
+    echo "$body"
+    exit 1
+  fi
+  echo "$body"
+}
+
+CREATE_BODY=$(api "create tenant" -X POST "$BASE/admin/tenants" \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"slug": "e2e-src"}' | python3 -c "import sys,json; print(json.load(sys.stdin)['token'])")
+  -d '{"slug": "e2e-src"}')
+TENANT_TOKEN=$(echo "$CREATE_BODY" | python3 -c "import sys,json; print(json.load(sys.stdin)['token'])")
 echo "OK: tenant created (token=$TENANT_TOKEN)"
 
-curl -sf -X POST "$BASE/admin/tenants/e2e-src/sql" \
+api "create todos table" -X POST "$BASE/admin/tenants/e2e-src/sql" \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -51,7 +68,7 @@ curl -sf -X POST "$BASE/admin/tenants/e2e-src/sql" \
   }' > /dev/null
 echo "OK: todos table created"
 
-curl -sf -X POST "$BASE/admin/tenants/e2e-src/sql" \
+api "insert todos" -X POST "$BASE/admin/tenants/e2e-src/sql" \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -59,7 +76,7 @@ curl -sf -X POST "$BASE/admin/tenants/e2e-src/sql" \
   }' > /dev/null
 echo "OK: 3 todo rows inserted"
 
-curl -sf -X POST "$BASE/e2e-src/auth/v1/signup" \
+api "auth signup" -X POST "$BASE/e2e-src/auth/v1/signup" \
   -H "Authorization: Bearer $TENANT_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"email": "alice@test.com", "password": "password123"}' > /dev/null
@@ -76,7 +93,7 @@ ENDJSON
 )
 
 echo "Migrating tenant to Supabase..."
-MIGRATE_RESULT=$(curl -sf -X POST "$BASE/admin/tenants/e2e-src/migrate" \
+MIGRATE_RESULT=$(api "migrate" -X POST "$BASE/admin/tenants/e2e-src/migrate" \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   -H "Content-Type: application/json" \
   -d "$MIGRATE_BODY")
