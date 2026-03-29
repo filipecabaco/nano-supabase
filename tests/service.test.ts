@@ -970,7 +970,7 @@ describe("service migrate", () => {
 			)
 		`);
 		await remoteClient.end();
-		remoteDbUrl = `${registryDbUrl}&options=-csearch_path%3Dpublic`;
+		remoteDbUrl = registryDbUrl;
 	}, 90_000);
 
 	afterAll(async () => {
@@ -1029,8 +1029,11 @@ describe("service migrate", () => {
 				}),
 			},
 		);
-		expect(migrateRes.status).toBe(200);
 		const result = await migrateRes.json();
+		if (migrateRes.status !== 200) {
+			console.error("migrate response:", JSON.stringify(result, null, 2));
+		}
+		expect(migrateRes.status).toBe(200);
 
 		expect(result.schema.tables).toBeGreaterThanOrEqual(1);
 		expect(result.auth.users).toBeGreaterThanOrEqual(1);
@@ -1090,8 +1093,14 @@ describe("service migrate", () => {
 				}),
 			},
 		);
-		expect(migrateRes.status).toBe(200);
 		const result = await migrateRes.json();
+		if (migrateRes.status !== 200) {
+			console.error(
+				"dry-run migrate response:",
+				JSON.stringify(result, null, 2),
+			);
+		}
+		expect(migrateRes.status).toBe(200);
 		expect(result.data.rows).toBeGreaterThan(0);
 
 		const remote = new Client({ connectionString: remoteDbUrl });
