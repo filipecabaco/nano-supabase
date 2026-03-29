@@ -89,7 +89,39 @@ api "enable RLS on todos" -X POST "$BASE/admin/tenants/e2e-src/sql" \
   -d '{
     "sql": "ALTER TABLE todos ENABLE ROW LEVEL SECURITY; CREATE POLICY \"todos_select\" ON todos FOR SELECT USING (true); CREATE POLICY \"todos_insert\" ON todos FOR INSERT WITH CHECK (true)"
   }' > /dev/null
-echo "OK: RLS enabled on todos"
+echo "OK: RLS enabled on todos with 2 policies"
+
+api "create view" -X POST "$BASE/admin/tenants/e2e-src/sql" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "sql": "CREATE VIEW pending_todos AS SELECT id, title FROM todos WHERE done = false"
+  }' > /dev/null
+echo "OK: view 'pending_todos' created"
+
+api "create function" -X POST "$BASE/admin/tenants/e2e-src/sql" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "sql": "CREATE FUNCTION todo_count() RETURNS integer LANGUAGE sql STABLE AS $$ SELECT count(*)::integer FROM todos $$"
+  }' > /dev/null
+echo "OK: function 'todo_count()' created"
+
+api "create trigger function" -X POST "$BASE/admin/tenants/e2e-src/sql" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "sql": "CREATE FUNCTION set_updated_at() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN NEW.title = NEW.title; RETURN NEW; END $$"
+  }' > /dev/null
+echo "OK: trigger function 'set_updated_at()' created"
+
+api "create trigger" -X POST "$BASE/admin/tenants/e2e-src/sql" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "sql": "CREATE TRIGGER todos_before_update BEFORE UPDATE ON todos FOR EACH ROW EXECUTE FUNCTION set_updated_at()"
+  }' > /dev/null
+echo "OK: trigger 'todos_before_update' created"
 
 api "insert todos" -X POST "$BASE/admin/tenants/e2e-src/sql" \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
@@ -149,7 +181,13 @@ DATA_TABLES=$(echo "$MIGRATE_RESULT" | python3 -c "import sys,json; print(json.l
 STORAGE_BUCKETS=$(echo "$MIGRATE_RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin)['storage']['buckets'])")
 STORAGE_OBJECTS=$(echo "$MIGRATE_RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin)['storage']['objects'])")
 
-echo "Schema tables: $SCHEMA_TABLES, Auth users: $AUTH_USERS, Data rows: $DATA_ROWS"
+SCHEMA_VIEWS=$(echo "$MIGRATE_RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin)['schema'].get('views', 0))")
+SCHEMA_FUNCTIONS=$(echo "$MIGRATE_RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin)['schema'].get('functions', 0))")
+SCHEMA_TRIGGERS=$(echo "$MIGRATE_RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin)['schema'].get('triggers', 0))")
+SCHEMA_POLICIES=$(echo "$MIGRATE_RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin)['schema'].get('policies', 0))")
+
+echo "Schema tables: $SCHEMA_TABLES, views: $SCHEMA_VIEWS, functions: $SCHEMA_FUNCTIONS, triggers: $SCHEMA_TRIGGERS, policies: $SCHEMA_POLICIES"
+echo "Auth users: $AUTH_USERS, Data rows: $DATA_ROWS"
 echo "Storage buckets: $STORAGE_BUCKETS, Storage objects: $STORAGE_OBJECTS"
 
 if [ "$SCHEMA_TABLES" -lt 1 ]; then echo "FAIL: expected at least 1 schema table"; exit 1; fi
@@ -157,6 +195,10 @@ if [ "$AUTH_USERS" -lt 1 ]; then echo "FAIL: expected at least 1 auth user"; exi
 if [ "$DATA_ROWS" -lt 3 ]; then echo "FAIL: expected at least 3 data rows"; exit 1; fi
 if [ "$DATA_TABLES" -lt 1 ]; then echo "FAIL: expected at least 1 data table"; exit 1; fi
 if [ "$STORAGE_BUCKETS" -lt 1 ]; then echo "FAIL: expected at least 1 storage bucket"; exit 1; fi
+if [ "$SCHEMA_POLICIES" -lt 2 ]; then echo "FAIL: expected at least 2 RLS policies, got $SCHEMA_POLICIES"; exit 1; fi
+if [ "$SCHEMA_VIEWS" -lt 1 ]; then echo "FAIL: expected at least 1 view, got $SCHEMA_VIEWS"; exit 1; fi
+if [ "$SCHEMA_FUNCTIONS" -lt 2 ]; then echo "FAIL: expected at least 2 functions (todo_count + set_updated_at), got $SCHEMA_FUNCTIONS"; exit 1; fi
+if [ "$SCHEMA_TRIGGERS" -lt 1 ]; then echo "FAIL: expected at least 1 trigger, got $SCHEMA_TRIGGERS"; exit 1; fi
 echo "OK: migrate counts look good"
 
 echo ""
@@ -188,16 +230,39 @@ REMOTE_BUCKET=$(psql "$SUPABASE_DB_URL" -t -A -c "SELECT count(*) FROM storage.b
 if [ "$REMOTE_BUCKET" -lt 1 ]; then echo "FAIL: documents bucket not found on remote"; exit 1; fi
 echo "OK: documents bucket found on Supabase Postgres"
 
+REMOTE_VIEW=$(psql "$SUPABASE_DB_URL" -t -A -c "SELECT count(*) FROM pg_views WHERE schemaname = 'public' AND viewname = 'pending_todos'")
+if [ "$REMOTE_VIEW" -lt 1 ]; then echo "FAIL: view 'pending_todos' not found on remote"; exit 1; fi
+echo "OK: view 'pending_todos' found on Supabase Postgres"
+
+REMOTE_VIEW_DATA=$(psql "$SUPABASE_DB_URL" -t -A -c "SELECT count(*) FROM pending_todos")
+if [ "$REMOTE_VIEW_DATA" -lt 2 ]; then echo "FAIL: expected >= 2 pending todos from view, got $REMOTE_VIEW_DATA"; exit 1; fi
+echo "OK: view 'pending_todos' returns $REMOTE_VIEW_DATA rows (works correctly)"
+
+REMOTE_FUNC=$(psql "$SUPABASE_DB_URL" -t -A -c "SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON p.pronamespace = n.oid WHERE n.nspname = 'public' AND p.proname IN ('todo_count', 'set_updated_at')")
+if [ "$REMOTE_FUNC" -lt 2 ]; then echo "FAIL: expected 2 functions on remote, got $REMOTE_FUNC"; exit 1; fi
+echo "OK: functions 'todo_count' and 'set_updated_at' found on Supabase Postgres"
+
+REMOTE_FUNC_RESULT=$(psql "$SUPABASE_DB_URL" -t -A -c "SELECT todo_count()")
+if [ "$REMOTE_FUNC_RESULT" -lt 3 ]; then echo "FAIL: todo_count() returned $REMOTE_FUNC_RESULT, expected >= 3"; exit 1; fi
+echo "OK: function todo_count() returns $REMOTE_FUNC_RESULT (works correctly)"
+
+REMOTE_TRIGGER=$(psql "$SUPABASE_DB_URL" -t -A -c "SELECT count(*) FROM pg_trigger t JOIN pg_class c ON t.tgrelid = c.oid JOIN pg_namespace n ON c.relnamespace = n.oid WHERE n.nspname = 'public' AND NOT t.tgisinternal AND t.tgname = 'todos_before_update'")
+if [ "$REMOTE_TRIGGER" -lt 1 ]; then echo "FAIL: trigger 'todos_before_update' not found on remote"; exit 1; fi
+echo "OK: trigger 'todos_before_update' found on Supabase Postgres"
+
 echo ""
 echo "========================================="
 echo "  PHASE 4: Application-level verification"
 echo "  (Use Supabase APIs with migrated data)"
 echo "========================================="
 
-psql "$SUPABASE_DB_URL" -c "ALTER TABLE public.todos ENABLE ROW LEVEL SECURITY" 2>/dev/null || true
-psql "$SUPABASE_DB_URL" -c "CREATE POLICY \"todos_select\" ON public.todos FOR SELECT USING (true)" 2>/dev/null || true
-psql "$SUPABASE_DB_URL" -c "CREATE POLICY \"todos_insert\" ON public.todos FOR INSERT WITH CHECK (true)" 2>/dev/null || true
-echo "OK: RLS policies applied on Supabase"
+RLS_ENABLED=$(psql "$SUPABASE_DB_URL" -t -A -c "SELECT relrowsecurity FROM pg_class WHERE relname = 'todos'")
+if [ "$RLS_ENABLED" != "t" ]; then echo "FAIL: RLS not enabled on todos table after migrate"; exit 1; fi
+echo "OK: RLS enabled on todos table (migrated)"
+
+POLICY_COUNT=$(psql "$SUPABASE_DB_URL" -t -A -c "SELECT count(*) FROM pg_policy pol JOIN pg_class c ON pol.polrelid = c.oid WHERE c.relname = 'todos'")
+if [ "$POLICY_COUNT" -lt 2 ]; then echo "FAIL: expected at least 2 RLS policies on todos, got $POLICY_COUNT"; exit 1; fi
+echo "OK: $POLICY_COUNT RLS policies found on todos table (migrated)"
 
 echo "Signing in via Supabase GoTrue with migrated credentials..."
 SIGNIN_RESULT=$(api "supabase auth signin" -X POST "$SUPABASE_API_URL/auth/v1/token?grant_type=password" \
@@ -217,6 +282,15 @@ POSTGREST_COUNT=$(echo "$POSTGREST_RESULT" | python3 -c "import sys,json; print(
 if [ "$POSTGREST_COUNT" -lt 3 ]; then echo "FAIL: PostgREST returned $POSTGREST_COUNT rows, expected >= 3"; exit 1; fi
 FIRST_TITLE=$(echo "$POSTGREST_RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin)[0]['title'])")
 echo "OK: Supabase PostgREST returned $POSTGREST_COUNT todos (first: '$FIRST_TITLE')"
+
+echo "Querying view 'pending_todos' via Supabase PostgREST..."
+PENDING_RESULT=$(api "supabase postgrest view query" \
+  "$SUPABASE_API_URL/rest/v1/pending_todos?select=title" \
+  -H "apikey: $SUPABASE_ANON_KEY" \
+  -H "Authorization: Bearer $ACCESS_TOKEN")
+PENDING_COUNT=$(echo "$PENDING_RESULT" | python3 -c "import sys,json; print(len(json.load(sys.stdin)))")
+if [ "$PENDING_COUNT" -lt 2 ]; then echo "FAIL: pending_todos view returned $PENDING_COUNT rows, expected >= 2"; exit 1; fi
+echo "OK: Supabase PostgREST returned $PENDING_COUNT rows from 'pending_todos' view"
 
 echo "Inserting a new todo via Supabase PostgREST..."
 api "supabase postgrest insert" -X POST "$SUPABASE_API_URL/rest/v1/todos" \
@@ -261,8 +335,11 @@ echo "  ALL E2E MIGRATE TESTS PASSED"
 echo "========================================="
 echo ""
 echo "Summary:"
-echo "  - Schema: $SCHEMA_TABLES table(s) migrated"
+echo "  - Schema: $SCHEMA_TABLES table(s), $SCHEMA_POLICIES RLS policy(ies), $SCHEMA_VIEWS view(s), $SCHEMA_FUNCTIONS function(s), $SCHEMA_TRIGGERS trigger(s)"
 echo "  - Auth: $AUTH_USERS user(s) migrated, signin works on Supabase GoTrue"
 echo "  - Data: $DATA_ROWS row(s) migrated, PostgREST queries + inserts work"
 echo "  - Storage: $STORAGE_BUCKETS bucket(s) migrated"
 echo "  - Sequences: reset correctly (no ID collisions)"
+echo "  - Views: queryable via PostgREST (pending_todos returns correct filtered data)"
+echo "  - Functions: callable on remote (todo_count() returns correct count)"
+echo "  - Triggers: present on remote (todos_before_update trigger attached)"

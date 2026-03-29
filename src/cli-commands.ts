@@ -1613,7 +1613,14 @@ export async function cmdServiceMigrate(
 	if (!success) return apiError(data, json);
 
 	const r = data as {
-		schema: { tables: number; migrations: number };
+		schema: {
+			tables: number;
+			migrations: number;
+			views: number;
+			functions: number;
+			triggers: number;
+			policies: number;
+		};
 		auth: { users: number; identities: number };
 		data: { tables: number; rows: number };
 		storage: { buckets: number; objects: number };
@@ -1621,10 +1628,18 @@ export async function cmdServiceMigrate(
 
 	if (json) return ok(r, json, "");
 	const dryTag = args.includes("--dry-run") ? " (dry run)" : "";
+	const schemaExtra = [
+		r.schema.views > 0 ? `${r.schema.views} view(s)` : "",
+		r.schema.functions > 0 ? `${r.schema.functions} function(s)` : "",
+		r.schema.triggers > 0 ? `${r.schema.triggers} trigger(s)` : "",
+		r.schema.policies > 0 ? `${r.schema.policies} RLS policy(ies)` : "",
+	]
+		.filter(Boolean)
+		.join(", ");
 	const lines = [
 		`Migrate tenant "${slug}" → ${remoteDbUrl}${dryTag}`,
 		``,
-		`Schema:    ${r.schema.migrations} migration(s), ${r.schema.tables} table(s) introspected`,
+		`Schema:    ${r.schema.migrations} migration(s), ${r.schema.tables} table(s) introspected${schemaExtra ? `, ${schemaExtra}` : ""}`,
 		`Auth:      ${r.auth.users} user(s), ${r.auth.identities} identity(ies)`,
 		`Data:      ${r.data.rows} row(s) across ${r.data.tables} table(s)`,
 		`Storage:   ${r.storage.buckets} bucket(s), ${r.storage.objects} object(s)`,
