@@ -6,10 +6,14 @@ SERVICE_PORT=8090
 TCP_PORT=8091
 DATA_DIR=$(mktemp -d)
 COLD_DIR=$(mktemp -d)
+SERVICE_LOG=$(mktemp)
 
 cleanup() {
+  echo "--- nano-supabase service log ---"
+  cat "$SERVICE_LOG" 2>/dev/null || true
+  echo "--- end service log ---"
   kill "$SERVICE_PID" 2>/dev/null || true
-  rm -rf "$DATA_DIR" "$COLD_DIR"
+  rm -rf "$DATA_DIR" "$COLD_DIR" "$SERVICE_LOG"
 }
 trap cleanup EXIT
 
@@ -19,6 +23,10 @@ SUPABASE_SERVICE_KEY="${SUPA_SERVICE_ROLE_KEY:-}"
 SUPABASE_DB_URL="${SUPA_DB_URL:-postgresql://postgres:postgres@127.0.0.1:54322/postgres}"
 echo "Supabase API: $SUPABASE_API_URL"
 echo "Supabase DB: $SUPABASE_DB_URL"
+echo "Supabase service key length: ${#SUPABASE_SERVICE_KEY}"
+
+psql "$SUPABASE_DB_URL" -c "SELECT version()" || { echo "FAIL: cannot connect to Supabase Postgres"; exit 1; }
+echo "OK: Supabase Postgres reachable"
 
 node dist/cli.js service \
   --service-port="$SERVICE_PORT" \
@@ -26,7 +34,7 @@ node dist/cli.js service \
   --admin-token="$ADMIN_TOKEN" \
   --data-dir="$DATA_DIR" \
   --cold-dir="$COLD_DIR" \
-  --secret=e2e-secret &
+  --secret=e2e-secret > "$SERVICE_LOG" 2>&1 &
 SERVICE_PID=$!
 
 BASE="http://localhost:$SERVICE_PORT"
@@ -39,11 +47,9 @@ echo "OK: service healthy"
 
 api() {
   local desc="$1"; shift
-  local response
-  local http_code
+  local response http_code body
   response=$(curl -s -w "\n%{http_code}" "$@")
   http_code=$(echo "$response" | tail -1)
-  local body
   body=$(echo "$response" | sed '$d')
   if [ "$http_code" -ge 400 ]; then
     echo "FAIL: $desc (HTTP $http_code)"
@@ -58,7 +64,7 @@ CREATE_BODY=$(api "create tenant" -X POST "$BASE/admin/tenants" \
   -H "Content-Type: application/json" \
   -d '{"slug": "e2e-src"}')
 TENANT_TOKEN=$(echo "$CREATE_BODY" | python3 -c "import sys,json; print(json.load(sys.stdin)['token'])")
-echo "OK: tenant created (token=$TENANT_TOKEN)"
+echo "OK: tenant created"
 
 api "create todos table" -X POST "$BASE/admin/tenants/e2e-src/sql" \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
