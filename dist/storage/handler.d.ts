@@ -1,9 +1,3 @@
-/**
- * StorageHandler — manages bucket and object operations against PGlite
- *
- * All metadata lives in storage.buckets / storage.objects (with RLS).
- * File blobs are stored in a pluggable StorageBackend (in-memory by default).
- */
 import type { PGliteInterface } from "@electric-sql/pglite";
 import type { BlobMetadata, StorageBackend } from "./backend.ts";
 export interface StorageBucket {
@@ -49,7 +43,6 @@ export declare class StorageHandler {
     private initPromise;
     constructor(db: PGliteInterface, backend?: StorageBackend);
     initialize(): Promise<void>;
-    /** Get the blob backend (for advanced use) */
     getBackend(): StorageBackend;
     listBuckets(): Promise<StorageBucket[]>;
     getBucket(id: string): Promise<StorageBucket | null>;
@@ -83,16 +76,8 @@ export declare class StorageHandler {
     }): Promise<StorageObject[]>;
     moveObject(bucketId: string, sourceKey: string, destinationKey: string, destinationBucket?: string): Promise<void>;
     copyObject(bucketId: string, sourceKey: string, destinationKey: string, destinationBucket?: string): Promise<string>;
-    /**
-     * Create a signed URL token.
-     * We use a simple HMAC-based approach reusing the auth signing key.
-     */
     createSignedUrl(bucketId: string, objectName: string, expiresIn: number): Promise<string>;
-    /**
-     * Verify a signed URL token and return the payload
-     */
     verifySignedUrl(token: string): Promise<SignedUrlToken | null>;
-    /** Simple hash for ETags */
     private computeETag;
 }
 //# sourceMappingURL=handler.d.ts.map

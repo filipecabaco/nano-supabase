@@ -20,6 +20,15 @@ import type {
 
 const ACCESS_TOKEN_EXPIRY_SECONDS = 3600;
 
+function constantTimeCompare(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let result = 0;
+  for (let i = 0; i < a.length; i++) {
+    result |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+  return result === 0;
+}
+
 function bytesToHex(bytes: Uint8Array): string {
   return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
 }
@@ -368,7 +377,11 @@ export class AuthHandler {
       [userId],
     );
     const stored = nonceCheck.rows[0]?.reauthentication_token;
-    if (!stored || stored !== nonce) {
+    if (
+      !stored ||
+      stored.length !== nonce.length ||
+      !constantTimeCompare(stored, nonce)
+    ) {
       return fail("Invalid nonce", 422, "invalid_nonce");
     }
     const sentAt = new Date(

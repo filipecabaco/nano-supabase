@@ -1,6 +1,3 @@
-/**
- * Storage module — local Supabase Storage emulation
- */
 export { type BlobMetadata, MemoryStorageBackend, type StorageBackend, } from "./backend.ts";
 export { FileSystemStorageBackend } from "./fs-backend.ts";
 export { type CreateBucketOptions, type SignedUrlToken, type StorageBucket, StorageHandler, type StorageObject, } from "./handler.ts";
