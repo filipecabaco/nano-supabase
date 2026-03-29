@@ -1,137 +1,137 @@
 {
-	"name": "nano-supabase",
-	"version": "0.1.0",
-	"description": "A lightweight Supabase-compatible client for PGlite - runs PostgreSQL entirely in the browser/edge",
-	"type": "module",
-	"main": "./dist/index.js",
-	"module": "./dist/index.js",
-	"types": "./dist/index.d.ts",
-	"exports": {
-		".": {
-			"types": "./dist/index.d.ts",
-			"import": "./dist/index.js",
-			"default": "./dist/index.js"
-		},
-		"./tcp": {
-			"types": "./dist/tcp.d.ts",
-			"import": "./dist/tcp.js",
-			"default": "./dist/tcp.js"
-		}
-	},
-	"bin": {
-		"nano-supabase": "./dist/cli.js"
-	},
-	"files": [
-		"dist"
-	],
-	"scripts": {
-		"lint": "biome check",
-		"build": "node scripts/build.js && pnpm run build:types",
-		"build:lib": "node scripts/build.js lib && pnpm run build:types",
-		"build:cli": "node scripts/build.js cli",
-		"build:types": "tsc --emitDeclarationOnly",
-		"build:dev": "tsc",
-		"clean": "rm -rf dist",
-		"prepublishOnly": "pnpm run clean && pnpm run build",
-		"test": "vitest run tests/",
-		"test:e2e:browser": "vitest run --config vitest.browser.config.ts",
-		"test:e2e:bun": "bun test tests/e2e/bun.test.ts; CODE=$?; [ $CODE -eq 0 ] || [ $CODE -eq 99 ]",
-		"test:e2e:deno": "deno test --no-check --allow-read --allow-env --allow-net --allow-sys --unstable-node-globals tests/e2e/deno.test.ts",
-		"test:e2e": "pnpm run test:e2e:bun && pnpm run test:e2e:deno && pnpm run test:e2e:browser",
-		"test:auth": "vitest run tests/auth-integration.test.ts",
-		"test:data": "vitest run tests/integration.test.ts tests/supabase-client.test.ts",
-		"test:storage": "vitest run tests/storage.test.ts",
-		"test:fetch": "vitest run tests/fetch-adapter.test.ts",
-		"test:apps": "vitest run tests/applications.test.ts tests/full-user-flow.test.ts",
-		"test:perf": "vitest run tests/performance.test.ts",
-		"test:cli": "vitest run --config vitest.cli.config.ts",
-		"example:pooler": "tsx examples/library/pooler/index.ts",
-		"example:supabase-client": "tsx examples/library/supabase-client/index.ts",
-		"example:auth-rls": "tsx examples/library/auth-rls/index.ts",
-		"example:storage": "tsx examples/library/storage/index.ts",
-		"example:postgrest-parser": "tsx examples/library/postgrest-parser/index.ts",
-		"example:tcp-server": "tsx examples/local/tcp-server/index.ts",
-		"example:migrations": "tsx examples/local/migrations/index.ts",
-		"example:mcp-server": "tsx examples/local/mcp-server/index.ts",
-		"example:drizzle": "tsx examples/library/drizzle/index.ts",
-		"example:prisma": "tsx examples/local/prisma/index.ts",
-		"example:multi-tenant": "tsx examples/service/multi-tenant/index.ts",
-		"test:examples": "vitest run --config vitest.examples.config.ts",
-		"prisma:generate": "prisma generate --schema=examples/local/prisma/schema.prisma",
-		"cli": "node dist/cli.js"
-	},
-	"keywords": [
-		"pglite",
-		"postgresql",
-		"supabase",
-		"postgrest",
-		"edge",
-		"webcontainer",
-		"deno",
-		"bun",
-		"cloudflare-workers"
-	],
-	"author": "filipecabaco",
-	"license": "MIT",
-	"repository": {
-		"type": "git",
-		"url": "git+https://github.com/filipecabaco/nano-supabase.git"
-	},
-	"homepage": "https://github.com/filipecabaco/nano-supabase#readme",
-	"bugs": {
-		"url": "https://github.com/filipecabaco/nano-supabase/issues"
-	},
-	"devDependencies": {
-		"@biomejs/biome": "^2.4.8",
-		"@electric-sql/pglite-postgis": "^0.0.4",
-		"@electric-sql/pglite-socket": "^0.0.22",
-		"@prisma/client": "^6.19.2",
-		"@supabase/postgres-meta": "^0.96.1",
-		"@testcontainers/localstack": "^11.13.0",
-		"@testcontainers/postgresql": "^11.13.0",
-		"@types/node": "^25.5.0",
-		"@types/selfsigned": "^2.1.0",
-		"@vitest/browser": "^4.1.0",
-		"@vitest/browser-playwright": "^4.1.0",
-		"esbuild": "^0.27.4",
-		"playwright": "^1.58.2",
-		"prisma": "^6.19.2",
-		"selfsigned": "^5.5.0",
-		"testcontainers": "^11.13.0",
-		"tsx": "^4.21.0",
-		"typescript": "^5.9.3",
-		"vitest": "^4.1.0"
-	},
-	"peerDependencies": {
-		"@electric-sql/pglite": ">=0.4.2"
-	},
-	"peerDependenciesMeta": {
-		"@electric-sql/pglite": {
-			"optional": true
-		}
-	},
-	"dependencies": {
-		"@oslojs/otp": "^1.1.0",
-		"@scure/base": "^2.0.0",
-		"@supabase/supabase-js": "^2.99.2",
-		"aws4fetch": "^1.0.20",
-		"jose": "^6.2.2",
-		"postgrest-parser": "^0.1.2"
-	},
-	"optionalDependencies": {
-		"@electric-sql/pglite-tools": "^0.3.1",
-		"@modelcontextprotocol/sdk": "^1.27.1",
-		"@supabase/mcp-server-supabase": "^0.7.0",
-		"@types/pg": "^8.20.0",
-		"node-pg-migrate": "^8.0.4",
-		"pg": "^8.20.0"
-	},
-	"pnpm": {
-		"onlyBuiltDependencies": [
-			"@prisma/client",
-			"@prisma/engines",
-			"esbuild",
-			"prisma"
-		]
-	}
+  "name": "nano-supabase",
+  "version": "0.1.0",
+  "description": "A lightweight Supabase-compatible client for PGlite - runs PostgreSQL entirely in the browser/edge",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./tcp": {
+      "types": "./dist/tcp.d.ts",
+      "import": "./dist/tcp.js",
+      "default": "./dist/tcp.js"
+    }
+  },
+  "bin": {
+    "nano-supabase": "./dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "lint": "biome check",
+    "build": "node scripts/build.js && pnpm run build:types",
+    "build:lib": "node scripts/build.js lib && pnpm run build:types",
+    "build:cli": "node scripts/build.js cli",
+    "build:types": "tsc --emitDeclarationOnly",
+    "build:dev": "tsc",
+    "clean": "rm -rf dist",
+    "prepublishOnly": "pnpm run clean && pnpm run build",
+    "test": "vitest run tests/",
+    "test:e2e:browser": "vitest run --config vitest.browser.config.ts",
+    "test:e2e:bun": "bun test tests/e2e/bun.test.ts; CODE=$?; [ $CODE -eq 0 ] || [ $CODE -eq 99 ]",
+    "test:e2e:deno": "deno test --no-check --allow-read --allow-env --allow-net --allow-sys --unstable-node-globals tests/e2e/deno.test.ts",
+    "test:e2e": "pnpm run test:e2e:bun && pnpm run test:e2e:deno && pnpm run test:e2e:browser",
+    "test:auth": "vitest run tests/auth-integration.test.ts",
+    "test:data": "vitest run tests/integration.test.ts tests/supabase-client.test.ts",
+    "test:storage": "vitest run tests/storage.test.ts",
+    "test:fetch": "vitest run tests/fetch-adapter.test.ts",
+    "test:apps": "vitest run tests/applications.test.ts tests/full-user-flow.test.ts",
+    "test:perf": "vitest run tests/performance.test.ts",
+    "test:cli": "vitest run --config vitest.cli.config.ts",
+    "example:pooler": "tsx examples/library/pooler/index.ts",
+    "example:supabase-client": "tsx examples/library/supabase-client/index.ts",
+    "example:auth-rls": "tsx examples/library/auth-rls/index.ts",
+    "example:storage": "tsx examples/library/storage/index.ts",
+    "example:postgrest-parser": "tsx examples/library/postgrest-parser/index.ts",
+    "example:tcp-server": "tsx examples/local/tcp-server/index.ts",
+    "example:migrations": "tsx examples/local/migrations/index.ts",
+    "example:mcp-server": "tsx examples/local/mcp-server/index.ts",
+    "example:drizzle": "tsx examples/library/drizzle/index.ts",
+    "example:prisma": "tsx examples/local/prisma/index.ts",
+    "example:multi-tenant": "tsx examples/service/multi-tenant/index.ts",
+    "test:examples": "vitest run --config vitest.examples.config.ts",
+    "prisma:generate": "prisma generate --schema=examples/local/prisma/schema.prisma",
+    "cli": "node dist/cli.js"
+  },
+  "keywords": [
+    "pglite",
+    "postgresql",
+    "supabase",
+    "postgrest",
+    "edge",
+    "webcontainer",
+    "deno",
+    "bun",
+    "cloudflare-workers"
+  ],
+  "author": "filipecabaco",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/filipecabaco/nano-supabase.git"
+  },
+  "homepage": "https://github.com/filipecabaco/nano-supabase#readme",
+  "bugs": {
+    "url": "https://github.com/filipecabaco/nano-supabase/issues"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.4.8",
+    "@electric-sql/pglite-postgis": "^0.0.4",
+    "@electric-sql/pglite-socket": "^0.0.22",
+    "@prisma/client": "^6.19.2",
+    "@supabase/postgres-meta": "^0.96.1",
+    "@testcontainers/localstack": "^11.13.0",
+    "@testcontainers/postgresql": "^11.13.0",
+    "@types/node": "^25.5.0",
+    "@types/selfsigned": "^2.1.0",
+    "@vitest/browser": "^4.1.0",
+    "@vitest/browser-playwright": "^4.1.0",
+    "esbuild": "^0.27.4",
+    "playwright": "^1.58.2",
+    "prisma": "^6.19.2",
+    "selfsigned": "^5.5.0",
+    "testcontainers": "^11.13.0",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.0"
+  },
+  "peerDependencies": {
+    "@electric-sql/pglite": ">=0.4.2"
+  },
+  "peerDependenciesMeta": {
+    "@electric-sql/pglite": {
+      "optional": true
+    }
+  },
+  "dependencies": {
+    "@oslojs/otp": "^1.1.0",
+    "@scure/base": "^2.0.0",
+    "@supabase/supabase-js": "^2.99.2",
+    "aws4fetch": "^1.0.20",
+    "jose": "^6.2.2",
+    "postgrest-parser": "^0.1.2"
+  },
+  "optionalDependencies": {
+    "@electric-sql/pglite-tools": "^0.3.1",
+    "@modelcontextprotocol/sdk": "^1.27.1",
+    "@supabase/mcp-server-supabase": "^0.7.0",
+    "@types/pg": "^8.20.0",
+    "node-pg-migrate": "^8.0.4",
+    "pg": "^8.20.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@prisma/client",
+      "@prisma/engines",
+      "esbuild",
+      "prisma"
+    ]
+  }
 }

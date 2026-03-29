@@ -16,79 +16,79 @@ import { StorageHandler } from "./storage/handler.ts";
  * Configuration for creating a local Supabase client
  */
 export interface LocalSupabaseClientConfig {
-	/**
-	 * The PGlite database instance.
-	 *
-	 * Pass an in-memory instance for ephemeral usage (default, no data survives restarts):
-	 * ```typescript
-	 * const db = new PGlite()
-	 * ```
-	 *
-	 * Pass a persistent instance to survive restarts (schemas are only created once):
-	 * ```typescript
-	 * const db = new PGlite('./my-local-db')        // Node.js / Bun — filesystem
-	 * const db = new PGlite('idb://my-local-db')    // Browser — IndexedDB
-	 * ```
-	 */
-	db: PGlite | PGliteInterface;
-	/**
-	 * URL to use for the local Supabase instance
-	 * This should be a fake URL that won't conflict with real requests
-	 * Defaults to 'http://localhost:54321'
-	 */
-	supabaseUrl?: string;
-	/**
-	 * Anon key to use (can be any string for local usage)
-	 * Defaults to 'local-anon-key'
-	 */
-	supabaseAnonKey?: string;
-	/**
-	 * Enable debug logging
-	 */
-	debug?: boolean;
-	/**
-	 * Original fetch function to use for passthrough requests
-	 * Defaults to globalThis.fetch
-	 */
-	originalFetch?: (
-		input: RequestInfo | URL,
-		init?: RequestInit,
-	) => Promise<Response>;
-	/**
-	 * Custom storage blob backend.
-	 * Defaults to in-memory storage (MemoryStorageBackend).
-	 * Set to `false` to disable storage emulation entirely.
-	 */
-	storageBackend?: StorageBackend | false;
+  /**
+   * The PGlite database instance.
+   *
+   * Pass an in-memory instance for ephemeral usage (default, no data survives restarts):
+   * ```typescript
+   * const db = new PGlite()
+   * ```
+   *
+   * Pass a persistent instance to survive restarts (schemas are only created once):
+   * ```typescript
+   * const db = new PGlite('./my-local-db')        // Node.js / Bun — filesystem
+   * const db = new PGlite('idb://my-local-db')    // Browser — IndexedDB
+   * ```
+   */
+  db: PGlite | PGliteInterface;
+  /**
+   * URL to use for the local Supabase instance
+   * This should be a fake URL that won't conflict with real requests
+   * Defaults to 'http://localhost:54321'
+   */
+  supabaseUrl?: string;
+  /**
+   * Anon key to use (can be any string for local usage)
+   * Defaults to 'local-anon-key'
+   */
+  supabaseAnonKey?: string;
+  /**
+   * Enable debug logging
+   */
+  debug?: boolean;
+  /**
+   * Original fetch function to use for passthrough requests
+   * Defaults to globalThis.fetch
+   */
+  originalFetch?: (
+    input: RequestInfo | URL,
+    init?: RequestInit,
+  ) => Promise<Response>;
+  /**
+   * Custom storage blob backend.
+   * Defaults to in-memory storage (MemoryStorageBackend).
+   * Set to `false` to disable storage emulation entirely.
+   */
+  storageBackend?: StorageBackend | false;
 }
 
 /**
  * Result from creating a local Supabase client
  */
 export interface LocalSupabaseClientResult<T = unknown> {
-	/**
-	 * The Supabase client configured to use local emulation
-	 */
-	client: T;
-	/**
-	 * The auth handler for direct access to auth operations
-	 */
-	authHandler: AuthHandler;
-	/**
-	 * The PostgREST parser for direct SQL parsing
-	 */
-	parser: PostgrestParser;
-	/**
-	 * The storage handler for direct access to storage operations (undefined if disabled)
-	 */
-	storageHandler?: StorageHandler;
-	/**
-	 * The custom fetch function (useful for custom integrations)
-	 */
-	localFetch: (
-		input: RequestInfo | URL,
-		init?: RequestInit,
-	) => Promise<Response>;
+  /**
+   * The Supabase client configured to use local emulation
+   */
+  client: T;
+  /**
+   * The auth handler for direct access to auth operations
+   */
+  authHandler: AuthHandler;
+  /**
+   * The PostgREST parser for direct SQL parsing
+   */
+  parser: PostgrestParser;
+  /**
+   * The storage handler for direct access to storage operations (undefined if disabled)
+   */
+  storageHandler?: StorageHandler;
+  /**
+   * The custom fetch function (useful for custom integrations)
+   */
+  localFetch: (
+    input: RequestInfo | URL,
+    init?: RequestInit,
+  ) => Promise<Response>;
 }
 
 /**
@@ -122,90 +122,90 @@ export interface LocalSupabaseClientResult<T = unknown> {
  * ```
  */
 export async function createComponents(
-	db: PGlite | PGliteInterface,
-	storageBackend: StorageBackend | false | undefined,
-	postgrestWasmBytes?: Uint8Array,
-	sharedParser?: PostgrestParser,
+  db: PGlite | PGliteInterface,
+  storageBackend: StorageBackend | false | undefined,
+  postgrestWasmBytes?: Uint8Array,
+  sharedParser?: PostgrestParser,
 ): Promise<{
-	parser: PostgrestParser;
-	authHandler: AuthHandler;
-	storageHandler: StorageHandler | undefined;
+  parser: PostgrestParser;
+  authHandler: AuthHandler;
+  storageHandler: StorageHandler | undefined;
 }> {
-	const authHandler = new AuthHandler(db);
+  const authHandler = new AuthHandler(db);
 
-	if (sharedParser) {
-		await authHandler.initialize();
-	} else {
-		await Promise.all([
-			PostgrestParser.init(postgrestWasmBytes),
-			authHandler.initialize(),
-		]);
-	}
+  if (sharedParser) {
+    await authHandler.initialize();
+  } else {
+    await Promise.all([
+      PostgrestParser.init(postgrestWasmBytes),
+      authHandler.initialize(),
+    ]);
+  }
 
-	let storageHandler: StorageHandler | undefined;
-	if (storageBackend !== false) {
-		storageHandler = new StorageHandler(db, storageBackend || undefined);
-		await storageHandler.initialize();
-	}
+  let storageHandler: StorageHandler | undefined;
+  if (storageBackend !== false) {
+    storageHandler = new StorageHandler(db, storageBackend || undefined);
+    await storageHandler.initialize();
+  }
 
-	if (!sharedParser) {
-		await PostgrestParser.initSchema(async (sql: string) => {
-			const result = await db.query(sql);
-			return { rows: result.rows };
-		});
-	}
+  if (!sharedParser) {
+    await PostgrestParser.initSchema(async (sql: string) => {
+      const result = await db.query(sql);
+      return { rows: result.rows };
+    });
+  }
 
-	return {
-		parser: sharedParser ?? new PostgrestParser(),
-		authHandler,
-		storageHandler,
-	};
+  return {
+    parser: sharedParser ?? new PostgrestParser(),
+    authHandler,
+    storageHandler,
+  };
 }
 
 export async function createLocalSupabaseClient<T = unknown>(
-	config: LocalSupabaseClientConfig,
-	createClient: (
-		url: string,
-		key: string,
-		options?: {
-			global?: {
-				fetch?: (
-					input: RequestInfo | URL,
-					init?: RequestInit,
-				) => Promise<Response>;
-			};
-		},
-	) => T,
+  config: LocalSupabaseClientConfig,
+  createClient: (
+    url: string,
+    key: string,
+    options?: {
+      global?: {
+        fetch?: (
+          input: RequestInfo | URL,
+          init?: RequestInit,
+        ) => Promise<Response>;
+      };
+    },
+  ) => T,
 ): Promise<LocalSupabaseClientResult<T>> {
-	const {
-		db,
-		supabaseUrl = "http://localhost:54321",
-		supabaseAnonKey = "local-anon-key",
-		debug = false,
-		originalFetch,
-		storageBackend,
-	} = config;
+  const {
+    db,
+    supabaseUrl = "http://localhost:54321",
+    supabaseAnonKey = "local-anon-key",
+    debug = false,
+    originalFetch,
+    storageBackend,
+  } = config;
 
-	const { parser, authHandler, storageHandler } = await createComponents(
-		db,
-		storageBackend,
-	);
+  const { parser, authHandler, storageHandler } = await createComponents(
+    db,
+    storageBackend,
+  );
 
-	const localFetch = createLocalFetch({
-		db,
-		parser,
-		authHandler,
-		storageHandler,
-		supabaseUrl,
-		originalFetch,
-		debug,
-	});
+  const localFetch = createLocalFetch({
+    db,
+    parser,
+    authHandler,
+    storageHandler,
+    supabaseUrl,
+    originalFetch,
+    debug,
+  });
 
-	const client = createClient(supabaseUrl, supabaseAnonKey, {
-		global: { fetch: localFetch },
-	});
+  const client = createClient(supabaseUrl, supabaseAnonKey, {
+    global: { fetch: localFetch },
+  });
 
-	return { client, authHandler, parser, storageHandler, localFetch };
+  return { client, authHandler, parser, storageHandler, localFetch };
 }
 
 /**
@@ -226,11 +226,11 @@ export async function createLocalSupabaseClient<T = unknown>(
  * ```
  */
 export async function initializeAuth(
-	db: PGlite | PGliteInterface,
+  db: PGlite | PGliteInterface,
 ): Promise<AuthHandler> {
-	const authHandler = new AuthHandler(db);
-	await authHandler.initialize();
-	return authHandler;
+  const authHandler = new AuthHandler(db);
+  await authHandler.initialize();
+  return authHandler;
 }
 
 /**
@@ -254,48 +254,48 @@ export async function initializeAuth(
  * ```
  */
 export async function createFetchAdapter(config: {
-	db: PGlite | PGliteInterface;
-	supabaseUrl?: string;
-	serviceRoleKey?: string;
-	debug?: boolean;
-	originalFetch?: (
-		input: RequestInfo | URL,
-		init?: RequestInit,
-	) => Promise<Response>;
-	storageBackend?: StorageBackend | false;
+  db: PGlite | PGliteInterface;
+  supabaseUrl?: string;
+  serviceRoleKey?: string;
+  debug?: boolean;
+  originalFetch?: (
+    input: RequestInfo | URL,
+    init?: RequestInit,
+  ) => Promise<Response>;
+  storageBackend?: StorageBackend | false;
 }): Promise<{
-	localFetch: (
-		input: RequestInfo | URL,
-		init?: RequestInit,
-	) => Promise<Response>;
-	authHandler: AuthHandler;
-	parser: PostgrestParser;
-	storageHandler?: StorageHandler;
+  localFetch: (
+    input: RequestInfo | URL,
+    init?: RequestInit,
+  ) => Promise<Response>;
+  authHandler: AuthHandler;
+  parser: PostgrestParser;
+  storageHandler?: StorageHandler;
 }> {
-	const {
-		db,
-		supabaseUrl = "http://localhost:54321",
-		serviceRoleKey,
-		debug = false,
-		originalFetch,
-		storageBackend,
-	} = config;
+  const {
+    db,
+    supabaseUrl = "http://localhost:54321",
+    serviceRoleKey,
+    debug = false,
+    originalFetch,
+    storageBackend,
+  } = config;
 
-	const { parser, authHandler, storageHandler } = await createComponents(
-		db,
-		storageBackend,
-	);
+  const { parser, authHandler, storageHandler } = await createComponents(
+    db,
+    storageBackend,
+  );
 
-	const localFetch = createLocalFetch({
-		db,
-		parser,
-		authHandler,
-		storageHandler,
-		supabaseUrl,
-		serviceRoleKey,
-		originalFetch,
-		debug,
-	});
+  const localFetch = createLocalFetch({
+    db,
+    parser,
+    authHandler,
+    storageHandler,
+    supabaseUrl,
+    serviceRoleKey,
+    originalFetch,
+    debug,
+  });
 
-	return { localFetch, authHandler, parser, storageHandler };
+  return { localFetch, authHandler, parser, storageHandler };
 }
