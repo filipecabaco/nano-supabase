@@ -9,45 +9,45 @@ import { createClient } from "@supabase/supabase-js";
 import { createFetchAdapter } from "../src/client.ts";
 import { createPGlite } from "../src/pglite-factory.ts";
 import {
-	assertEquals,
-	assertExists,
-	assertNotEquals,
-	describe,
-	test,
+  assertEquals,
+  assertExists,
+  assertNotEquals,
+  describe,
+  test,
 } from "./compat.ts";
 
 interface Task {
-	id: number;
-	user_id: string;
-	title: string;
-	description?: string;
-	completed: boolean;
-	priority?: string;
-	created_at?: string;
+  id: number;
+  user_id: string;
+  title: string;
+  description?: string;
+  completed: boolean;
+  priority?: string;
+  created_at?: string;
 }
 
 interface CountResult {
-	count: number;
+  count: number;
 }
 
 // Helper to create Supabase client with proper types
 async function createTestClient(db?: PGlite) {
-	const dbInstance = db || createPGlite();
-	const { localFetch, authHandler } = await createFetchAdapter({
-		db: dbInstance,
-	});
-	const supabase = createClient("http://localhost:54321", "local-anon-key", {
-		auth: {
-			autoRefreshToken: false,
-		},
-		global: { fetch: localFetch },
-	});
-	return { supabase, authHandler, db: dbInstance };
+  const dbInstance = db || createPGlite();
+  const { localFetch, authHandler } = await createFetchAdapter({
+    db: dbInstance,
+  });
+  const supabase = createClient("http://localhost:54321", "local-anon-key", {
+    auth: {
+      autoRefreshToken: false,
+    },
+    global: { fetch: localFetch },
+  });
+  return { supabase, authHandler, db: dbInstance };
 }
 
 // Helper to create tasks table with RLS
 async function createTasksTableWithRLS(db: PGlite) {
-	await db.exec(`
+  await db.exec(`
     CREATE TABLE IF NOT EXISTS tasks (
       id SERIAL PRIMARY KEY,
       user_id UUID NOT NULL DEFAULT auth.uid(),
@@ -75,101 +75,101 @@ async function createTasksTableWithRLS(db: PGlite) {
 // ============================================================================
 
 describe("RLS", () => {
-	test("Users can only see their own tasks", async () => {
-		const db = createPGlite();
-		const { supabase } = await createTestClient(db);
-		await createTasksTableWithRLS(db);
+  test("Users can only see their own tasks", async () => {
+    const db = createPGlite();
+    const { supabase } = await createTestClient(db);
+    await createTasksTableWithRLS(db);
 
-		// User 1 creates tasks
-		const user1 = await supabase.auth.signUp({
-			email: "user1@example.com",
-			password: "password123",
-		});
-		const user1Id = user1.data.user?.id;
+    // User 1 creates tasks
+    const user1 = await supabase.auth.signUp({
+      email: "user1@example.com",
+      password: "password123",
+    });
+    const user1Id = user1.data.user?.id;
 
-		await supabase.from("tasks").insert({ title: "User 1 Task 1" });
-		await supabase.from("tasks").insert({ title: "User 1 Task 2" });
+    await supabase.from("tasks").insert({ title: "User 1 Task 1" });
+    await supabase.from("tasks").insert({ title: "User 1 Task 2" });
 
-		// User 2 creates tasks
-		await supabase.auth.signOut();
-		const user2 = await supabase.auth.signUp({
-			email: "user2@example.com",
-			password: "password456",
-		});
-		const user2Id = user2.data.user?.id;
+    // User 2 creates tasks
+    await supabase.auth.signOut();
+    const user2 = await supabase.auth.signUp({
+      email: "user2@example.com",
+      password: "password456",
+    });
+    const user2Id = user2.data.user?.id;
 
-		await supabase.from("tasks").insert({ title: "User 2 Task 1" });
+    await supabase.from("tasks").insert({ title: "User 2 Task 1" });
 
-		// User 2 should only see their task
-		const user2Tasks = await supabase.from("tasks").select("*");
-		assertEquals(user2Tasks.data?.length, 1);
-		assertEquals(user2Tasks.data?.[0]?.user_id, user2Id);
+    // User 2 should only see their task
+    const user2Tasks = await supabase.from("tasks").select("*");
+    assertEquals(user2Tasks.data?.length, 1);
+    assertEquals(user2Tasks.data?.[0]?.user_id, user2Id);
 
-		// Switch to User 1
-		await supabase.auth.signOut();
-		await supabase.auth.signInWithPassword({
-			email: "user1@example.com",
-			password: "password123",
-		});
+    // Switch to User 1
+    await supabase.auth.signOut();
+    await supabase.auth.signInWithPassword({
+      email: "user1@example.com",
+      password: "password123",
+    });
 
-		// User 1 should only see their tasks
-		const user1Tasks = await supabase.from("tasks").select("*");
-		assertEquals(user1Tasks.data?.length, 2);
-		assertEquals(
-			user1Tasks.data?.every((t: Task) => t.user_id === user1Id),
-			true,
-		);
+    // User 1 should only see their tasks
+    const user1Tasks = await supabase.from("tasks").select("*");
+    assertEquals(user1Tasks.data?.length, 2);
+    assertEquals(
+      user1Tasks.data?.every((t: Task) => t.user_id === user1Id),
+      true,
+    );
 
-		await db.close();
-	});
+    await db.close();
+  });
 
-	test("Anonymous users cannot access protected tables", async () => {
-		const db = createPGlite();
-		const { supabase } = await createTestClient(db);
-		await createTasksTableWithRLS(db);
+  test("Anonymous users cannot access protected tables", async () => {
+    const db = createPGlite();
+    const { supabase } = await createTestClient(db);
+    await createTasksTableWithRLS(db);
 
-		// Create task as authenticated user
-		await supabase.auth.signUp({
-			email: "test@example.com",
-			password: "password123",
-		});
-		await supabase.from("tasks").insert({ title: "Test Task" });
+    // Create task as authenticated user
+    await supabase.auth.signUp({
+      email: "test@example.com",
+      password: "password123",
+    });
+    await supabase.from("tasks").insert({ title: "Test Task" });
 
-		// Sign out and try to access as anon
-		await supabase.auth.signOut();
-		const anonResult = await supabase.from("tasks").select("*");
+    // Sign out and try to access as anon
+    await supabase.auth.signOut();
+    const anonResult = await supabase.from("tasks").select("*");
 
-		// Should return empty (RLS filters it out)
-		assertEquals(anonResult.error, null);
-		assertEquals(anonResult.data?.length, 0);
+    // Should return empty (RLS filters it out)
+    assertEquals(anonResult.error, null);
+    assertEquals(anonResult.data?.length, 0);
 
-		await db.close();
-	});
+    await db.close();
+  });
 
-	test("auth.uid() works as DEFAULT value", async () => {
-		const db = createPGlite();
-		const { supabase } = await createTestClient(db);
-		await createTasksTableWithRLS(db);
+  test("auth.uid() works as DEFAULT value", async () => {
+    const db = createPGlite();
+    const { supabase } = await createTestClient(db);
+    await createTasksTableWithRLS(db);
 
-		const signUpResult = await supabase.auth.signUp({
-			email: "test@example.com",
-			password: "password123",
-		});
-		const userId = signUpResult.data.user?.id;
+    const signUpResult = await supabase.auth.signUp({
+      email: "test@example.com",
+      password: "password123",
+    });
+    const userId = signUpResult.data.user?.id;
 
-		// Insert without specifying user_id
-		const insertResult = await supabase
-			.from("tasks")
-			.insert({
-				title: "Test Task",
-			})
-			.select();
+    // Insert without specifying user_id
+    const insertResult = await supabase
+      .from("tasks")
+      .insert({
+        title: "Test Task",
+      })
+      .select();
 
-		assertEquals(insertResult.error, null);
-		assertEquals(insertResult.data?.[0]?.user_id, userId);
+    assertEquals(insertResult.error, null);
+    assertEquals(insertResult.data?.[0]?.user_id, userId);
 
-		await db.close();
-	});
+    await db.close();
+  });
 });
 
 // ============================================================================
@@ -177,395 +177,395 @@ describe("RLS", () => {
 // ============================================================================
 
 describe("Auth Flow", () => {
-	test("Sign up, create data, sign out, sign up, verify isolation", async () => {
-		const db = createPGlite();
-		const { supabase } = await createTestClient(db);
-		await createTasksTableWithRLS(db);
+  test("Sign up, create data, sign out, sign up, verify isolation", async () => {
+    const db = createPGlite();
+    const { supabase } = await createTestClient(db);
+    await createTasksTableWithRLS(db);
 
-		// === User 1 Session ===
-		const user1 = await supabase.auth.signUp({
-			email: "user1@example.com",
-			password: "password123",
-		});
-		const user1Id = user1.data.user?.id;
+    // === User 1 Session ===
+    const user1 = await supabase.auth.signUp({
+      email: "user1@example.com",
+      password: "password123",
+    });
+    const user1Id = user1.data.user?.id;
 
-		await supabase.from("tasks").insert({ title: "User 1 Task 1" });
-		await supabase.from("tasks").insert({ title: "User 1 Task 2" });
+    await supabase.from("tasks").insert({ title: "User 1 Task 1" });
+    await supabase.from("tasks").insert({ title: "User 1 Task 2" });
 
-		let tasks = await supabase.from("tasks").select("*");
-		assertEquals(tasks.data?.length, 2);
+    let tasks = await supabase.from("tasks").select("*");
+    assertEquals(tasks.data?.length, 2);
 
-		// Sign out
-		await supabase.auth.signOut();
+    // Sign out
+    await supabase.auth.signOut();
 
-		// After sign out, should see no tasks
-		tasks = await supabase.from("tasks").select("*");
-		assertEquals(tasks.data?.length, 0);
+    // After sign out, should see no tasks
+    tasks = await supabase.from("tasks").select("*");
+    assertEquals(tasks.data?.length, 0);
 
-		// === User 2 Session ===
-		const user2 = await supabase.auth.signUp({
-			email: "user2@example.com",
-			password: "password456",
-		});
-		const user2Id = user2.data.user?.id;
+    // === User 2 Session ===
+    const user2 = await supabase.auth.signUp({
+      email: "user2@example.com",
+      password: "password456",
+    });
+    const user2Id = user2.data.user?.id;
 
-		assertNotEquals(user1Id, user2Id);
+    assertNotEquals(user1Id, user2Id);
 
-		await supabase.from("tasks").insert({ title: "User 2 Task 1" });
+    await supabase.from("tasks").insert({ title: "User 2 Task 1" });
 
-		// User 2 should only see their task
-		tasks = await supabase.from("tasks").select("*");
-		assertEquals(tasks.data?.length, 1);
-		assertEquals(tasks.data?.[0]?.title, "User 2 Task 1");
-		assertEquals(tasks.data?.[0]?.user_id, user2Id);
+    // User 2 should only see their task
+    tasks = await supabase.from("tasks").select("*");
+    assertEquals(tasks.data?.length, 1);
+    assertEquals(tasks.data?.[0]?.title, "User 2 Task 1");
+    assertEquals(tasks.data?.[0]?.user_id, user2Id);
 
-		await db.close();
-	});
+    await db.close();
+  });
 
-	test("Sign out allows signing up new user", async () => {
-		const db = createPGlite();
-		const { supabase } = await createTestClient(db);
+  test("Sign out allows signing up new user", async () => {
+    const db = createPGlite();
+    const { supabase } = await createTestClient(db);
 
-		// Sign up first user
-		const user1Result = await supabase.auth.signUp({
-			email: "user1@example.com",
-			password: "password123",
-		});
-		assertEquals(user1Result.error, null);
-		assertExists(user1Result.data.user);
-		const user1Id = user1Result.data.user?.id;
+    // Sign up first user
+    const user1Result = await supabase.auth.signUp({
+      email: "user1@example.com",
+      password: "password123",
+    });
+    assertEquals(user1Result.error, null);
+    assertExists(user1Result.data.user);
+    const user1Id = user1Result.data.user?.id;
 
-		// Sign out
-		const signOutResult = await supabase.auth.signOut();
-		assertEquals(signOutResult.error, null);
+    // Sign out
+    const signOutResult = await supabase.auth.signOut();
+    assertEquals(signOutResult.error, null);
 
-		// Sign up second user (verifies sign out worked correctly)
-		const user2Result = await supabase.auth.signUp({
-			email: "user2@example.com",
-			password: "password456",
-		});
-		assertEquals(user2Result.error, null);
-		assertExists(user2Result.data.user);
-		const user2Id = user2Result.data.user?.id;
+    // Sign up second user (verifies sign out worked correctly)
+    const user2Result = await supabase.auth.signUp({
+      email: "user2@example.com",
+      password: "password456",
+    });
+    assertEquals(user2Result.error, null);
+    assertExists(user2Result.data.user);
+    const user2Id = user2Result.data.user?.id;
 
-		// Verify both users exist and are different
-		assertNotEquals(user1Id, user2Id);
+    // Verify both users exist and are different
+    assertNotEquals(user1Id, user2Id);
 
-		const usersResult = await db.query<{ id: string }>(
-			"SELECT id FROM auth.users ORDER BY created_at",
-		);
-		assertEquals(usersResult.rows.length, 2);
+    const usersResult = await db.query<{ id: string }>(
+      "SELECT id FROM auth.users ORDER BY created_at",
+    );
+    assertEquals(usersResult.rows.length, 2);
 
-		await db.close();
-	});
+    await db.close();
+  });
 
-	test("Sign out then sign in preserves user data", async () => {
-		const db = createPGlite();
-		const { supabase } = await createTestClient(db);
-		await createTasksTableWithRLS(db);
+  test("Sign out then sign in preserves user data", async () => {
+    const db = createPGlite();
+    const { supabase } = await createTestClient(db);
+    await createTasksTableWithRLS(db);
 
-		// Sign up and create tasks
-		const signUpResult = await supabase.auth.signUp({
-			email: "test@example.com",
-			password: "password123",
-		});
-		const userId = signUpResult.data.user?.id;
+    // Sign up and create tasks
+    const signUpResult = await supabase.auth.signUp({
+      email: "test@example.com",
+      password: "password123",
+    });
+    const userId = signUpResult.data.user?.id;
 
-		await supabase.from("tasks").insert({ title: "Task 1" });
-		await supabase.from("tasks").insert({ title: "Task 2" });
+    await supabase.from("tasks").insert({ title: "Task 1" });
+    await supabase.from("tasks").insert({ title: "Task 2" });
 
-		// Sign out
-		await supabase.auth.signOut();
+    // Sign out
+    await supabase.auth.signOut();
 
-		// Sign in again
-		const signInResult = await supabase.auth.signInWithPassword({
-			email: "test@example.com",
-			password: "password123",
-		});
-		assertEquals(signInResult.error, null);
-		assertEquals(signInResult.data.user?.id, userId);
+    // Sign in again
+    const signInResult = await supabase.auth.signInWithPassword({
+      email: "test@example.com",
+      password: "password123",
+    });
+    assertEquals(signInResult.error, null);
+    assertEquals(signInResult.data.user?.id, userId);
 
-		// Should see original tasks
-		const tasks = await supabase.from("tasks").select("*");
-		assertEquals(tasks.data?.length, 2);
-		assertEquals(
-			tasks.data?.every((t: Task) => t.user_id === userId),
-			true,
-		);
+    // Should see original tasks
+    const tasks = await supabase.from("tasks").select("*");
+    assertEquals(tasks.data?.length, 2);
+    assertEquals(
+      tasks.data?.every((t: Task) => t.user_id === userId),
+      true,
+    );
 
-		await db.close();
-	});
+    await db.close();
+  });
 
-	test("Multiple sign out then sign up cycles work correctly", async () => {
-		const db = createPGlite();
-		const { supabase } = await createTestClient(db);
-		await createTasksTableWithRLS(db);
+  test("Multiple sign out then sign up cycles work correctly", async () => {
+    const db = createPGlite();
+    const { supabase } = await createTestClient(db);
+    await createTasksTableWithRLS(db);
 
-		// Cycle 1: User A
-		await supabase.auth.signUp({
-			email: "userA@example.com",
-			password: "password",
-		});
-		await supabase.from("tasks").insert({ title: "User A Task" });
-		await supabase.auth.signOut();
+    // Cycle 1: User A
+    await supabase.auth.signUp({
+      email: "userA@example.com",
+      password: "password",
+    });
+    await supabase.from("tasks").insert({ title: "User A Task" });
+    await supabase.auth.signOut();
 
-		// Cycle 2: User B
-		await supabase.auth.signUp({
-			email: "userB@example.com",
-			password: "password",
-		});
-		await supabase.from("tasks").insert({ title: "User B Task" });
-		await supabase.auth.signOut();
+    // Cycle 2: User B
+    await supabase.auth.signUp({
+      email: "userB@example.com",
+      password: "password",
+    });
+    await supabase.from("tasks").insert({ title: "User B Task" });
+    await supabase.auth.signOut();
 
-		// Cycle 3: User C
-		await supabase.auth.signUp({
-			email: "userC@example.com",
-			password: "password",
-		});
-		await supabase.from("tasks").insert({ title: "User C Task" });
+    // Cycle 3: User C
+    await supabase.auth.signUp({
+      email: "userC@example.com",
+      password: "password",
+    });
+    await supabase.from("tasks").insert({ title: "User C Task" });
 
-		// User C should only see their task
-		const userCTasks = await supabase.from("tasks").select("*");
-		assertEquals(userCTasks.data?.length, 1);
-		assertEquals(userCTasks.data?.[0]?.title, "User C Task");
+    // User C should only see their task
+    const userCTasks = await supabase.from("tasks").select("*");
+    assertEquals(userCTasks.data?.length, 1);
+    assertEquals(userCTasks.data?.[0]?.title, "User C Task");
 
-		await db.close();
-	});
+    await db.close();
+  });
 
-	test("Session cleanup on sign out", async () => {
-		const db = createPGlite();
-		const { supabase } = await createTestClient(db);
+  test("Session cleanup on sign out", async () => {
+    const db = createPGlite();
+    const { supabase } = await createTestClient(db);
 
-		const signUpResult = await supabase.auth.signUp({
-			email: "test@example.com",
-			password: "password123",
-		});
-		const userId = signUpResult.data.user?.id;
+    const signUpResult = await supabase.auth.signUp({
+      email: "test@example.com",
+      password: "password123",
+    });
+    const userId = signUpResult.data.user?.id;
 
-		// Verify session exists
-		let sessionCheck = await db.query<CountResult>(
-			`
+    // Verify session exists
+    let sessionCheck = await db.query<CountResult>(
+      `
     SELECT COUNT(*) as count FROM auth.sessions WHERE user_id = $1
   `,
-			[userId],
-		);
-		assertEquals(sessionCheck.rows[0]?.count, 1);
+      [userId],
+    );
+    assertEquals(sessionCheck.rows[0]?.count, 1);
 
-		// Sign out
-		await supabase.auth.signOut();
+    // Sign out
+    await supabase.auth.signOut();
 
-		// Verify session deleted
-		sessionCheck = await db.query<CountResult>(
-			`
+    // Verify session deleted
+    sessionCheck = await db.query<CountResult>(
+      `
     SELECT COUNT(*) as count FROM auth.sessions WHERE user_id = $1
   `,
-			[userId],
-		);
-		assertEquals(sessionCheck.rows[0]?.count, 0);
+      [userId],
+    );
+    assertEquals(sessionCheck.rows[0]?.count, 0);
 
-		await db.close();
-	});
+    await db.close();
+  });
 
-	test("Concurrent users with isolated data", async () => {
-		const db = createPGlite();
-		const { supabase: client1 } = await createTestClient(db);
-		const { supabase: client2 } = await createTestClient(db);
-		await createTasksTableWithRLS(db);
+  test("Concurrent users with isolated data", async () => {
+    const db = createPGlite();
+    const { supabase: client1 } = await createTestClient(db);
+    const { supabase: client2 } = await createTestClient(db);
+    await createTasksTableWithRLS(db);
 
-		// User 1
-		const user1 = await client1.auth.signUp({
-			email: "user1@example.com",
-			password: "password123",
-		});
-		const user1Id = user1.data.user?.id;
+    // User 1
+    const user1 = await client1.auth.signUp({
+      email: "user1@example.com",
+      password: "password123",
+    });
+    const user1Id = user1.data.user?.id;
 
-		await client1.from("tasks").insert({ title: "User 1 Task 1" });
-		await client1.from("tasks").insert({ title: "User 1 Task 2" });
+    await client1.from("tasks").insert({ title: "User 1 Task 1" });
+    await client1.from("tasks").insert({ title: "User 1 Task 2" });
 
-		// User 2
-		const user2 = await client2.auth.signUp({
-			email: "user2@example.com",
-			password: "password456",
-		});
-		const user2Id = user2.data.user?.id;
+    // User 2
+    const user2 = await client2.auth.signUp({
+      email: "user2@example.com",
+      password: "password456",
+    });
+    const user2Id = user2.data.user?.id;
 
-		await client2.from("tasks").insert({ title: "User 2 Task 1" });
+    await client2.from("tasks").insert({ title: "User 2 Task 1" });
 
-		// Each user sees only their own tasks
-		const user1Tasks = await client1.from("tasks").select("*");
-		assertEquals(user1Tasks.data?.length, 2);
-		assertEquals(
-			user1Tasks.data?.every((t: Task) => t.user_id === user1Id),
-			true,
-		);
+    // Each user sees only their own tasks
+    const user1Tasks = await client1.from("tasks").select("*");
+    assertEquals(user1Tasks.data?.length, 2);
+    assertEquals(
+      user1Tasks.data?.every((t: Task) => t.user_id === user1Id),
+      true,
+    );
 
-		const user2Tasks = await client2.from("tasks").select("*");
-		assertEquals(user2Tasks.data?.length, 1);
-		assertEquals(user2Tasks.data?.[0]?.user_id, user2Id);
+    const user2Tasks = await client2.from("tasks").select("*");
+    assertEquals(user2Tasks.data?.length, 1);
+    assertEquals(user2Tasks.data?.[0]?.user_id, user2Id);
 
-		await db.close();
-	});
+    await db.close();
+  });
 
-	test("refreshSession returns a new refresh token and the access token works for getUser", async () => {
-		const db = createPGlite();
-		const { authHandler } = await createTestClient(db);
+  test("refreshSession returns a new refresh token and the access token works for getUser", async () => {
+    const db = createPGlite();
+    const { authHandler } = await createTestClient(db);
 
-		const signUpResult = await authHandler.signUp(
-			"refresh@example.com",
-			"pass1234",
-		);
-		const originalRefreshToken = signUpResult.data.session?.refresh_token;
-		assertExists(originalRefreshToken);
+    const signUpResult = await authHandler.signUp(
+      "refresh@example.com",
+      "pass1234",
+    );
+    const originalRefreshToken = signUpResult.data.session?.refresh_token;
+    assertExists(originalRefreshToken);
 
-		const refreshResult = await authHandler.refreshSession(
-			originalRefreshToken ?? "",
-		);
-		assertEquals(refreshResult.error, null);
-		assertExists(refreshResult.data.session?.access_token);
-		assertExists(refreshResult.data.session?.refresh_token);
-		assertNotEquals(
-			refreshResult.data.session?.refresh_token,
-			originalRefreshToken,
-		);
+    const refreshResult = await authHandler.refreshSession(
+      originalRefreshToken ?? "",
+    );
+    assertEquals(refreshResult.error, null);
+    assertExists(refreshResult.data.session?.access_token);
+    assertExists(refreshResult.data.session?.refresh_token);
+    assertNotEquals(
+      refreshResult.data.session?.refresh_token,
+      originalRefreshToken,
+    );
 
-		const userResult = await authHandler.getUser(
-			refreshResult.data.session?.access_token,
-		);
-		assertEquals(userResult.error, null);
-		assertEquals(userResult.data.user?.email, "refresh@example.com");
+    const userResult = await authHandler.getUser(
+      refreshResult.data.session?.access_token,
+    );
+    assertEquals(userResult.error, null);
+    assertEquals(userResult.data.user?.email, "refresh@example.com");
 
-		await db.close();
-	});
+    await db.close();
+  });
 
-	test("getUser returns user data for valid access token", async () => {
-		const db = createPGlite();
-		const { authHandler } = await createTestClient(db);
+  test("getUser returns user data for valid access token", async () => {
+    const db = createPGlite();
+    const { authHandler } = await createTestClient(db);
 
-		const signInResult = await authHandler.signUp(
-			"getuser@example.com",
-			"pass1234",
-		);
-		const accessToken = signInResult.data.session?.access_token;
-		assertExists(accessToken);
+    const signInResult = await authHandler.signUp(
+      "getuser@example.com",
+      "pass1234",
+    );
+    const accessToken = signInResult.data.session?.access_token;
+    assertExists(accessToken);
 
-		const userResult = await authHandler.getUser(accessToken ?? "");
-		assertEquals(userResult.error, null);
-		assertExists(userResult.data.user);
-		assertEquals(userResult.data.user?.email, "getuser@example.com");
-		assertEquals(userResult.data.user?.role, "authenticated");
+    const userResult = await authHandler.getUser(accessToken ?? "");
+    assertEquals(userResult.error, null);
+    assertExists(userResult.data.user);
+    assertEquals(userResult.data.user?.email, "getuser@example.com");
+    assertEquals(userResult.data.user?.role, "authenticated");
 
-		await db.close();
-	});
+    await db.close();
+  });
 
-	test("updateUser persists email and metadata changes", async () => {
-		const db = createPGlite();
-		const { authHandler } = await createTestClient(db);
+  test("updateUser persists email and metadata changes", async () => {
+    const db = createPGlite();
+    const { authHandler } = await createTestClient(db);
 
-		const signUpResult = await authHandler.signUp(
-			"update@example.com",
-			"pass1234",
-		);
-		const accessToken = signUpResult.data.session?.access_token;
-		assertExists(accessToken);
+    const signUpResult = await authHandler.signUp(
+      "update@example.com",
+      "pass1234",
+    );
+    const accessToken = signUpResult.data.session?.access_token;
+    assertExists(accessToken);
 
-		const updateResult = await authHandler.updateUser(accessToken ?? "", {
-			data: { display_name: "Updated Name" },
-		});
-		assertEquals(updateResult.error, null);
-		assertEquals(
-			updateResult.data.user?.user_metadata?.display_name,
-			"Updated Name",
-		);
+    const updateResult = await authHandler.updateUser(accessToken ?? "", {
+      data: { display_name: "Updated Name" },
+    });
+    assertEquals(updateResult.error, null);
+    assertEquals(
+      updateResult.data.user?.user_metadata?.display_name,
+      "Updated Name",
+    );
 
-		const userResult = await authHandler.getUser(accessToken ?? "");
-		assertEquals(
-			userResult.data.user?.user_metadata?.display_name,
-			"Updated Name",
-		);
+    const userResult = await authHandler.getUser(accessToken ?? "");
+    assertEquals(
+      userResult.data.user?.user_metadata?.display_name,
+      "Updated Name",
+    );
 
-		await db.close();
-	});
+    await db.close();
+  });
 
-	test("setSession and getSession round-trip", async () => {
-		const db = createPGlite();
-		const { authHandler } = await createTestClient(db);
+  test("setSession and getSession round-trip", async () => {
+    const db = createPGlite();
+    const { authHandler } = await createTestClient(db);
 
-		const signUpResult = await authHandler.signUp(
-			"session@example.com",
-			"pass1234",
-		);
-		const originalSession = signUpResult.data.session;
-		assertExists(originalSession);
+    const signUpResult = await authHandler.signUp(
+      "session@example.com",
+      "pass1234",
+    );
+    const originalSession = signUpResult.data.session;
+    assertExists(originalSession);
 
-		authHandler.setSession(null);
-		assertEquals(authHandler.getSession(), null);
+    authHandler.setSession(null);
+    assertEquals(authHandler.getSession(), null);
 
-		authHandler.setSession(originalSession);
-		const restored = authHandler.getSession();
-		assertEquals(restored?.access_token, originalSession.access_token);
-		assertEquals(restored?.user?.email, "session@example.com");
+    authHandler.setSession(originalSession);
+    const restored = authHandler.getSession();
+    assertEquals(restored?.access_token, originalSession.access_token);
+    assertEquals(restored?.user?.email, "session@example.com");
 
-		await db.close();
-	});
+    await db.close();
+  });
 
-	test("verifyToken returns valid payload for a real token and error for a fake one", async () => {
-		const db = createPGlite();
-		const { authHandler } = await createTestClient(db);
+  test("verifyToken returns valid payload for a real token and error for a fake one", async () => {
+    const db = createPGlite();
+    const { authHandler } = await createTestClient(db);
 
-		const signUpResult = await authHandler.signUp(
-			"verify@example.com",
-			"pass1234",
-		);
-		const accessToken = signUpResult.data.session?.access_token;
-		assertExists(accessToken);
+    const signUpResult = await authHandler.signUp(
+      "verify@example.com",
+      "pass1234",
+    );
+    const accessToken = signUpResult.data.session?.access_token;
+    assertExists(accessToken);
 
-		const validResult = await authHandler.verifyToken(accessToken ?? "");
-		assertEquals(validResult.valid, true);
-		assertExists(validResult.payload);
-		assertEquals(validResult.payload?.email, "verify@example.com");
+    const validResult = await authHandler.verifyToken(accessToken ?? "");
+    assertEquals(validResult.valid, true);
+    assertExists(validResult.payload);
+    assertEquals(validResult.payload?.email, "verify@example.com");
 
-		const invalidResult = await authHandler.verifyToken("not.a.real.token");
-		assertEquals(invalidResult.valid, false);
-		assertExists(invalidResult.error);
+    const invalidResult = await authHandler.verifyToken("not.a.real.token");
+    assertEquals(invalidResult.valid, false);
+    assertExists(invalidResult.error);
 
-		await db.close();
-	});
+    await db.close();
+  });
 
-	test("Invalid credentials do not create session", async () => {
-		const db = createPGlite();
-		const { supabase } = await createTestClient(db);
+  test("Invalid credentials do not create session", async () => {
+    const db = createPGlite();
+    const { supabase } = await createTestClient(db);
 
-		// Create user
-		const signUpResult = await supabase.auth.signUp({
-			email: "test@example.com",
-			password: "password123",
-		});
-		const userId = signUpResult.data.user?.id;
+    // Create user
+    const signUpResult = await supabase.auth.signUp({
+      email: "test@example.com",
+      password: "password123",
+    });
+    const userId = signUpResult.data.user?.id;
 
-		// Sign out
-		await supabase.auth.signOut();
+    // Sign out
+    await supabase.auth.signOut();
 
-		// Try wrong password
-		const failedSignIn = await supabase.auth.signInWithPassword({
-			email: "test@example.com",
-			password: "wrongpassword",
-		});
+    // Try wrong password
+    const failedSignIn = await supabase.auth.signInWithPassword({
+      email: "test@example.com",
+      password: "wrongpassword",
+    });
 
-		// Should return error
-		assertNotEquals(failedSignIn.error, null);
-		assertEquals(failedSignIn.data.user, null);
-		assertEquals(failedSignIn.data.session, null);
+    // Should return error
+    assertNotEquals(failedSignIn.error, null);
+    assertEquals(failedSignIn.data.user, null);
+    assertEquals(failedSignIn.data.session, null);
 
-		// Verify no new session was created for this user
-		const sessionCheck = await db.query<CountResult>(
-			`SELECT COUNT(*) as count FROM auth.sessions WHERE user_id = $1`,
-			[userId],
-		);
-		// Should still have 0 sessions (original was deleted on signOut)
-		assertEquals(sessionCheck.rows[0]?.count, 0);
+    // Verify no new session was created for this user
+    const sessionCheck = await db.query<CountResult>(
+      `SELECT COUNT(*) as count FROM auth.sessions WHERE user_id = $1`,
+      [userId],
+    );
+    // Should still have 0 sessions (original was deleted on signOut)
+    assertEquals(sessionCheck.rows[0]?.count, 0);
 
-		await db.close();
-	});
+    await db.close();
+  });
 });
 
 // ============================================================================
@@ -573,79 +573,79 @@ describe("Auth Flow", () => {
 // ============================================================================
 
 describe("Complex RLS", () => {
-	test("Update and delete operations respect user boundaries", async () => {
-		const db = createPGlite();
-		const { supabase } = await createTestClient(db);
-		await createTasksTableWithRLS(db);
+  test("Update and delete operations respect user boundaries", async () => {
+    const db = createPGlite();
+    const { supabase } = await createTestClient(db);
+    await createTasksTableWithRLS(db);
 
-		// User 1 creates tasks
-		const _user1 = await supabase.auth.signUp({
-			email: "user1@example.com",
-			password: "password123",
-		});
-		await supabase
-			.from("tasks")
-			.insert({ title: "User 1 Task", completed: false });
+    // User 1 creates tasks
+    const _user1 = await supabase.auth.signUp({
+      email: "user1@example.com",
+      password: "password123",
+    });
+    await supabase
+      .from("tasks")
+      .insert({ title: "User 1 Task", completed: false });
 
-		// User 2 tries to update User 1's task
-		await supabase.auth.signOut();
-		await supabase.auth.signUp({
-			email: "user2@example.com",
-			password: "password456",
-		});
+    // User 2 tries to update User 1's task
+    await supabase.auth.signOut();
+    await supabase.auth.signUp({
+      email: "user2@example.com",
+      password: "password456",
+    });
 
-		// Try to update User 1's task - should fail silently (0 rows affected)
-		const updateResult = await supabase
-			.from("tasks")
-			.update({ completed: true })
-			.eq("title", "User 1 Task")
-			.select();
+    // Try to update User 1's task - should fail silently (0 rows affected)
+    const updateResult = await supabase
+      .from("tasks")
+      .update({ completed: true })
+      .eq("title", "User 1 Task")
+      .select();
 
-		assertEquals(updateResult.error, null);
-		assertEquals(updateResult.data?.length, 0); // No rows updated
+    assertEquals(updateResult.error, null);
+    assertEquals(updateResult.data?.length, 0); // No rows updated
 
-		// Verify User 1's task is unchanged
-		await supabase.auth.signOut();
-		await supabase.auth.signInWithPassword({
-			email: "user1@example.com",
-			password: "password123",
-		});
+    // Verify User 1's task is unchanged
+    await supabase.auth.signOut();
+    await supabase.auth.signInWithPassword({
+      email: "user1@example.com",
+      password: "password123",
+    });
 
-		const checkTask = await supabase
-			.from("tasks")
-			.select("*")
-			.eq("title", "User 1 Task")
-			.single();
+    const checkTask = await supabase
+      .from("tasks")
+      .select("*")
+      .eq("title", "User 1 Task")
+      .single();
 
-		// Completed should still be false (or falsy/undefined which defaults to false)
-		assertEquals(checkTask.data?.completed || false, false);
+    // Completed should still be false (or falsy/undefined which defaults to false)
+    assertEquals(checkTask.data?.completed || false, false);
 
-		await db.close();
-	});
+    await db.close();
+  });
 
-	test("Context persists across multiple operations", async () => {
-		const db = createPGlite();
-		const { supabase } = await createTestClient(db);
-		await createTasksTableWithRLS(db);
+  test("Context persists across multiple operations", async () => {
+    const db = createPGlite();
+    const { supabase } = await createTestClient(db);
+    await createTasksTableWithRLS(db);
 
-		const signUpResult = await supabase.auth.signUp({
-			email: "test@example.com",
-			password: "password123",
-		});
-		const userId = signUpResult.data.user?.id;
+    const signUpResult = await supabase.auth.signUp({
+      email: "test@example.com",
+      password: "password123",
+    });
+    const userId = signUpResult.data.user?.id;
 
-		// Multiple operations should all use same context
-		await supabase.from("tasks").insert({ title: "Task 1" });
-		await supabase.from("tasks").insert({ title: "Task 2" });
-		await supabase.from("tasks").insert({ title: "Task 3" });
+    // Multiple operations should all use same context
+    await supabase.from("tasks").insert({ title: "Task 1" });
+    await supabase.from("tasks").insert({ title: "Task 2" });
+    await supabase.from("tasks").insert({ title: "Task 3" });
 
-		const allTasks = await supabase.from("tasks").select("*");
-		assertEquals(allTasks.data?.length, 3);
-		assertEquals(
-			allTasks.data?.every((t: Task) => t.user_id === userId),
-			true,
-		);
+    const allTasks = await supabase.from("tasks").select("*");
+    assertEquals(allTasks.data?.length, 3);
+    assertEquals(
+      allTasks.data?.every((t: Task) => t.user_id === userId),
+      true,
+    );
 
-		await db.close();
-	});
+    await db.close();
+  });
 });

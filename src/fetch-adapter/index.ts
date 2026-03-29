@@ -21,73 +21,73 @@ import { handleDataRoute } from "./data-routes.ts";
 import { handleStorageRoute, type TusSessionMap } from "./storage-routes.ts";
 
 export interface FetchAdapterConfig {
-	/** The PGlite database instance */
-	db: PGliteInterface;
-	/** The PostgREST parser instance */
-	parser: PostgrestParser;
-	/** The auth handler instance */
-	authHandler: AuthHandler;
-	/** The storage handler instance (optional — enables /storage/v1/* interception) */
-	storageHandler?: StorageHandler;
-	/** The Supabase URL to intercept (used to match requests) */
-	supabaseUrl: string;
-	/**
-	 * Original fetch function to use for passthrough requests
-	 * Defaults to globalThis.fetch
-	 */
-	originalFetch?: (
-		input: RequestInfo | URL,
-		init?: RequestInit,
-	) => Promise<Response>;
-	/**
-	 * Enable debug logging
-	 */
-	debug?: boolean;
-	/**
-	 * Service role key — when provided, admin auth routes (/auth/v1/admin/*) require it as bearer token
-	 */
-	serviceRoleKey?: string;
+  /** The PGlite database instance */
+  db: PGliteInterface;
+  /** The PostgREST parser instance */
+  parser: PostgrestParser;
+  /** The auth handler instance */
+  authHandler: AuthHandler;
+  /** The storage handler instance (optional — enables /storage/v1/* interception) */
+  storageHandler?: StorageHandler;
+  /** The Supabase URL to intercept (used to match requests) */
+  supabaseUrl: string;
+  /**
+   * Original fetch function to use for passthrough requests
+   * Defaults to globalThis.fetch
+   */
+  originalFetch?: (
+    input: RequestInfo | URL,
+    init?: RequestInit,
+  ) => Promise<Response>;
+  /**
+   * Enable debug logging
+   */
+  debug?: boolean;
+  /**
+   * Service role key — when provided, admin auth routes (/auth/v1/admin/*) require it as bearer token
+   */
+  serviceRoleKey?: string;
 }
 
 type RouteInfo =
-	| { intercept: true; type: "auth" | "data" | "storage"; pathname: string }
-	| { intercept: false; type: "passthrough" };
+  | { intercept: true; type: "auth" | "data" | "storage"; pathname: string }
+  | { intercept: false; type: "passthrough" };
 
 /**
  * Determine if and how a request should be routed
  */
 function getRouteInfo(
-	request: Request,
-	supabaseUrl: string,
-	hasStorage: boolean,
+  request: Request,
+  supabaseUrl: string,
+  hasStorage: boolean,
 ): RouteInfo {
-	const url = new URL(request.url);
-	const supabaseHost = new URL(supabaseUrl).host;
+  const url = new URL(request.url);
+  const supabaseHost = new URL(supabaseUrl).host;
 
-	// Only intercept requests to the configured Supabase URL
-	if (url.host !== supabaseHost) {
-		return { intercept: false, type: "passthrough" };
-	}
+  // Only intercept requests to the configured Supabase URL
+  if (url.host !== supabaseHost) {
+    return { intercept: false, type: "passthrough" };
+  }
 
-	const pathname = url.pathname;
+  const pathname = url.pathname;
 
-	// Auth routes: /auth/v1/*
-	if (pathname.startsWith("/auth/v1/")) {
-		return { intercept: true, type: "auth", pathname };
-	}
+  // Auth routes: /auth/v1/*
+  if (pathname.startsWith("/auth/v1/")) {
+    return { intercept: true, type: "auth", pathname };
+  }
 
-	// Data routes: /rest/v1/*
-	if (pathname.startsWith("/rest/v1/")) {
-		return { intercept: true, type: "data", pathname };
-	}
+  // Data routes: /rest/v1/*
+  if (pathname.startsWith("/rest/v1/")) {
+    return { intercept: true, type: "data", pathname };
+  }
 
-	// Storage routes: /storage/v1/* (only if storage handler is configured)
-	if (hasStorage && pathname.startsWith("/storage/v1/")) {
-		return { intercept: true, type: "storage", pathname };
-	}
+  // Storage routes: /storage/v1/* (only if storage handler is configured)
+  if (hasStorage && pathname.startsWith("/storage/v1/")) {
+    return { intercept: true, type: "storage", pathname };
+  }
 
-	// All other routes pass through (realtime, edge functions, etc.)
-	return { intercept: false, type: "passthrough" };
+  // All other routes pass through (realtime, edge functions, etc.)
+  return { intercept: false, type: "passthrough" };
 }
 
 /**
@@ -119,114 +119,114 @@ function getRouteInfo(
  * ```
  */
 export function createLocalFetch(
-	config: FetchAdapterConfig,
+  config: FetchAdapterConfig,
 ): (input: RequestInfo | URL, init?: RequestInit) => Promise<Response> {
-	const {
-		db,
-		parser,
-		authHandler,
-		storageHandler,
-		supabaseUrl,
-		originalFetch = globalThis.fetch.bind(globalThis),
-		debug = false,
-		serviceRoleKey,
-	} = config;
+  const {
+    db,
+    parser,
+    authHandler,
+    storageHandler,
+    supabaseUrl,
+    originalFetch = globalThis.fetch.bind(globalThis),
+    debug = false,
+    serviceRoleKey,
+  } = config;
 
-	const log = debug
-		? (...args: unknown[]) => console.log("[nano-supabase]", ...args)
-		: () => {};
+  const log = debug
+    ? (...args: unknown[]) => console.log("[nano-supabase]", ...args)
+    : () => {};
 
-	const tusSessions: TusSessionMap = new Map();
+  const tusSessions: TusSessionMap = new Map();
 
-	return async function localFetch(
-		input: RequestInfo | URL,
-		init?: RequestInit,
-	): Promise<Response> {
-		// Normalize input to Request object
-		const request = input instanceof Request ? input : new Request(input, init);
+  return async function localFetch(
+    input: RequestInfo | URL,
+    init?: RequestInit,
+  ): Promise<Response> {
+    // Normalize input to Request object
+    const request = input instanceof Request ? input : new Request(input, init);
 
-		const routeInfo = getRouteInfo(request, supabaseUrl, !!storageHandler);
+    const routeInfo = getRouteInfo(request, supabaseUrl, !!storageHandler);
 
-		if (!routeInfo.intercept) {
-			log("Passthrough:", request.method, request.url);
-			// Pass through to original fetch
-			return originalFetch(input, init);
-		}
+    if (!routeInfo.intercept) {
+      log("Passthrough:", request.method, request.url);
+      // Pass through to original fetch
+      return originalFetch(input, init);
+    }
 
-		const authHeader = request.headers.get("Authorization");
-		log("Intercepting:", routeInfo.type, request.method, routeInfo.pathname);
-		log(
-			"Authorization header:",
-			authHeader ? `${authHeader.slice(0, 20)}...` : "none",
-		);
+    const authHeader = request.headers.get("Authorization");
+    log("Intercepting:", routeInfo.type, request.method, routeInfo.pathname);
+    log(
+      "Authorization header:",
+      authHeader ? `${authHeader.slice(0, 20)}...` : "none",
+    );
 
-		try {
-			let response: Response;
+    try {
+      let response: Response;
 
-			if (routeInfo.type === "auth") {
-				response = await handleAuthRoute(
-					request,
-					routeInfo.pathname,
-					authHandler,
-					serviceRoleKey,
-				);
-			} else if (routeInfo.type === "data") {
-				response = await handleDataRoute(
-					request,
-					routeInfo.pathname,
-					db,
-					parser,
-				);
-			} else if (storageHandler) {
-				response = await handleStorageRoute(
-					request,
-					routeInfo.pathname,
-					db,
-					storageHandler,
-					tusSessions,
-				);
-			} else {
-				return originalFetch(input, init);
-			}
+      if (routeInfo.type === "auth") {
+        response = await handleAuthRoute(
+          request,
+          routeInfo.pathname,
+          authHandler,
+          serviceRoleKey,
+        );
+      } else if (routeInfo.type === "data") {
+        response = await handleDataRoute(
+          request,
+          routeInfo.pathname,
+          db,
+          parser,
+        );
+      } else if (storageHandler) {
+        response = await handleStorageRoute(
+          request,
+          routeInfo.pathname,
+          db,
+          storageHandler,
+          tusSessions,
+        );
+      } else {
+        return originalFetch(input, init);
+      }
 
-			// Log response status
-			log("Response status:", response.status);
+      // Log response status
+      log("Response status:", response.status);
 
-			return response;
-		} catch (err) {
-			log("Error handling request:", err);
+      return response;
+    } catch (err) {
+      log("Error handling request:", err);
 
-			// Return error response
-			const message = err instanceof Error ? err.message : "Internal error";
-			return new Response(
-				JSON.stringify({ error: "internal_error", error_description: message }),
-				{
-					status: 500,
-					headers: { "Content-Type": "application/json" },
-				},
-			);
-		}
-	};
+      // Return error response
+      const message = err instanceof Error ? err.message : "Internal error";
+      return new Response(
+        JSON.stringify({ error: "internal_error", error_description: message }),
+        {
+          status: 500,
+          headers: { "Content-Type": "application/json" },
+        },
+      );
+    }
+  };
 }
 
 export function extractBearerToken(headers: Headers): string | null {
-	const auth = headers.get("Authorization");
-	if (!auth || !auth.startsWith("Bearer ")) {
-		return null;
-	}
-	return auth.slice(7);
+  const auth = headers.get("Authorization");
+  if (!auth || !auth.startsWith("Bearer ")) {
+    return null;
+  }
+  return auth.slice(7);
 }
 
 export async function parseBody(
-	request: Request,
+  request: Request,
 ): Promise<Record<string, unknown>> {
-	try {
-		const text = await request.text();
-		if (!text) return {};
-		return JSON.parse(text);
-	} catch {
-		return {};
-	}
+  try {
+    const text = await request.text();
+    if (!text) return {};
+    return JSON.parse(text);
+  } catch {
+    return {};
+  }
 }
 
 export { handleAuthRoute } from "./auth-routes.ts";
