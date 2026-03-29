@@ -881,3 +881,255 @@ describe("service with local PGlite registry (no --registry-db-url)", () => {
 		}
 	}, 60_000);
 });
+
+describe("service migrate", () => {
+	let svcProcess: ChildProcess;
+	let dataDir: string;
+	let coldDir: string;
+	const port = 54495;
+	const tcpPort = 54496;
+	const base = `http://localhost:${port}`;
+	let tenantToken: string;
+	let remoteDbUrl: string;
+
+	beforeAll(async () => {
+		dataDir = mkdtempSync(join(tmpdir(), "nano-svc-migrate-data-"));
+		coldDir = mkdtempSync(join(tmpdir(), "nano-svc-migrate-cold-"));
+		svcProcess = spawn(
+			"node",
+			[
+				CLI,
+				"service",
+				`--service-port=${port}`,
+				`--tcp-port=${tcpPort}`,
+				`--admin-token=${ADMIN_TOKEN}`,
+				`--data-dir=${dataDir}`,
+				`--cold-dir=${coldDir}`,
+				`--registry-db-url=${registryDbUrl}`,
+				`--secret=test-migrate-secret`,
+			],
+			{ stdio: "ignore", detached: false },
+		);
+		await waitForHealth(base);
+
+		const createRes = await fetch(`${base}/admin/tenants`, {
+			method: "POST",
+			headers: {
+				Authorization: `Bearer ${ADMIN_TOKEN}`,
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify({ slug: "migrate-src" }),
+		});
+		const createBody = await createRes.json();
+		tenantToken = createBody.token;
+
+		const remoteClient = new Client({ connectionString: registryDbUrl });
+		await remoteClient.connect();
+		await remoteClient.query("CREATE SCHEMA IF NOT EXISTS auth");
+		await remoteClient.query(`
+			CREATE TABLE IF NOT EXISTS auth.users (
+				instance_id UUID DEFAULT '00000000-0000-0000-0000-000000000000'::uuid,
+				id UUID NOT NULL UNIQUE DEFAULT gen_random_uuid(),
+				aud VARCHAR(255), role VARCHAR(255), email VARCHAR(255) UNIQUE,
+				encrypted_password VARCHAR(255), confirmed_at TIMESTAMPTZ,
+				email_confirmed_at TIMESTAMPTZ, invited_at TIMESTAMPTZ,
+				confirmation_token VARCHAR(255), confirmation_sent_at TIMESTAMPTZ,
+				recovery_token VARCHAR(255), recovery_sent_at TIMESTAMPTZ,
+				email_change_token_new VARCHAR(255), email_change VARCHAR(255),
+				email_change_sent_at TIMESTAMPTZ, email_change_confirm_status SMALLINT DEFAULT 0,
+				last_sign_in_at TIMESTAMPTZ, raw_app_meta_data JSONB DEFAULT '{}'::jsonb,
+				raw_user_meta_data JSONB DEFAULT '{}'::jsonb, is_super_admin BOOLEAN DEFAULT FALSE,
+				created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW(),
+				phone VARCHAR(255) UNIQUE, phone_confirmed_at TIMESTAMPTZ,
+				phone_change VARCHAR(255), phone_change_token VARCHAR(255),
+				phone_change_sent_at TIMESTAMPTZ, banned_until TIMESTAMPTZ,
+				reauthentication_token VARCHAR(255), reauthentication_sent_at TIMESTAMPTZ,
+				is_sso_user BOOLEAN DEFAULT FALSE, deleted_at TIMESTAMPTZ,
+				is_anonymous BOOLEAN DEFAULT FALSE,
+				CONSTRAINT users_pkey PRIMARY KEY (id)
+			)
+		`);
+		await remoteClient.query(`
+			CREATE TABLE IF NOT EXISTS auth.identities (
+				provider_id TEXT NOT NULL, user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+				identity_data JSONB NOT NULL, provider TEXT NOT NULL,
+				last_sign_in_at TIMESTAMPTZ, created_at TIMESTAMPTZ DEFAULT NOW(),
+				updated_at TIMESTAMPTZ DEFAULT NOW(),
+				email TEXT GENERATED ALWAYS AS (lower(identity_data->>'email')) STORED,
+				id UUID NOT NULL DEFAULT gen_random_uuid(),
+				CONSTRAINT identities_pkey PRIMARY KEY (id),
+				CONSTRAINT identities_provider_id_provider_unique UNIQUE (provider_id, provider)
+			)
+		`);
+		await remoteClient.query("CREATE SCHEMA IF NOT EXISTS storage");
+		await remoteClient.query(`
+			CREATE TABLE IF NOT EXISTS storage.buckets (
+				id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE, public BOOLEAN DEFAULT FALSE,
+				file_size_limit BIGINT, allowed_mime_types TEXT[],
+				created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW()
+			)
+		`);
+		await remoteClient.end();
+		remoteDbUrl = registryDbUrl;
+	}, 90_000);
+
+	afterAll(async () => {
+		svcProcess?.kill("SIGTERM");
+		await new Promise((r) => setTimeout(r, 500));
+		rmSync(dataDir, { recursive: true, force: true });
+		rmSync(coldDir, { recursive: true, force: true });
+	});
+
+	test("migrate transfers schema, auth users, and data to remote", async () => {
+		const adminHeaders = {
+			Authorization: `Bearer ${ADMIN_TOKEN}`,
+			"Content-Type": "application/json",
+		};
+
+		await fetch(`${base}/admin/tenants/migrate-src/sql`, {
+			method: "POST",
+			headers: adminHeaders,
+			body: JSON.stringify({
+				sql: `CREATE TABLE IF NOT EXISTS todos (
+					id SERIAL PRIMARY KEY,
+					title TEXT NOT NULL,
+					done BOOLEAN DEFAULT false
+				)`,
+			}),
+		});
+
+		await fetch(`${base}/admin/tenants/migrate-src/sql`, {
+			method: "POST",
+			headers: adminHeaders,
+			body: JSON.stringify({
+				sql: "INSERT INTO todos (title, done) VALUES ('Buy milk', false), ('Write tests', true)",
+			}),
+		});
+
+		await fetch(`${base}/migrate-src/auth/v1/signup`, {
+			method: "POST",
+			headers: {
+				Authorization: `Bearer ${tenantToken}`,
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify({
+				email: "migrated@test.com",
+				password: "password123",
+			}),
+		});
+
+		const migrateRes = await fetch(
+			`${base}/admin/tenants/migrate-src/migrate`,
+			{
+				method: "POST",
+				headers: adminHeaders,
+				body: JSON.stringify({
+					remoteDbUrl,
+					skipStorage: true,
+				}),
+			},
+		);
+		const result = await migrateRes.json();
+		if (migrateRes.status !== 200) {
+			console.error("migrate response:", JSON.stringify(result, null, 2));
+		}
+		expect(migrateRes.status).toBe(200);
+
+		expect(result.schema.tables).toBeGreaterThanOrEqual(1);
+		expect(result.auth.users).toBeGreaterThanOrEqual(1);
+		expect(result.data.tables).toBeGreaterThanOrEqual(1);
+		expect(result.data.rows).toBeGreaterThanOrEqual(2);
+
+		const remote = new Client({ connectionString: remoteDbUrl });
+		await remote.connect();
+
+		const todosRes = await remote.query(
+			"SELECT title, done FROM todos ORDER BY id",
+		);
+		expect(todosRes.rows).toEqual([
+			{ title: "Buy milk", done: false },
+			{ title: "Write tests", done: true },
+		]);
+
+		const usersRes = await remote.query(
+			"SELECT email FROM auth.users WHERE email = 'migrated@test.com'",
+		);
+		expect(usersRes.rows).toHaveLength(1);
+
+		await remote.end();
+	}, 60_000);
+
+	test("migrate with --dry-run does not write anything", async () => {
+		const adminHeaders = {
+			Authorization: `Bearer ${ADMIN_TOKEN}`,
+			"Content-Type": "application/json",
+		};
+
+		await fetch(`${base}/admin/tenants/migrate-src/sql`, {
+			method: "POST",
+			headers: adminHeaders,
+			body: JSON.stringify({
+				sql: "CREATE TABLE IF NOT EXISTS dryrun_test (id SERIAL PRIMARY KEY, val TEXT)",
+			}),
+		});
+		await fetch(`${base}/admin/tenants/migrate-src/sql`, {
+			method: "POST",
+			headers: adminHeaders,
+			body: JSON.stringify({
+				sql: "INSERT INTO dryrun_test (val) VALUES ('should-not-appear')",
+			}),
+		});
+
+		const migrateRes = await fetch(
+			`${base}/admin/tenants/migrate-src/migrate`,
+			{
+				method: "POST",
+				headers: adminHeaders,
+				body: JSON.stringify({
+					remoteDbUrl,
+					skipStorage: true,
+					skipAuth: true,
+					dryRun: true,
+				}),
+			},
+		);
+		const result = await migrateRes.json();
+		if (migrateRes.status !== 200) {
+			console.error(
+				"dry-run migrate response:",
+				JSON.stringify(result, null, 2),
+			);
+		}
+		expect(migrateRes.status).toBe(200);
+		expect(result.data.rows).toBeGreaterThan(0);
+
+		const remote = new Client({ connectionString: remoteDbUrl });
+		await remote.connect();
+		const check = await remote
+			.query("SELECT 1 FROM dryrun_test LIMIT 1")
+			.catch(() => ({ rows: [] as unknown[] }));
+		expect(
+			check.rows.filter((r: unknown) => {
+				const row = r as Record<string, unknown>;
+				return row.val === "should-not-appear";
+			}),
+		).toHaveLength(0);
+		await remote.end();
+	}, 30_000);
+
+	test("cmdServiceMigrate CLI wrapper works", async () => {
+		const { cmdServiceMigrate } = await import("../src/cli-commands.ts");
+		const result = await cmdServiceMigrate([
+			`--url=${base}`,
+			`--admin-token=${ADMIN_TOKEN}`,
+			"migrate-src",
+			`--remote-db-url=${remoteDbUrl}`,
+			"--no-storage",
+			"--json",
+		]);
+		expect(result.exitCode).toBe(0);
+		const parsed = JSON.parse(result.output);
+		expect(parsed.auth.users).toBeGreaterThanOrEqual(1);
+		expect(parsed.data.tables).toBeGreaterThanOrEqual(1);
+	}, 30_000);
+});

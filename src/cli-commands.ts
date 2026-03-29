@@ -1554,3 +1554,86 @@ export async function cmdServiceResetPassword(
 		`New password: ${(data as { password: string }).password}`,
 	);
 }
+
+export async function cmdServiceMigrate(
+	args: string[],
+): Promise<{ exitCode: number; output: string }> {
+	const json = args.includes("--json");
+	const token = getAdminToken(args);
+	if (!token)
+		return fail(
+			"missing_admin_token",
+			"--admin-token or NANO_ADMIN_TOKEN is required",
+			json,
+		);
+	const positional = args.filter((a) => !a.startsWith("--"));
+	const slug = positional[0];
+	if (!slug)
+		return fail(
+			"missing_slug",
+			"Usage: service migrate <slug> --remote-db-url=<url>",
+			json,
+		);
+
+	const remoteDbUrl =
+		getArgValue(args, "--remote-db-url") ?? process.env.SUPABASE_DB_URL;
+	if (!remoteDbUrl)
+		return fail(
+			"missing_remote_db_url",
+			"Provide --remote-db-url or set SUPABASE_DB_URL",
+			json,
+		);
+
+	const remoteUrl =
+		getArgValue(args, "--remote-url") ?? process.env.SUPABASE_URL;
+	const remoteServiceRoleKey =
+		getArgValue(args, "--remote-service-role-key") ??
+		process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+	const body: Record<string, unknown> = {
+		remoteDbUrl,
+		remoteUrl,
+		remoteServiceRoleKey,
+		skipSchema: args.includes("--no-schema"),
+		skipAuth: args.includes("--no-auth"),
+		skipData: args.includes("--no-data"),
+		skipStorage: args.includes("--no-storage"),
+		dryRun: args.includes("--dry-run"),
+	};
+	const migrationsDir = getArgValue(args, "--migrations-dir");
+	if (migrationsDir) body.migrationsDir = migrationsDir;
+
+	const { ok: success, data } = await serviceRequest<Record<string, unknown>>(
+		"POST",
+		`${getServiceUrl(args)}/admin/tenants/${slug}/migrate`,
+		token,
+		body,
+	);
+
+	if (!success) return apiError(data, json);
+
+	const r = data as {
+		schema: { tables: number; migrations: number };
+		auth: { users: number; identities: number };
+		data: { tables: number; rows: number };
+		storage: { buckets: number; objects: number };
+	};
+
+	if (json) return ok(r, json, "");
+	const dryTag = args.includes("--dry-run") ? " (dry run)" : "";
+	const lines = [
+		`Migrate tenant "${slug}" → ${remoteDbUrl}${dryTag}`,
+		``,
+		`Schema:    ${r.schema.migrations} migration(s), ${r.schema.tables} table(s) introspected`,
+		`Auth:      ${r.auth.users} user(s), ${r.auth.identities} identity(ies)`,
+		`Data:      ${r.data.rows} row(s) across ${r.data.tables} table(s)`,
+		`Storage:   ${r.storage.buckets} bucket(s), ${r.storage.objects} object(s)`,
+	];
+	if (!remoteUrl || !remoteServiceRoleKey) {
+		lines.push(
+			``,
+			`Note: Storage objects skipped (provide --remote-url and --remote-service-role-key to upload files)`,
+		);
+	}
+	return ok(r, json, lines.join("\n"));
+}

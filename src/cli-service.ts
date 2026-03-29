@@ -1088,6 +1088,682 @@ export async function runServiceMode(opts: {
 						);
 					}
 				}
+
+				if (subpath === "/migrate" && req.method === "POST") {
+					if (tenant.state === "sleeping" || tenant.state === "waking") {
+						if (!wakingPromises.has(tenant.id)) {
+							const p = wakeTenant(tenant).finally(() =>
+								wakingPromises.delete(tenant.id),
+							);
+							wakingPromises.set(tenant.id, p);
+						}
+						await wakingPromises.get(tenant.id);
+					}
+					const nano = nanoInstances.get(tenant.id);
+					if (!nano)
+						return new Response(JSON.stringify({ error: "nano_unavailable" }), {
+							status: 503,
+							headers: json,
+						});
+
+					const body = (await req.json()) as {
+						remoteDbUrl: string;
+						remoteUrl?: string;
+						remoteServiceRoleKey?: string;
+						skipSchema?: boolean;
+						skipAuth?: boolean;
+						skipData?: boolean;
+						skipStorage?: boolean;
+						dryRun?: boolean;
+						migrationsDir?: string;
+					};
+
+					if (!body.remoteDbUrl) {
+						return new Response(
+							JSON.stringify({
+								error: "missing_remote_db_url",
+								message: "remoteDbUrl is required",
+							}),
+							{ status: 400, headers: json },
+						);
+					}
+
+					const result = {
+						schema: { tables: 0, migrations: 0 },
+						auth: { users: 0, identities: 0 },
+						data: { tables: 0, rows: 0 },
+						storage: { buckets: 0, objects: 0 },
+					};
+
+					const pg = await import("pg");
+					const remote = new pg.default.Client({
+						connectionString: body.remoteDbUrl,
+					});
+
+					try {
+						await remote.connect();
+						await remote.query("SET search_path = public");
+
+						if (!body.skipSchema) {
+							const { existsSync, readdirSync } = await import("node:fs");
+							const { readFile: readFileFn } = await import("node:fs/promises");
+							const migDir = body.migrationsDir ?? "./supabase/migrations";
+							const migPattern = /^(\d+)_.*\.sql$/;
+
+							let usedMigrationFiles = false;
+							if (existsSync(migDir)) {
+								const files = readdirSync(migDir)
+									.filter((f: string) => migPattern.test(f))
+									.sort();
+								if (files.length > 0) {
+									usedMigrationFiles = true;
+									await remote
+										.query("CREATE SCHEMA IF NOT EXISTS supabase_migrations")
+										.catch(() => {});
+									await remote
+										.query(
+											`CREATE TABLE IF NOT EXISTS supabase_migrations.schema_migrations (version TEXT PRIMARY KEY, statements TEXT[], name TEXT)`,
+										)
+										.catch(() => {});
+									const appliedRes = await remote
+										.query<{ version: string }>(
+											"SELECT version FROM supabase_migrations.schema_migrations ORDER BY version",
+										)
+										.catch(
+											() => ({ rows: [] }) as { rows: { version: string }[] },
+										);
+									const applied = new Set(
+										appliedRes.rows.map((r) => r.version),
+									);
+									for (const file of files) {
+										const match = file.match(migPattern) ?? [];
+										const version = match[1] ?? "";
+										const name = file
+											.replace(/\.sql$/, "")
+											.slice(version.length + 1);
+										if (applied.has(version)) continue;
+										const sql = await readFileFn(join(migDir, file), "utf8");
+										const statements = sql
+											.split(";")
+											.map((s: string) => s.trim())
+											.filter(Boolean);
+										if (!body.dryRun) {
+											for (const stmt of statements) await remote.query(stmt);
+											await remote.query(
+												"INSERT INTO supabase_migrations.schema_migrations(version, name, statements) VALUES($1, $2, $3)",
+												[version, name, statements],
+											);
+										}
+										result.schema.migrations++;
+									}
+								}
+							}
+
+							if (!usedMigrationFiles) {
+								const hasMigTable = await nano.db
+									.query<{ exists: boolean }>(
+										`SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'supabase_migrations' AND table_name = 'schema_migrations') AS exists`,
+									)
+									.then((r) => r.rows[0]?.exists ?? false)
+									.catch(() => false);
+								if (hasMigTable) {
+									const migRows = await nano.db.query<{
+										version: string;
+										name: string | null;
+										statements: string[] | null;
+									}>(
+										"SELECT version, name, statements FROM supabase_migrations.schema_migrations ORDER BY version",
+									);
+									if (migRows.rows.length > 0) {
+										usedMigrationFiles = true;
+										await remote
+											.query("CREATE SCHEMA IF NOT EXISTS supabase_migrations")
+											.catch(() => {});
+										await remote
+											.query(
+												`CREATE TABLE IF NOT EXISTS supabase_migrations.schema_migrations (version TEXT PRIMARY KEY, statements TEXT[], name TEXT)`,
+											)
+											.catch(() => {});
+										const appliedRes = await remote
+											.query<{ version: string }>(
+												"SELECT version FROM supabase_migrations.schema_migrations ORDER BY version",
+											)
+											.catch(
+												() =>
+													({
+														rows: [],
+													}) as { rows: { version: string }[] },
+											);
+										const applied = new Set(
+											appliedRes.rows.map((r) => r.version),
+										);
+										for (const row of migRows.rows) {
+											if (applied.has(row.version)) continue;
+											const stmts = row.statements ?? [];
+											if (!body.dryRun) {
+												for (const stmt of stmts) await remote.query(stmt);
+												await remote.query(
+													"INSERT INTO supabase_migrations.schema_migrations(version, name, statements) VALUES($1, $2, $3)",
+													[row.version, row.name, stmts],
+												);
+											}
+											result.schema.migrations++;
+										}
+									}
+								}
+							}
+
+							if (!usedMigrationFiles) {
+								const enumsRes = await nano.db.query<{
+									typname: string;
+									labels: string;
+								}>(
+									`SELECT t.typname, string_agg(e.enumlabel, ',' ORDER BY e.enumsortorder) as labels
+									 FROM pg_type t JOIN pg_enum e ON t.oid = e.enumtypid
+									 JOIN pg_namespace n ON t.typnamespace = n.oid
+									 WHERE n.nspname = 'public' GROUP BY t.typname`,
+								);
+								for (const en of enumsRes.rows) {
+									const vals = en.labels
+										.split(",")
+										.map((l: string) => `'${l.replace(/'/g, "''")}'`)
+										.join(", ");
+									if (!body.dryRun)
+										await remote
+											.query(
+												`DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = '${en.typname}') THEN CREATE TYPE "${en.typname}" AS ENUM (${vals}); END IF; END $$`,
+											)
+											.catch(() => {});
+								}
+
+								const seqRes = await nano.db.query<{
+									sequence_name: string;
+								}>(
+									"SELECT sequence_name FROM information_schema.sequences WHERE sequence_schema = 'public'",
+								);
+								for (const seq of seqRes.rows) {
+									if (!body.dryRun)
+										await remote
+											.query(
+												`CREATE SEQUENCE IF NOT EXISTS "${seq.sequence_name}"`,
+											)
+											.catch(() => {});
+								}
+
+								const tablesRes = await nano.db.query<{
+									table_name: string;
+								}>(
+									"SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE' ORDER BY table_name",
+								);
+
+								for (const tbl of tablesRes.rows) {
+									const tn = tbl.table_name;
+									const colsRes = await nano.db.query<{
+										column_name: string;
+										data_type: string;
+										udt_name: string;
+										is_nullable: string;
+										column_default: string | null;
+										character_maximum_length: number | null;
+										numeric_precision: number | null;
+										numeric_scale: number | null;
+									}>(
+										"SELECT column_name, data_type, udt_name, is_nullable, column_default, character_maximum_length, numeric_precision, numeric_scale FROM information_schema.columns WHERE table_schema = 'public' AND table_name = $1 ORDER BY ordinal_position",
+										[tn],
+									);
+
+									const colDefs: string[] = [];
+									for (const c of colsRes.rows) {
+										let typeStr =
+											c.data_type === "USER-DEFINED"
+												? `"${c.udt_name}"`
+												: c.data_type;
+										if (
+											c.character_maximum_length &&
+											(c.data_type === "character varying" ||
+												c.data_type === "character")
+										)
+											typeStr += `(${c.character_maximum_length})`;
+										if (
+											c.numeric_precision &&
+											c.numeric_scale &&
+											c.data_type === "numeric"
+										)
+											typeStr += `(${c.numeric_precision}, ${c.numeric_scale})`;
+										let def = `"${c.column_name}" ${typeStr}`;
+										if (c.column_default !== null)
+											def += ` DEFAULT ${c.column_default}`;
+										if (c.is_nullable === "NO") def += " NOT NULL";
+										colDefs.push(def);
+									}
+
+									const pkRes = await nano.db.query<{
+										column_name: string;
+									}>(
+										`SELECT kcu.column_name FROM information_schema.table_constraints tc
+										 JOIN information_schema.key_column_usage kcu ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema
+										 WHERE tc.table_schema = 'public' AND tc.table_name = $1 AND tc.constraint_type = 'PRIMARY KEY'
+										 ORDER BY kcu.ordinal_position`,
+										[tn],
+									);
+									if (pkRes.rows.length > 0)
+										colDefs.push(
+											`PRIMARY KEY (${pkRes.rows.map((r) => `"${r.column_name}"`).join(", ")})`,
+										);
+
+									const uqRes = await nano.db.query<{
+										constraint_name: string;
+										column_name: string;
+									}>(
+										`SELECT tc.constraint_name, kcu.column_name FROM information_schema.table_constraints tc
+										 JOIN information_schema.key_column_usage kcu ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema
+										 WHERE tc.table_schema = 'public' AND tc.table_name = $1 AND tc.constraint_type = 'UNIQUE'
+										 ORDER BY tc.constraint_name, kcu.ordinal_position`,
+										[tn],
+									);
+									const uniqueGroups: Record<string, string[]> = {};
+									for (const r of uqRes.rows) {
+										if (!uniqueGroups[r.constraint_name])
+											uniqueGroups[r.constraint_name] = [];
+										uniqueGroups[r.constraint_name].push(`"${r.column_name}"`);
+									}
+									for (const cols of Object.values(uniqueGroups))
+										colDefs.push(`UNIQUE (${cols.join(", ")})`);
+
+									const fkRes = await nano.db.query<{
+										constraint_name: string;
+										column_name: string;
+										foreign_table_schema: string;
+										foreign_table_name: string;
+										foreign_column_name: string;
+									}>(
+										`SELECT tc.constraint_name, kcu.column_name,
+										        ccu.table_schema AS foreign_table_schema,
+										        ccu.table_name AS foreign_table_name, ccu.column_name AS foreign_column_name
+										 FROM information_schema.table_constraints tc
+										 JOIN information_schema.key_column_usage kcu ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema
+										 JOIN information_schema.constraint_column_usage ccu ON tc.constraint_name = ccu.constraint_name
+										 WHERE tc.table_schema = 'public' AND tc.table_name = $1 AND tc.constraint_type = 'FOREIGN KEY'`,
+										[tn],
+									);
+									for (const fk of fkRes.rows) {
+										const ref =
+											fk.foreign_table_schema !== "public"
+												? `"${fk.foreign_table_schema}"."${fk.foreign_table_name}"`
+												: `"${fk.foreign_table_name}"`;
+										colDefs.push(
+											`FOREIGN KEY ("${fk.column_name}") REFERENCES ${ref}("${fk.foreign_column_name}")`,
+										);
+									}
+
+									const ddl = `CREATE TABLE IF NOT EXISTS "${tn}" (\n  ${colDefs.join(",\n  ")}\n)`;
+									if (!body.dryRun) await remote.query(ddl);
+									result.schema.tables++;
+								}
+
+								const idxRes = await nano.db.query<{
+									indexname: string;
+									indexdef: string;
+								}>(
+									"SELECT indexname, indexdef FROM pg_indexes WHERE schemaname = 'public' AND indexname NOT LIKE '%_pkey'",
+								);
+								for (const idx of idxRes.rows) {
+									if (!body.dryRun) {
+										const safeIdx = idx.indexdef.replace(
+											/CREATE INDEX/,
+											"CREATE INDEX IF NOT EXISTS",
+										);
+										await remote.query(safeIdx).catch(() => {});
+									}
+								}
+							}
+						}
+
+						if (!body.skipAuth) {
+							const usersRes = await nano.db.query<Record<string, unknown>>(
+								`SELECT id, instance_id, aud, role, email, encrypted_password,
+								        email_confirmed_at, invited_at, confirmation_token,
+								        confirmation_sent_at, recovery_token, recovery_sent_at,
+								        email_change_token_new, email_change, email_change_sent_at,
+								        email_change_confirm_status, last_sign_in_at,
+								        raw_app_meta_data, raw_user_meta_data, is_super_admin,
+								        created_at, updated_at, phone, phone_confirmed_at,
+								        phone_change, phone_change_token, phone_change_sent_at,
+								        banned_until, reauthentication_token, reauthentication_sent_at,
+								        is_sso_user, deleted_at, is_anonymous
+								 FROM auth.users ORDER BY created_at`,
+							);
+
+							for (const u of usersRes.rows) {
+								if (!body.dryRun) {
+									await remote.query(
+										`INSERT INTO auth.users (
+										   id, instance_id, aud, role, email, encrypted_password,
+										   email_confirmed_at, invited_at, confirmation_token,
+										   confirmation_sent_at, recovery_token, recovery_sent_at,
+										   email_change_token_new, email_change, email_change_sent_at,
+										   email_change_confirm_status, last_sign_in_at,
+										   raw_app_meta_data, raw_user_meta_data, is_super_admin,
+										   created_at, updated_at, phone, phone_confirmed_at,
+										   phone_change, phone_change_token, phone_change_sent_at,
+										   banned_until, reauthentication_token, reauthentication_sent_at,
+										   is_sso_user, deleted_at, is_anonymous
+										 ) VALUES (
+										   $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33
+										 ) ON CONFLICT (id) DO NOTHING`,
+										[
+											u.id,
+											u.instance_id,
+											u.aud,
+											u.role,
+											u.email,
+											u.encrypted_password,
+											u.email_confirmed_at,
+											u.invited_at,
+											u.confirmation_token,
+											u.confirmation_sent_at,
+											u.recovery_token,
+											u.recovery_sent_at,
+											u.email_change_token_new,
+											u.email_change,
+											u.email_change_sent_at,
+											u.email_change_confirm_status,
+											u.last_sign_in_at,
+											u.raw_app_meta_data
+												? JSON.stringify(u.raw_app_meta_data)
+												: "{}",
+											u.raw_user_meta_data
+												? JSON.stringify(u.raw_user_meta_data)
+												: "{}",
+											u.is_super_admin,
+											u.created_at,
+											u.updated_at,
+											u.phone,
+											u.phone_confirmed_at,
+											u.phone_change,
+											u.phone_change_token,
+											u.phone_change_sent_at,
+											u.banned_until,
+											u.reauthentication_token,
+											u.reauthentication_sent_at,
+											u.is_sso_user,
+											u.deleted_at,
+											u.is_anonymous,
+										],
+									);
+								}
+								result.auth.users++;
+							}
+
+							const identitiesRes = await nano.db.query<
+								Record<string, unknown>
+							>(
+								`SELECT id, provider_id, user_id, identity_data, provider,
+								        last_sign_in_at, created_at, updated_at
+								 FROM auth.identities ORDER BY created_at`,
+							);
+
+							for (const ident of identitiesRes.rows) {
+								if (!body.dryRun) {
+									await remote.query(
+										`INSERT INTO auth.identities (
+										   id, provider_id, user_id, identity_data, provider,
+										   last_sign_in_at, created_at, updated_at
+										 ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+										 ON CONFLICT (id) DO NOTHING`,
+										[
+											ident.id,
+											ident.provider_id,
+											ident.user_id,
+											ident.identity_data
+												? JSON.stringify(ident.identity_data)
+												: "{}",
+											ident.provider,
+											ident.last_sign_in_at,
+											ident.created_at,
+											ident.updated_at,
+										],
+									);
+								}
+								result.auth.identities++;
+							}
+						}
+
+						if (!body.skipData) {
+							const tablesRes = await nano.db.query<{
+								table_name: string;
+							}>(
+								"SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE' ORDER BY table_name",
+							);
+
+							const fkDeps = await nano.db.query<{
+								child: string;
+								parent: string;
+							}>(
+								`SELECT tc.table_name AS child, ccu.table_name AS parent
+								 FROM information_schema.table_constraints tc
+								 JOIN information_schema.constraint_column_usage ccu ON tc.constraint_name = ccu.constraint_name
+								 WHERE tc.table_schema = 'public' AND tc.constraint_type = 'FOREIGN KEY' AND tc.table_name != ccu.table_name`,
+							);
+							const tableNames = tablesRes.rows.map((r) => r.table_name);
+							const deps = new Map<string, Set<string>>();
+							for (const t of tableNames) deps.set(t, new Set());
+							for (const fk of fkDeps.rows) {
+								if (deps.has(fk.child) && deps.has(fk.parent))
+									deps.get(fk.child)?.add(fk.parent);
+							}
+							const sorted: string[] = [];
+							const visited = new Set<string>();
+							const visiting = new Set<string>();
+							const visit = (name: string) => {
+								if (visited.has(name)) return;
+								if (visiting.has(name)) {
+									sorted.push(name);
+									visited.add(name);
+									return;
+								}
+								visiting.add(name);
+								for (const dep of deps.get(name) ?? []) visit(dep);
+								visiting.delete(name);
+								visited.add(name);
+								sorted.push(name);
+							};
+							for (const t of tableNames) visit(t);
+
+							if (!body.dryRun)
+								await remote
+									.query("SET session_replication_role = 'replica'")
+									.catch(() => {});
+
+							for (const tn of sorted) {
+								const dataRes = await nano.db.query(`SELECT * FROM "${tn}"`);
+								if (dataRes.rows.length === 0) continue;
+								const cols = Object.keys(
+									dataRes.rows[0] as Record<string, unknown>,
+								);
+								const colList = cols.map((c) => `"${c}"`).join(", ");
+								const batchSize = 100;
+								for (let i = 0; i < dataRes.rows.length; i += batchSize) {
+									const batch = dataRes.rows.slice(i, i + batchSize) as Record<
+										string,
+										unknown
+									>[];
+									const valueSets: string[] = [];
+									const params: unknown[] = [];
+									let paramIdx = 1;
+									for (const row of batch) {
+										const placeholders = cols.map(() => {
+											const ph = `$${paramIdx}`;
+											paramIdx++;
+											return ph;
+										});
+										valueSets.push(`(${placeholders.join(", ")})`);
+										for (const c of cols) {
+											const v = row[c];
+											params.push(
+												v !== null &&
+													typeof v === "object" &&
+													!Array.isArray(v) &&
+													!(v instanceof Date)
+													? JSON.stringify(v)
+													: v,
+											);
+										}
+									}
+									if (!body.dryRun) {
+										await remote.query(
+											`INSERT INTO "${tn}" (${colList}) VALUES ${valueSets.join(", ")} ON CONFLICT DO NOTHING`,
+											params,
+										);
+									}
+									result.data.rows += batch.length;
+								}
+								result.data.tables++;
+							}
+
+							if (!body.dryRun)
+								await remote
+									.query("SET session_replication_role = 'origin'")
+									.catch(() => {});
+
+							for (const tn of sorted) {
+								if (body.dryRun) continue;
+								const seqCols = await remote
+									.query<{
+										attname: string;
+										seq: string;
+									}>(
+										`SELECT a.attname, pg_get_serial_sequence($1, a.attname) AS seq
+										 FROM pg_attribute a
+										 JOIN pg_class c ON a.attrelid = c.oid
+										 JOIN pg_namespace n ON c.relnamespace = n.oid
+										 WHERE n.nspname = 'public' AND c.relname = $2
+										   AND a.attnum > 0 AND NOT a.attisdropped
+										   AND pg_get_serial_sequence($1, a.attname) IS NOT NULL`,
+										[`"${tn}"`, tn],
+									)
+									.catch(
+										() =>
+											({
+												rows: [],
+											}) as {
+												rows: {
+													attname: string;
+													seq: string;
+												}[];
+											},
+									);
+								for (const { attname, seq } of seqCols.rows) {
+									await remote
+										.query(
+											`SELECT setval('${seq}', COALESCE((SELECT MAX("${attname}") FROM "${tn}"), 1), (SELECT MAX("${attname}") FROM "${tn}") IS NOT NULL)`,
+										)
+										.catch(() => {});
+								}
+							}
+						}
+
+						if (!body.skipStorage) {
+							const bucketsRes = await nano.db.query<{
+								id: string;
+								name: string;
+								public: boolean;
+								file_size_limit: number | null;
+								allowed_mime_types: string[] | null;
+							}>(
+								"SELECT id, name, public, file_size_limit, allowed_mime_types FROM storage.buckets",
+							);
+
+							for (const bucket of bucketsRes.rows) {
+								if (!body.dryRun) {
+									await remote.query(
+										`INSERT INTO storage.buckets(id, name, public, file_size_limit, allowed_mime_types)
+										 VALUES($1, $2, $3, $4, $5)
+										 ON CONFLICT (id) DO UPDATE SET
+										   name = EXCLUDED.name, public = EXCLUDED.public,
+										   file_size_limit = EXCLUDED.file_size_limit,
+										   allowed_mime_types = EXCLUDED.allowed_mime_types,
+										   updated_at = now()`,
+										[
+											bucket.id,
+											bucket.name,
+											bucket.public,
+											bucket.file_size_limit,
+											bucket.allowed_mime_types,
+										],
+									);
+								}
+								result.storage.buckets++;
+							}
+
+							if (body.remoteUrl && body.remoteServiceRoleKey) {
+								const objectsRes = await nano.db.query<{
+									id: string;
+									bucket_id: string;
+									name: string;
+									metadata: Record<string, unknown> | null;
+								}>(
+									"SELECT id, bucket_id, name, metadata FROM storage.objects ORDER BY bucket_id, name",
+								);
+
+								for (const obj of objectsRes.rows) {
+									const dlRes = await nano.localFetch(
+										new Request(
+											`http://localhost:54321/storage/v1/object/${obj.bucket_id}/${obj.name}`,
+											{
+												headers: {
+													Authorization: `Bearer ${tenant.serviceRoleKey}`,
+													apikey: tenant.anonKey,
+												},
+											},
+										),
+									);
+									if (!dlRes.ok) continue;
+									const blobData = await dlRes.arrayBuffer();
+									const contentType =
+										dlRes.headers.get("Content-Type") ??
+										"application/octet-stream";
+
+									if (!body.dryRun) {
+										const uploadRes = await fetch(
+											`${body.remoteUrl}/storage/v1/object/${obj.bucket_id}/${obj.name}`,
+											{
+												method: "POST",
+												headers: {
+													Authorization: `Bearer ${body.remoteServiceRoleKey}`,
+													apikey: body.remoteServiceRoleKey,
+													"Content-Type": contentType,
+													"x-upsert": "true",
+												},
+												body: blobData,
+											},
+										);
+										if (!uploadRes.ok) {
+											await uploadRes.arrayBuffer().catch(() => {});
+											continue;
+										}
+									}
+									result.storage.objects++;
+								}
+							}
+						}
+
+						await remote.end().catch(() => {});
+						return new Response(JSON.stringify(result), {
+							headers: json,
+						});
+					} catch (e: unknown) {
+						await remote.end().catch(() => {});
+						return new Response(
+							JSON.stringify({
+								error: "migrate_failed",
+								message: e instanceof Error ? e.message : String(e),
+								partial: result,
+							}),
+							{ status: 500, headers: json },
+						);
+					}
+				}
 			}
 
 			return new Response(JSON.stringify({ error: "not_found" }), {
