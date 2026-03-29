@@ -1129,7 +1129,14 @@ export async function runServiceMode(opts: {
 					}
 
 					const result = {
-						schema: { tables: 0, migrations: 0 },
+						schema: {
+							tables: 0,
+							migrations: 0,
+							views: 0,
+							functions: 0,
+							triggers: 0,
+							policies: 0,
+						},
 						auth: { users: 0, identities: 0 },
 						data: { tables: 0, rows: 0 },
 						storage: { buckets: 0, objects: 0 },
@@ -1414,6 +1421,98 @@ export async function runServiceMode(opts: {
 											"CREATE INDEX IF NOT EXISTS",
 										);
 										await remote.query(safeIdx).catch(() => {});
+									}
+								}
+
+								const viewsRes = await nano.db.query<{
+									viewname: string;
+									definition: string;
+								}>(
+									"SELECT viewname, definition FROM pg_views WHERE schemaname = 'public'",
+								);
+								for (const v of viewsRes.rows) {
+									if (!body.dryRun)
+										await remote
+											.query(
+												`CREATE OR REPLACE VIEW "${v.viewname}" AS ${v.definition}`,
+											)
+											.catch(() => {});
+									result.schema.views++;
+								}
+
+								const funcsRes = await nano.db.query<{
+									proname: string;
+									func_def: string;
+								}>(
+									`SELECT p.proname, pg_get_functiondef(p.oid) AS func_def
+									 FROM pg_proc p
+									 JOIN pg_namespace n ON p.pronamespace = n.oid
+									 WHERE n.nspname = 'public' AND p.prokind IN ('f', 'p')`,
+								);
+								for (const fn of funcsRes.rows) {
+									if (!body.dryRun)
+										await remote.query(`${fn.func_def};`).catch(() => {});
+									result.schema.functions++;
+								}
+
+								const triggersRes = await nano.db.query<{
+									trigger_def: string;
+								}>(
+									`SELECT pg_get_triggerdef(t.oid) AS trigger_def
+									 FROM pg_trigger t
+									 JOIN pg_class c ON t.tgrelid = c.oid
+									 JOIN pg_namespace n ON c.relnamespace = n.oid
+									 WHERE n.nspname = 'public' AND NOT t.tgisinternal`,
+								);
+								for (const tr of triggersRes.rows) {
+									if (!body.dryRun)
+										await remote.query(`${tr.trigger_def};`).catch(() => {});
+									result.schema.triggers++;
+								}
+
+								for (const tbl of tablesRes.rows) {
+									const tn = tbl.table_name;
+									const rlsEnabled = await nano.db
+										.query<{ rowsecurity: boolean }>(
+											`SELECT relrowsecurity AS rowsecurity FROM pg_class c
+											 JOIN pg_namespace n ON c.relnamespace = n.oid
+											 WHERE n.nspname = 'public' AND c.relname = $1`,
+											[tn],
+										)
+										.then((r) => r.rows[0]?.rowsecurity ?? false)
+										.catch(() => false);
+									if (rlsEnabled && !body.dryRun)
+										await remote
+											.query(`ALTER TABLE "${tn}" ENABLE ROW LEVEL SECURITY`)
+											.catch(() => {});
+
+									const policiesRes = await nano.db.query<{
+										policyname: string;
+										polcmd: string;
+										permissive: string;
+										roles: string;
+										qual: string | null;
+										with_check: string | null;
+									}>(
+										`SELECT pol.polname AS policyname,
+										   CASE pol.polcmd WHEN 'r' THEN 'SELECT' WHEN 'a' THEN 'INSERT' WHEN 'w' THEN 'UPDATE' WHEN 'd' THEN 'DELETE' ELSE 'ALL' END AS polcmd,
+										   CASE pol.polpermissive WHEN true THEN 'PERMISSIVE' ELSE 'RESTRICTIVE' END AS permissive,
+										   CASE WHEN pol.polroles = '{0}' THEN 'PUBLIC' ELSE (SELECT string_agg(rolname, ', ') FROM pg_roles WHERE oid = ANY(pol.polroles)) END AS roles,
+										   pg_get_expr(pol.polqual, pol.polrelid) AS qual,
+										   pg_get_expr(pol.polwithcheck, pol.polrelid) AS with_check
+										 FROM pg_policy pol
+										 JOIN pg_class c ON pol.polrelid = c.oid
+										 JOIN pg_namespace n ON c.relnamespace = n.oid
+										 WHERE n.nspname = 'public' AND c.relname = $1`,
+										[tn],
+									);
+									for (const pol of policiesRes.rows) {
+										let stmt = `CREATE POLICY "${pol.policyname}" ON "${tn}" AS ${pol.permissive} FOR ${pol.polcmd} TO ${pol.roles}`;
+										if (pol.qual) stmt += ` USING (${pol.qual})`;
+										if (pol.with_check)
+											stmt += ` WITH CHECK (${pol.with_check})`;
+										if (!body.dryRun) await remote.query(stmt).catch(() => {});
+										result.schema.policies++;
 									}
 								}
 							}
