@@ -1,8 +1,13 @@
 import { createClient } from "postgrest-parser/pkg/client.js";
 import init, {
   initSchemaFromDb,
+  clearSchema as wasmClearSchema,
+  clearAllSchemas as wasmClearAllSchemas,
 } from "postgrest-parser/pkg/postgrest_parser.js";
 import type { QueryResult as ParserQueryResult } from "postgrest-parser/pkg/types.js";
+import {
+  parseRequest as wasmParseRequest,
+} from "postgrest-parser/pkg/postgrest_parser.js";
 
 export type QueryExecutor = (sql: string) => Promise<{ rows: unknown[] }>;
 
@@ -15,9 +20,11 @@ export interface ParsedQuery {
 export class PostgrestParser {
   private readonly client: ReturnType<typeof createClient>;
   private static initPromise: Promise<unknown> | null = null;
+  readonly schemaId: string | undefined;
 
-  constructor() {
+  constructor(schemaId?: string) {
     this.client = createClient();
+    this.schemaId = schemaId;
   }
 
   static async init(wasmBytes?: Uint8Array): Promise<void> {
@@ -29,9 +36,20 @@ export class PostgrestParser {
     await PostgrestParser.initPromise;
   }
 
-  static async initSchema(queryExecutor: QueryExecutor): Promise<void> {
+  static async initSchema(
+    queryExecutor: QueryExecutor,
+    schemaId?: string,
+  ): Promise<void> {
     await PostgrestParser.init();
-    await initSchemaFromDb(queryExecutor);
+    await initSchemaFromDb(schemaId ?? "", queryExecutor);
+  }
+
+  static clearSchema(schemaId: string): void {
+    wasmClearSchema(schemaId);
+  }
+
+  static clearAllSchemas(): void {
+    wasmClearAllSchemas();
   }
 
   parseSelect(table: string, queryString: string = ""): ParsedQuery {
@@ -73,6 +91,21 @@ export class PostgrestParser {
     queryString: string = "",
     body?: Record<string, unknown>,
   ): ParsedQuery {
+    if (this.schemaId) {
+      const result = wasmParseRequest(
+        method,
+        path,
+        queryString,
+        body ? JSON.stringify(body) : undefined,
+        undefined,
+        this.schemaId,
+      );
+      return {
+        sql: result.query,
+        params: Array.isArray(result.params) ? result.params : [],
+        tables: Array.isArray(result.tables) ? result.tables : [],
+      };
+    }
     const result = this.client.parseRequest(
       method,
       path,

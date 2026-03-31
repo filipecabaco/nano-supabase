@@ -27,8 +27,8 @@ importers:
         specifier: ^6.2.2
         version: 6.2.2
       postgrest-parser:
-        specifier: ^0.1.2
-        version: 0.1.2
+        specifier: ^0.2.0
+        version: 0.2.0
     devDependencies:
       '@biomejs/biome':
         specifier: ^2.4.8
@@ -2156,8 +2156,8 @@ packages:
     resolution: {integrity: sha512-9ZhXKM/rw350N1ovuWHbGxnGh/SNJ4cnxHiM0rxE4VN41wsg8P8zWn9hv/buK00RP4WvlOyr/RBDiptyxVbkZQ==}
     engines: {node: '>=0.10.0'}
 
-  postgrest-parser@0.1.2:
-    resolution: {integrity: sha512-bWE4ptLXwhey6g0oe4S6DdF/2gKdFqFIq/oBoD762qrwtTGtk5TM9Z+EP6PR5VMKlAOnvI6WWQCRRdLXAuhb+w==}
+  postgrest-parser@0.2.0:
+    resolution: {integrity: sha512-pmJ0xDV3ezkXpLqC1STnMOiFAz7/RysmmD8OU3c7DYV2QOG8hGhWBVeu0bveLkP4qvnZTe8H6Vn2MbQM+5hKJw==}
     engines: {node: '>=18.0.0'}
 
   prettier-plugin-sql@0.17.1:
@@ -4960,7 +4960,7 @@ snapshots:
     dependencies:
       xtend: 4.0.2
 
-  postgrest-parser@0.1.2: {}
+  postgrest-parser@0.2.0: {}
 
   prettier-plugin-sql@0.17.1(prettier@3.8.1):
     dependencies:

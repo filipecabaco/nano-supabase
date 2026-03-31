@@ -33,6 +33,7 @@ export async function createComponents(
   storageBackend: StorageBackend | false | undefined,
   postgrestWasmBytes?: Uint8Array,
   sharedParser?: PostgrestParser,
+  schemaId?: string,
 ): Promise<{
   parser: PostgrestParser;
   authHandler: AuthHandler;
@@ -40,7 +41,7 @@ export async function createComponents(
 }> {
   const authHandler = new AuthHandler(db);
 
-  if (sharedParser) {
+  if (sharedParser && !schemaId) {
     await authHandler.initialize();
   } else {
     await Promise.all([
@@ -55,15 +56,15 @@ export async function createComponents(
     await storageHandler.initialize();
   }
 
-  if (!sharedParser) {
+  if (!sharedParser || schemaId) {
     await PostgrestParser.initSchema(async (sql: string) => {
       const result = await db.query(sql);
       return { rows: result.rows };
-    });
+    }, schemaId);
   }
 
   return {
-    parser: sharedParser ?? new PostgrestParser(),
+    parser: schemaId ? new PostgrestParser(schemaId) : (sharedParser ?? new PostgrestParser()),
     authHandler,
     storageHandler,
   };

@@ -551,6 +551,6 @@ Prisma: `DATABASE_URL=postgresql://postgres@127.0.0.1:5432/postgres?sslmode=disa
 
 ## Known Limitations
 
-- `PostgrestParser` uses a static `initPromise` and global WASM schema state. In service mode, tenants with different schemas share one parser — only the first schema introspected is used. This is a WASM binding constraint.
+- `PostgrestParser` uses a static `initPromise` for WASM initialization. In service mode, each tenant gets its own schema cache keyed by `schemaId` (tenant slug). Schema is introspected per-tenant on wake and cleared on pause/delete via `clearSchema()`.
 - `PGlitePooler` timeout does not cancel the underlying PGlite query (PGlite has no query cancellation API). A timed-out query continues running and blocks the queue until it finishes.
 - `TcpServer` (exported from the library) uses `node:net` and `node:buffer` — it is Node.js-only and will not work in browser, Deno, or edge runtimes.
