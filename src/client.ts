@@ -64,7 +64,9 @@ export async function createComponents(
   }
 
   return {
-    parser: schemaId ? new PostgrestParser(schemaId) : (sharedParser ?? new PostgrestParser()),
+    parser: schemaId
+      ? new PostgrestParser(schemaId)
+      : (sharedParser ?? new PostgrestParser()),
     authHandler,
     storageHandler,
   };

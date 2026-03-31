@@ -65,9 +65,7 @@ describe("per-schema-id isolation", () => {
     }, "iso-tenant-2");
 
     const supabase1 = nano1.createClient();
-    const { error: e1 } = await supabase1
-      .from("orders")
-      .insert({ total: 100 });
+    const { error: e1 } = await supabase1.from("orders").insert({ total: 100 });
     expect(e1).toBeNull();
     const { data: d1 } = await supabase1.from("orders").select("*");
     expect(d1).toHaveLength(1);

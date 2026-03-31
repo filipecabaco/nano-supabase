@@ -1,13 +1,11 @@
 import { createClient } from "postgrest-parser/pkg/client.js";
 import init, {
   initSchemaFromDb,
-  clearSchema as wasmClearSchema,
   clearAllSchemas as wasmClearAllSchemas,
-} from "postgrest-parser/pkg/postgrest_parser.js";
-import type { QueryResult as ParserQueryResult } from "postgrest-parser/pkg/types.js";
-import {
+  clearSchema as wasmClearSchema,
   parseRequest as wasmParseRequest,
 } from "postgrest-parser/pkg/postgrest_parser.js";
+import type { QueryResult as ParserQueryResult } from "postgrest-parser/pkg/types.js";
 
 export type QueryExecutor = (sql: string) => Promise<{ rows: unknown[] }>;
 
