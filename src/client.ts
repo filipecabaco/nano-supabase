@@ -40,8 +40,9 @@ export async function createComponents(
   storageHandler: StorageHandler | undefined;
 }> {
   const authHandler = new AuthHandler(db);
+  const skipInit = sharedParser && !schemaId;
 
-  if (sharedParser && !schemaId) {
+  if (skipInit) {
     await authHandler.initialize();
   } else {
     await Promise.all([
@@ -56,7 +57,7 @@ export async function createComponents(
     await storageHandler.initialize();
   }
 
-  if (!sharedParser || schemaId) {
+  if (!skipInit) {
     await PostgrestParser.initSchema(async (sql: string) => {
       const result = await db.query(sql);
       return { rows: result.rows };

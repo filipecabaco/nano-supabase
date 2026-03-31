@@ -1,3 +1,4 @@
+import type { PGliteInterface } from "@electric-sql/pglite";
 import { describe, expect, test } from "vitest";
 
 import { createFetchAdapter } from "../src/client.ts";
@@ -6,6 +7,13 @@ import { createPGlite } from "../src/pglite-factory.ts";
 import { PostgrestParser } from "../src/postgrest-parser.ts";
 
 const SUPABASE_URL = "http://localhost:54321";
+
+function schemaExecutor(db: PGliteInterface) {
+  return async (sql: string) => {
+    const result = await db.query(sql);
+    return { rows: result.rows };
+  };
+}
 
 describe("per-schema-id isolation", () => {
   test("PostgrestParser constructor stores schemaId", () => {
@@ -25,10 +33,7 @@ describe("per-schema-id isolation", () => {
       )
     `);
 
-    await PostgrestParser.initSchema(async (sql: string) => {
-      const result = await db.query(sql);
-      return { rows: result.rows };
-    }, "test-tenant-a");
+    await PostgrestParser.initSchema(schemaExecutor(db), "test-tenant-a");
 
     const parser = new PostgrestParser("test-tenant-a");
     const parsed = parser.parseSelect("products", "select=*");
@@ -47,10 +52,7 @@ describe("per-schema-id isolation", () => {
         total INTEGER NOT NULL
       )
     `);
-    await PostgrestParser.initSchema(async (sql: string) => {
-      const result = await nano1.db.query(sql);
-      return { rows: result.rows };
-    }, "iso-tenant-1");
+    await PostgrestParser.initSchema(schemaExecutor(nano1.db), "iso-tenant-1");
 
     await using nano2 = await nanoSupabase({ schemaId: "iso-tenant-2" });
     await nano2.db.exec(`
@@ -59,10 +61,7 @@ describe("per-schema-id isolation", () => {
         amount NUMERIC NOT NULL
       )
     `);
-    await PostgrestParser.initSchema(async (sql: string) => {
-      const result = await nano2.db.query(sql);
-      return { rows: result.rows };
-    }, "iso-tenant-2");
+    await PostgrestParser.initSchema(schemaExecutor(nano2.db), "iso-tenant-2");
 
     const supabase1 = nano1.createClient();
     const { error: e1 } = await supabase1.from("orders").insert({ total: 100 });
@@ -89,19 +88,13 @@ describe("per-schema-id isolation", () => {
     await dbA.exec(
       "CREATE TABLE IF NOT EXISTS widgets (id SERIAL PRIMARY KEY, label TEXT)",
     );
-    await PostgrestParser.initSchema(async (sql: string) => {
-      const result = await dbA.query(sql);
-      return { rows: result.rows };
-    }, "clear-a");
+    await PostgrestParser.initSchema(schemaExecutor(dbA), "clear-a");
 
     const dbB = createPGlite();
     await dbB.exec(
       "CREATE TABLE IF NOT EXISTS gadgets (id SERIAL PRIMARY KEY, model TEXT)",
     );
-    await PostgrestParser.initSchema(async (sql: string) => {
-      const result = await dbB.query(sql);
-      return { rows: result.rows };
-    }, "clear-b");
+    await PostgrestParser.initSchema(schemaExecutor(dbB), "clear-b");
 
     PostgrestParser.clearSchema("clear-a");
 
@@ -120,21 +113,15 @@ describe("per-schema-id isolation", () => {
       "CREATE TABLE IF NOT EXISTS temp (id SERIAL PRIMARY KEY, v TEXT)",
     );
 
-    await PostgrestParser.initSchema(async (sql: string) => {
-      const result = await db.query(sql);
-      return { rows: result.rows };
-    }, "all-a");
-    await PostgrestParser.initSchema(async (sql: string) => {
-      const result = await db.query(sql);
-      return { rows: result.rows };
-    }, "all-b");
+    await PostgrestParser.initSchema(schemaExecutor(db), "all-a");
+    await PostgrestParser.initSchema(schemaExecutor(db), "all-b");
 
     PostgrestParser.clearAllSchemas();
 
     await db.close();
   });
 
-  test("createFetchAdapter with schemaId routes queries correctly", async () => {
+  test("createFetchAdapter with default schemaId routes queries correctly", async () => {
     const db = createPGlite();
     await db.exec(`
       CREATE TABLE IF NOT EXISTS tasks (
@@ -170,10 +157,7 @@ describe("per-schema-id isolation", () => {
         body TEXT NOT NULL
       )
     `);
-    await PostgrestParser.initSchema(async (sql: string) => {
-      const result = await nano.db.query(sql);
-      return { rows: result.rows };
-    }, "crud-tenant");
+    await PostgrestParser.initSchema(schemaExecutor(nano.db), "crud-tenant");
 
     const supabase = nano.createClient();
 
@@ -224,7 +208,7 @@ describe("per-schema-id isolation", () => {
 });
 
 describe("service-mode-like multi-tenant pattern", () => {
-  test("simulates service mode: shared WASM init, per-tenant schema and parser", async () => {
+  test("shared WASM init with per-tenant schema and parser", async () => {
     await PostgrestParser.init();
 
     const tenants = [
@@ -242,10 +226,7 @@ describe("service-mode-like multi-tenant pattern", () => {
           ${t.column} TEXT NOT NULL
         )
       `);
-      await PostgrestParser.initSchema(async (sql: string) => {
-        const result = await nano.db.query(sql);
-        return { rows: result.rows };
-      }, t.slug);
+      await PostgrestParser.initSchema(schemaExecutor(nano.db), t.slug);
       instances.push(nano);
     }
 
@@ -275,20 +256,15 @@ describe("service-mode-like multi-tenant pattern", () => {
     }
   });
 
-  test("pause/wake simulation: clearSchema then re-init restores functionality", async () => {
-    await using nano = await nanoSupabase({
-      schemaId: "pausable",
-    });
+  test("clearSchema then re-init restores functionality (pause/wake)", async () => {
+    await using nano = await nanoSupabase({ schemaId: "pausable" });
     await nano.db.exec(`
       CREATE TABLE IF NOT EXISTS logs (
         id SERIAL PRIMARY KEY,
         message TEXT NOT NULL
       )
     `);
-    await PostgrestParser.initSchema(async (sql: string) => {
-      const result = await nano.db.query(sql);
-      return { rows: result.rows };
-    }, "pausable");
+    await PostgrestParser.initSchema(schemaExecutor(nano.db), "pausable");
 
     const supabase = nano.createClient();
     const { error: e1 } = await supabase
@@ -298,10 +274,7 @@ describe("service-mode-like multi-tenant pattern", () => {
 
     PostgrestParser.clearSchema("pausable");
 
-    await PostgrestParser.initSchema(async (sql: string) => {
-      const result = await nano.db.query(sql);
-      return { rows: result.rows };
-    }, "pausable");
+    await PostgrestParser.initSchema(schemaExecutor(nano.db), "pausable");
 
     const { error: e2 } = await supabase
       .from("logs")
