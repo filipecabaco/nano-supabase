@@ -121,7 +121,7 @@
     "@supabase/supabase-js": "^2.99.2",
     "aws4fetch": "^1.0.20",
     "jose": "^6.2.2",
-    "postgrest-parser": "^0.1.2"
+    "postgrest-parser": "^0.2.0"
   },
   "optionalDependencies": {
     "@electric-sql/pglite-tools": "^0.3.1",

@@ -1,8 +1,9 @@
-import { createClient } from "postgrest-parser/pkg/client.js";
 import init, {
   initSchemaFromDb,
+  clearAllSchemas as wasmClearAllSchemas,
+  clearSchema as wasmClearSchema,
+  parseRequest as wasmParseRequest,
 } from "postgrest-parser/pkg/postgrest_parser.js";
-import type { QueryResult as ParserQueryResult } from "postgrest-parser/pkg/types.js";
 
 export type QueryExecutor = (sql: string) => Promise<{ rows: unknown[] }>;
 
@@ -13,11 +14,11 @@ export interface ParsedQuery {
 }
 
 export class PostgrestParser {
-  private readonly client: ReturnType<typeof createClient>;
   private static initPromise: Promise<unknown> | null = null;
+  readonly schemaId: string | undefined;
 
-  constructor() {
-    this.client = createClient();
+  constructor(schemaId?: string) {
+    this.schemaId = schemaId;
   }
 
   static async init(wasmBytes?: Uint8Array): Promise<void> {
@@ -29,9 +30,20 @@ export class PostgrestParser {
     await PostgrestParser.initPromise;
   }
 
-  static async initSchema(queryExecutor: QueryExecutor): Promise<void> {
+  static async initSchema(
+    queryExecutor: QueryExecutor,
+    schemaId?: string,
+  ): Promise<void> {
     await PostgrestParser.init();
-    await initSchemaFromDb(queryExecutor);
+    await initSchemaFromDb(schemaId ?? "", queryExecutor);
+  }
+
+  static clearSchema(schemaId: string): void {
+    wasmClearSchema(schemaId);
+  }
+
+  static clearAllSchemas(): void {
+    wasmClearAllSchemas();
   }
 
   parseSelect(table: string, queryString: string = ""): ParsedQuery {
@@ -73,17 +85,14 @@ export class PostgrestParser {
     queryString: string = "",
     body?: Record<string, unknown>,
   ): ParsedQuery {
-    const result = this.client.parseRequest(
+    const result = wasmParseRequest(
       method,
       path,
       queryString,
-      body ?? null,
-      null,
+      body ? JSON.stringify(body) : undefined,
+      undefined,
+      this.schemaId ?? null,
     );
-    return this.convertResult(result);
-  }
-
-  private convertResult(result: ParserQueryResult): ParsedQuery {
     return {
       sql: result.query,
       params: Array.isArray(result.params) ? result.params : [],

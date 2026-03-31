@@ -461,7 +461,6 @@ export async function runServiceMode(opts: {
 
   const consecutiveErrors = new Map<string, number>();
   await PostgrestParser.init(postgrestWasm);
-  const sharedParser = new PostgrestParser();
   const nanoInstances = new Map<string, NanoSupabaseInstance | null>();
   const tenantPoolers = new Map<string, import("./pooler.ts").PGlitePooler>();
   const tenantMcpHandlers = new Map<string, McpHandler>();
@@ -576,6 +575,7 @@ export async function runServiceMode(opts: {
     await registry.query("DELETE FROM tenants WHERE id = $1", [id]);
     tenantCache.delete(slug);
     dirtyLastActive.delete(id);
+    PostgrestParser.clearSchema(slug);
   }
 
   async function updateTokenHash(
@@ -639,7 +639,7 @@ export async function runServiceMode(opts: {
       pgliteWasmModule,
       fsBundle,
       postgrestWasmBytes: postgrestWasm,
-      parser: sharedParser,
+      schemaId: tenant.slug,
       extensions: {
         pgcrypto: pgcryptoExt,
         uuid_ossp: uuidOsspExt,
@@ -684,6 +684,7 @@ export async function runServiceMode(opts: {
     nanoInstances.set(tenant.id, null);
     tenantMcpHandlers.delete(tenant.id);
     tenant.nano = null;
+    PostgrestParser.clearSchema(tenant.slug);
     try {
       await offloadTenant(tenant.dataDir, tenant.id);
       await updateTenantState(tenant.id, "sleeping");
@@ -2228,6 +2229,7 @@ export async function runServiceMode(opts: {
         await pooler.stop().catch(() => {});
         tenantPoolers.delete(id);
       }
+      PostgrestParser.clearAllSchemas();
       await registry.close().catch(() => {});
       process.exit(0);
     });

@@ -22,6 +22,7 @@ export interface NanoSupabaseOptions {
   postgrestWasmBytes?: Uint8Array;
   serviceRoleKey?: string;
   parser?: PostgrestParser;
+  schemaId?: string;
   postgresOptions?: Pick<PGliteOptions, "startParams">;
 }
 
@@ -57,6 +58,7 @@ export async function createClient<Database = unknown>(
     postgrestWasmBytes,
     serviceRoleKey,
     parser,
+    schemaId,
     postgresOptions,
     url,
     key,
@@ -73,6 +75,7 @@ export async function createClient<Database = unknown>(
     postgrestWasmBytes,
     serviceRoleKey,
     parser,
+    schemaId,
     postgresOptions,
   });
   return nano.createClient<Database>({ url, key, ...clientOptions });
@@ -92,6 +95,7 @@ export async function nanoSupabase(
     postgrestWasmBytes,
     serviceRoleKey,
     parser: sharedParser,
+    schemaId,
     postgresOptions,
   } = options;
 
@@ -106,6 +110,7 @@ export async function nanoSupabase(
     storageBackend,
     postgrestWasmBytes,
     sharedParser,
+    schemaId,
   );
 
   const localFetch = createLocalFetch({
