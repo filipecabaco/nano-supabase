@@ -3,39 +3,27 @@ name: PGlite Update
 on:
   schedule:
     - cron: "0 8 * * *"
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
   workflow_dispatch:
 
 jobs:
   update:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-
-      - uses: pnpm/action-setup@v4
-        with:
-          version: latest
-
-      - name: Setup Node
-        uses: actions/setup-node@v6
-        with:
-          node-version: "22"
-          cache: "pnpm"
-
-      - name: Install dependencies
-        run: pnpm install
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
 
       - name: Check for PGlite update
         id: check
         run: |
-          CURRENT=$(node -e "const p=require('./package.json'); console.log(p.peerDependencies['@electric-sql/pglite'].replace(/^[^0-9]*/, ''))")
+          CURRENT=$(node -p "require('./package.json').peerDependencies['@electric-sql/pglite'].replace(/^\D+/, '')")
           LATEST=$(npm view @electric-sql/pglite version)
           echo "current=$CURRENT" >> $GITHUB_OUTPUT
           echo "latest=$LATEST" >> $GITHUB_OUTPUT
-          if [ "$CURRENT" != "$LATEST" ]; then
-            echo "outdated=true" >> $GITHUB_OUTPUT
-          else
-            echo "outdated=false" >> $GITHUB_OUTPUT
-          fi
+          echo "outdated=$( [ "$CURRENT" != "$LATEST" ] && echo true || echo false )" >> $GITHUB_OUTPUT
 
       - name: Update PGlite
         if: steps.check.outputs.outdated == 'true'
@@ -61,24 +49,16 @@ jobs:
           "
           pnpm install
 
-      - name: Typecheck
+      - name: Validate
         if: steps.check.outputs.outdated == 'true'
-        run: npx tsc --noEmit
-
-      - name: Build
-        if: steps.check.outputs.outdated == 'true'
-        run: pnpm run build
-
-      - name: Run tests
-        if: steps.check.outputs.outdated == 'true'
-        run: pnpm test
-
-      - name: Run CLI tests
-        if: steps.check.outputs.outdated == 'true'
-        run: pnpm vitest run --config vitest.cli.config.ts
+        run: |
+          npx tsc --noEmit
+          pnpm run build
+          pnpm test
+          pnpm vitest run --config vitest.cli.config.ts
 
       - name: Open PR
-        if: steps.check.outputs.outdated == 'true'
+        if: steps.check.outputs.outdated == 'true' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
         uses: peter-evans/create-pull-request@v7
         with:
           token: ${{ secrets.PAT }}
