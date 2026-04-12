@@ -47,7 +47,7 @@ jobs:
             }
             fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
           "
-          pnpm install
+          pnpm install --no-frozen-lockfile
 
       - name: Validate
         if: steps.check.outputs.outdated == 'true'
