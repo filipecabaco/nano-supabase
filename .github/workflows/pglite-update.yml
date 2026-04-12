@@ -3,39 +3,27 @@ name: PGlite Update
 on:
   schedule:
     - cron: "0 8 * * *"
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
   workflow_dispatch:
 
 jobs:
   update:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-
-      - uses: pnpm/action-setup@v4
-        with:
-          version: latest
-
-      - name: Setup Node
-        uses: actions/setup-node@v6
-        with:
-          node-version: "22"
-          cache: "pnpm"
-
-      - name: Install dependencies
-        run: pnpm install
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
 
       - name: Check for PGlite update
         id: check
         run: |
-          CURRENT=$(node -e "const p=require('./package.json'); console.log(p.peerDependencies['@electric-sql/pglite'].replace(/^[^0-9]*/, ''))")
+          CURRENT=$(node -p "require('./package.json').peerDependencies['@electric-sql/pglite'].replace(/^\D+/, '')")
           LATEST=$(npm view @electric-sql/pglite version)
           echo "current=$CURRENT" >> $GITHUB_OUTPUT
           echo "latest=$LATEST" >> $GITHUB_OUTPUT
-          if [ "$CURRENT" != "$LATEST" ]; then
-            echo "outdated=true" >> $GITHUB_OUTPUT
-          else
-            echo "outdated=false" >> $GITHUB_OUTPUT
-          fi
+          echo "outdated=$( [ "$CURRENT" != "$LATEST" ] && echo true || echo false )" >> $GITHUB_OUTPUT
 
       - name: Update PGlite
         if: steps.check.outputs.outdated == 'true'
@@ -43,31 +31,34 @@ jobs:
           LATEST: ${{ steps.check.outputs.latest }}
         run: |
           node -e "
+            const { execSync } = require('child_process');
             const fs = require('fs');
             const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
             pkg.peerDependencies['@electric-sql/pglite'] = '>=' + process.env.LATEST;
+            for (const depType of ['devDependencies', 'optionalDependencies', 'dependencies']) {
+              if (!pkg[depType]) continue;
+              for (const name of Object.keys(pkg[depType])) {
+                if (name.startsWith('@electric-sql/pglite-')) {
+                  const latest = execSync('npm view ' + name + ' version', { encoding: 'utf8' }).trim();
+                  const prefix = pkg[depType][name].match(/^[^0-9]*/)?.[0] || '^';
+                  pkg[depType][name] = prefix + latest;
+                }
+              }
+            }
             fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
           "
-          pnpm install
+          pnpm install --no-frozen-lockfile
 
-      - name: Typecheck
+      - name: Validate
         if: steps.check.outputs.outdated == 'true'
-        run: npx tsc --noEmit
-
-      - name: Build
-        if: steps.check.outputs.outdated == 'true'
-        run: pnpm run build
-
-      - name: Run tests
-        if: steps.check.outputs.outdated == 'true'
-        run: pnpm test
-
-      - name: Run CLI tests
-        if: steps.check.outputs.outdated == 'true'
-        run: pnpm vitest run --config vitest.cli.config.ts
+        run: |
+          npx tsc --noEmit
+          pnpm run build
+          pnpm test
+          pnpm vitest run --config vitest.cli.config.ts
 
       - name: Open PR
-        if: steps.check.outputs.outdated == 'true'
+        if: steps.check.outputs.outdated == 'true' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
         uses: peter-evans/create-pull-request@v7
         with:
           token: ${{ secrets.PAT }}
