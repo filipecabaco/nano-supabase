@@ -14,11 +14,9 @@ jobs:
     runs-on: ubuntu-latest
     name: update / react-file-manager
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-        with:
-          version: latest
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
         with:
           node-version: "22"
           cache: "pnpm"
@@ -41,8 +39,9 @@ jobs:
 
       - name: Create PR
         if: steps.changes.outputs.changed == 'true'
-        uses: peter-evans/create-pull-request@v7
+        uses: peter-evans/create-pull-request@v8
         with:
+          token: ${{ secrets.PAT }}
           branch: deps/examples-react-file-manager
           title: "deps(examples): update react-file-manager dependencies"
           body: |
@@ -56,19 +55,17 @@ jobs:
     runs-on: ubuntu-latest
     name: update / feature-flags
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-        with:
-          version: latest
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
         with:
           node-version: "22"
 
       - name: Update feature-flags dependencies
         working-directory: examples/service/feature-flags
         run: |
-          npm update --save
-          npm update --save-dev
+          npm install --ignore-scripts
+          npm update --save --ignore-scripts
 
       - name: Check for changes
         id: changes
@@ -81,8 +78,9 @@ jobs:
 
       - name: Create PR
         if: steps.changes.outputs.changed == 'true'
-        uses: peter-evans/create-pull-request@v7
+        uses: peter-evans/create-pull-request@v8
         with:
+          token: ${{ secrets.PAT }}
           branch: deps/examples-feature-flags
           title: "deps(examples): update feature-flags dependencies"
           body: |
