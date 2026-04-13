@@ -17,6 +17,7 @@ export interface NanoSupabaseOptions {
     postgrestWasmBytes?: Uint8Array;
     serviceRoleKey?: string;
     parser?: PostgrestParser;
+    schemaId?: string;
     postgresOptions?: Pick<PGliteOptions, "startParams">;
 }
 export interface NanoSupabaseInstance {

@@ -88,8 +88,8 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.8",
-    "@electric-sql/pglite-postgis": "^0.0.4",
-    "@electric-sql/pglite-socket": "^0.0.22",
+    "@electric-sql/pglite-postgis": "^0.0.6",
+    "@electric-sql/pglite-socket": "^0.1.4",
     "@prisma/client": "^6.19.2",
     "@supabase/postgres-meta": "^0.96.1",
     "@testcontainers/localstack": "^11.13.0",
@@ -108,7 +108,7 @@
     "vitest": "^4.1.0"
   },
   "peerDependencies": {
-    "@electric-sql/pglite": ">=0.4.2"
+    "@electric-sql/pglite": ">=0.4.4"
   },
   "peerDependenciesMeta": {
     "@electric-sql/pglite": {
@@ -124,7 +124,7 @@
     "postgrest-parser": "^0.2.0"
   },
   "optionalDependencies": {
-    "@electric-sql/pglite-tools": "^0.3.1",
+    "@electric-sql/pglite-tools": "^0.3.4",
     "@modelcontextprotocol/sdk": "^1.27.1",
     "@supabase/mcp-server-supabase": "^0.7.0",
     "@types/pg": "^8.20.0",
