@@ -18,7 +18,7 @@ export interface LocalSupabaseClientResult<T = unknown> {
     storageHandler?: StorageHandler;
     localFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 }
-export declare function createComponents(db: PGlite | PGliteInterface, storageBackend: StorageBackend | false | undefined, postgrestWasmBytes?: Uint8Array, sharedParser?: PostgrestParser): Promise<{
+export declare function createComponents(db: PGlite | PGliteInterface, storageBackend: StorageBackend | false | undefined, postgrestWasmBytes?: Uint8Array, sharedParser?: PostgrestParser, schemaId?: string): Promise<{
     parser: PostgrestParser;
     authHandler: AuthHandler;
     storageHandler: StorageHandler | undefined;

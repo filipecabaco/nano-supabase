@@ -7,17 +7,18 @@ export interface ParsedQuery {
     readonly tables: readonly string[];
 }
 export declare class PostgrestParser {
-    private readonly client;
     private static initPromise;
-    constructor();
+    readonly schemaId: string | undefined;
+    constructor(schemaId?: string);
     static init(wasmBytes?: Uint8Array): Promise<void>;
-    static initSchema(queryExecutor: QueryExecutor): Promise<void>;
+    static initSchema(queryExecutor: QueryExecutor, schemaId?: string): Promise<void>;
+    static clearSchema(schemaId: string): void;
+    static clearAllSchemas(): void;
     parseSelect(table: string, queryString?: string): ParsedQuery;
     parseInsert(table: string, data: Record<string, unknown>, queryString?: string): ParsedQuery;
     parseUpdate(table: string, data: Record<string, unknown>, queryString: string): ParsedQuery;
     parseDelete(table: string, queryString: string): ParsedQuery;
     parseRpc(functionName: string, args?: Record<string, unknown>, queryString?: string): ParsedQuery;
     parseRequest(method: "GET" | "POST" | "PATCH" | "DELETE", path: string, queryString?: string, body?: Record<string, unknown>): ParsedQuery;
-    private convertResult;
 }
 //# sourceMappingURL=postgrest-parser.d.ts.map
