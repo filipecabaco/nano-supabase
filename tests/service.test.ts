@@ -674,6 +674,123 @@ describe("service with postgres registry", () => {
       expect(result.output).toContain("New password:");
       await cmdServiceRemove(cmdArgs(["cli-pass-tenant"]));
     });
+
+    test("cmdServiceImport applies migrations from remote postgres into tenant", async () => {
+      const {
+        cmdServiceAdd,
+        cmdServiceImport,
+        cmdServiceSql,
+        cmdServiceRemove,
+      } = await import("../src/cli-commands.ts");
+
+      const remoteClient = new Client({ connectionString: registryDbUrl });
+      await remoteClient.connect();
+      try {
+        await remoteClient.query(
+          `CREATE SCHEMA IF NOT EXISTS supabase_migrations`,
+        );
+        await remoteClient.query(`
+          CREATE TABLE IF NOT EXISTS supabase_migrations.schema_migrations (
+            version text PRIMARY KEY,
+            name text,
+            statements text[]
+          )
+        `);
+        await remoteClient.query(`
+          INSERT INTO supabase_migrations.schema_migrations (version, name, statements)
+          VALUES ('20240101000000', 'create_items', ARRAY[
+            'CREATE TABLE IF NOT EXISTS public.items (id SERIAL PRIMARY KEY, label TEXT NOT NULL)'
+          ])
+          ON CONFLICT DO NOTHING
+        `);
+
+        await cmdServiceAdd(cmdArgs(["cli-import-tenant"]));
+        const result = await cmdServiceImport(
+          cmdArgs(["cli-import-tenant", `--remote-db-url=${registryDbUrl}`]),
+        );
+        expect(result.exitCode).toBe(0);
+        expect(result.output).toContain("1 applied");
+
+        const sqlResult = await cmdServiceSql(
+          cmdArgs([
+            "cli-import-tenant",
+            "SELECT table_name FROM information_schema.tables WHERE table_name = 'items'",
+          ]),
+        );
+        expect(sqlResult.output).toContain("items");
+      } finally {
+        await remoteClient.end();
+        await cmdServiceRemove(cmdArgs(["cli-import-tenant"]));
+      }
+    });
+
+    test("cmdServiceImport skips already-applied migrations", async () => {
+      const { cmdServiceAdd, cmdServiceImport, cmdServiceRemove } =
+        await import("../src/cli-commands.ts");
+
+      const remoteClient = new Client({ connectionString: registryDbUrl });
+      await remoteClient.connect();
+      try {
+        await remoteClient.query(`
+          INSERT INTO supabase_migrations.schema_migrations (version, name, statements)
+          VALUES ('20240102000000', 'add_done', ARRAY[
+            'ALTER TABLE public.items ADD COLUMN IF NOT EXISTS done BOOLEAN DEFAULT false'
+          ])
+          ON CONFLICT DO NOTHING
+        `);
+
+        await cmdServiceAdd(cmdArgs(["cli-import-skip-tenant"]));
+        await cmdServiceImport(
+          cmdArgs([
+            "cli-import-skip-tenant",
+            `--remote-db-url=${registryDbUrl}`,
+          ]),
+        );
+        const second = await cmdServiceImport(
+          cmdArgs([
+            "cli-import-skip-tenant",
+            `--remote-db-url=${registryDbUrl}`,
+          ]),
+        );
+        expect(second.exitCode).toBe(0);
+        expect(second.output).toContain("0 applied");
+      } finally {
+        await remoteClient.end();
+        await cmdServiceRemove(cmdArgs(["cli-import-skip-tenant"]));
+      }
+    });
+
+    test("cmdServiceImport --dry-run reports without applying", async () => {
+      const {
+        cmdServiceAdd,
+        cmdServiceImport,
+        cmdServiceSql,
+        cmdServiceRemove,
+      } = await import("../src/cli-commands.ts");
+
+      await cmdServiceAdd(cmdArgs(["cli-import-dry-tenant"]));
+      try {
+        const result = await cmdServiceImport(
+          cmdArgs([
+            "cli-import-dry-tenant",
+            `--remote-db-url=${registryDbUrl}`,
+            "--dry-run",
+          ]),
+        );
+        expect(result.exitCode).toBe(0);
+        expect(result.output).toContain("dry run");
+
+        const sqlResult = await cmdServiceSql(
+          cmdArgs([
+            "cli-import-dry-tenant",
+            "SELECT table_name FROM information_schema.tables WHERE table_name = 'items'",
+          ]),
+        );
+        expect(sqlResult.output).not.toContain("items");
+      } finally {
+        await cmdServiceRemove(cmdArgs(["cli-import-dry-tenant"]));
+      }
+    });
   });
 
   test("DELETE /admin/tenants/:slug removes tenant from postgres registry", async () => {

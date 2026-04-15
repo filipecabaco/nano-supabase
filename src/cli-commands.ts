@@ -1652,3 +1652,206 @@ export async function cmdServiceMigrate(
   }
   return ok(r, json, lines.join("\n"));
 }
+
+export async function cmdServiceImport(
+  args: string[],
+): Promise<{ exitCode: number; output: string }> {
+  const json = args.includes("--json");
+  const dryRun = args.includes("--dry-run");
+  const skipMigrations = args.includes("--no-migrations");
+  const skipStorage = args.includes("--no-storage");
+
+  const adminToken = getAdminToken(args);
+  if (!adminToken)
+    return fail(
+      "missing_admin_token",
+      "--admin-token or NANO_ADMIN_TOKEN is required",
+      json,
+    );
+
+  const positional = args.filter((a) => !a.startsWith("--"));
+  const slug = positional[0];
+  if (!slug)
+    return fail(
+      "missing_slug",
+      "Usage: service import <slug> --remote-db-url=<url>",
+      json,
+    );
+
+  const remoteDbUrl =
+    getArgValue(args, "--remote-db-url") ?? process.env.SUPABASE_DB_URL;
+  if (!remoteDbUrl)
+    return fail("missing_remote_db_url", "Provide --remote-db-url", json);
+
+  const serviceUrl = getServiceUrl(args);
+  const result = {
+    migrations: { applied: 0, skipped: 0 },
+    buckets: { upserted: 0 },
+  };
+
+  let client: pg.Client | undefined;
+  try {
+    client = await connectPg(remoteDbUrl);
+
+    if (!skipMigrations) {
+      const migTableRes = await client.query<{ exists: boolean }>(
+        `SELECT EXISTS (
+          SELECT 1 FROM information_schema.tables
+          WHERE table_schema = 'supabase_migrations' AND table_name = 'schema_migrations'
+        ) AS exists`,
+      );
+      const hasMigrationTable = migTableRes.rows[0]?.exists ?? false;
+
+      if (hasMigrationTable) {
+        const migrationsRes = await client.query<{
+          version: string;
+          name: string | null;
+          statements: string[] | null;
+        }>(
+          `SELECT version, name, statements FROM supabase_migrations.schema_migrations ORDER BY version`,
+        );
+
+        const appliedRes = await serviceRequest<{
+          rows: { version: string }[];
+        }>("POST", `${serviceUrl}/admin/tenants/${slug}/sql`, adminToken, {
+          sql: `SELECT version FROM supabase_migrations.schema_migrations`,
+        });
+        const appliedVersions = new Set(
+          appliedRes.ok
+            ? (appliedRes.data.rows ?? []).map((r) => r.version)
+            : [],
+        );
+
+        for (const row of migrationsRes.rows) {
+          if (appliedVersions.has(row.version)) {
+            result.migrations.skipped++;
+            continue;
+          }
+          const statements = row.statements ?? [];
+          if (!dryRun) {
+            for (const stmt of statements) {
+              if (!stmt.trim()) continue;
+              const { ok: success, data } = await serviceRequest<
+                Record<string, unknown>
+              >("POST", `${serviceUrl}/admin/tenants/${slug}/sql`, adminToken, {
+                sql: stmt,
+              });
+              if (!success)
+                throw new Error(
+                  `Migration ${row.version} failed: ${JSON.stringify(data)}`,
+                );
+            }
+            await serviceRequest<Record<string, unknown>>(
+              "POST",
+              `${serviceUrl}/admin/tenants/${slug}/sql`,
+              adminToken,
+              {
+                sql: `CREATE SCHEMA IF NOT EXISTS supabase_migrations`,
+              },
+            );
+            await serviceRequest<Record<string, unknown>>(
+              "POST",
+              `${serviceUrl}/admin/tenants/${slug}/sql`,
+              adminToken,
+              {
+                sql: `CREATE TABLE IF NOT EXISTS supabase_migrations.schema_migrations (version text PRIMARY KEY, name text, statements text[])`,
+              },
+            );
+            await serviceRequest<Record<string, unknown>>(
+              "POST",
+              `${serviceUrl}/admin/tenants/${slug}/sql`,
+              adminToken,
+              {
+                sql: `INSERT INTO supabase_migrations.schema_migrations (version, name, statements) VALUES ($1, $2, $3) ON CONFLICT (version) DO NOTHING`,
+                params: [row.version, row.name, row.statements],
+              },
+            );
+          }
+          result.migrations.applied++;
+        }
+      } else {
+        const remoteUrl =
+          getArgValue(args, "--remote-url") ?? process.env.SUPABASE_URL;
+        const remoteKey =
+          getArgValue(args, "--remote-service-role-key") ??
+          process.env.SUPABASE_SERVICE_ROLE_KEY;
+        const ddl = await dumpSchema(client, remoteDbUrl, remoteUrl, remoteKey);
+        if (ddl && !dryRun) {
+          const { ok: success, data } = await serviceRequest<
+            Record<string, unknown>
+          >("POST", `${serviceUrl}/admin/tenants/${slug}/sql`, adminToken, {
+            sql: ddl,
+          });
+          if (!success)
+            throw new Error(`Schema import failed: ${JSON.stringify(data)}`);
+        }
+        if (ddl) result.migrations.applied = 1;
+      }
+    }
+
+    if (!skipStorage) {
+      const storageExistsRes = await client.query<{ exists: boolean }>(
+        `SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'storage' AND table_name = 'buckets') AS exists`,
+      );
+      const hasStorageBuckets = storageExistsRes.rows[0]?.exists ?? false;
+      const remoteBucketsRes = hasStorageBuckets
+        ? await client.query<{
+            id: string;
+            name: string;
+            public: boolean;
+            file_size_limit: number | null;
+            allowed_mime_types: string[] | null;
+          }>(
+            `SELECT id, name, public, file_size_limit, allowed_mime_types FROM storage.buckets`,
+          )
+        : {
+            rows: [] as {
+              id: string;
+              name: string;
+              public: boolean;
+              file_size_limit: number | null;
+              allowed_mime_types: string[] | null;
+            }[],
+          };
+
+      for (const bucket of remoteBucketsRes.rows) {
+        if (!dryRun) {
+          await serviceRequest<Record<string, unknown>>(
+            "POST",
+            `${serviceUrl}/admin/tenants/${slug}/sql`,
+            adminToken,
+            {
+              sql: `INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+VALUES ($1, $2, $3, $4, $5)
+ON CONFLICT (id) DO UPDATE SET
+  name = EXCLUDED.name,
+  public = EXCLUDED.public,
+  file_size_limit = EXCLUDED.file_size_limit,
+  allowed_mime_types = EXCLUDED.allowed_mime_types`,
+              params: [
+                bucket.id,
+                bucket.name,
+                bucket.public,
+                bucket.file_size_limit,
+                bucket.allowed_mime_types,
+              ],
+            },
+          );
+        }
+        result.buckets.upserted++;
+      }
+    }
+  } catch (e: unknown) {
+    if (client) await client.end().catch(() => {});
+    return fail("import_failed", toErrorMessage(e), json);
+  }
+  await client.end().catch(() => {});
+
+  const text = [
+    `Import from ${remoteDbUrl} into tenant '${slug}'${dryRun ? " (dry run)" : ""}`,
+    ``,
+    `Migrations:  ${result.migrations.applied} applied, ${result.migrations.skipped} skipped`,
+    `Buckets:     ${result.buckets.upserted} upserted`,
+  ].join("\n");
+  return ok(result, json, text);
+}
