@@ -87,25 +87,24 @@
     "url": "https://github.com/filipecabaco/nano-supabase/issues"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.4.8",
+    "@biomejs/biome": "^2.4.12",
     "@electric-sql/pglite-postgis": "^0.0.6",
     "@electric-sql/pglite-socket": "^0.1.4",
     "@prisma/client": "^6.19.2",
-    "@supabase/postgres-meta": "^0.96.1",
-    "@testcontainers/localstack": "^11.13.0",
-    "@testcontainers/postgresql": "^11.13.0",
-    "@types/node": "^25.5.0",
-    "@types/selfsigned": "^2.1.0",
-    "@vitest/browser": "^4.1.0",
-    "@vitest/browser-playwright": "^4.1.0",
-    "esbuild": "^0.27.4",
-    "playwright": "^1.58.2",
+    "@supabase/postgres-meta": "^0.96.4",
+    "@testcontainers/localstack": "^11.14.0",
+    "@testcontainers/postgresql": "^11.14.0",
+    "@types/node": "^25.6.0",
+    "@vitest/browser": "^4.1.4",
+    "@vitest/browser-playwright": "^4.1.4",
+    "esbuild": "^0.27.7",
+    "playwright": "^1.59.1",
     "prisma": "^6.19.2",
     "selfsigned": "^5.5.0",
-    "testcontainers": "^11.13.0",
+    "testcontainers": "^11.14.0",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3",
-    "vitest": "^4.1.0"
+    "vitest": "^4.1.4"
   },
   "peerDependencies": {
     "@electric-sql/pglite": ">=0.4.4"
@@ -118,14 +117,14 @@
   "dependencies": {
     "@oslojs/otp": "^1.1.0",
     "@scure/base": "^2.0.0",
-    "@supabase/supabase-js": "^2.99.2",
+    "@supabase/supabase-js": "^2.103.2",
     "aws4fetch": "^1.0.20",
     "jose": "^6.2.2",
     "postgrest-parser": "^0.2.0"
   },
   "optionalDependencies": {
     "@electric-sql/pglite-tools": "^0.3.4",
-    "@modelcontextprotocol/sdk": "^1.27.1",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@supabase/mcp-server-supabase": "^0.7.0",
     "@types/pg": "^8.20.0",
     "node-pg-migrate": "^8.0.4",

@@ -18,7 +18,7 @@ export class FileSystemStorageBackend implements StorageBackend {
 
   private safePath(subpath: string): string {
     const resolved = resolve(this.baseDir, subpath);
-    if (!resolved.startsWith(this.baseDir + "/") && resolved !== this.baseDir) {
+    if (!resolved.startsWith(`${this.baseDir}/`) && resolved !== this.baseDir) {
       throw new Error("Invalid storage path");
     }
     return resolved;

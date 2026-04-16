@@ -74,7 +74,7 @@ The fetch adapter routes by URL path:
 
 | Path | Handler | What it does |
 |------|---------|-------------|
-| `/auth/v1/*` | AuthHandler | signup, signin, signout, token refresh, JWT sessions |
+| `/auth/v1/*` | AuthHandler | signup, signin, signout, token refresh, OTP, MFA/TOTP, admin user management, ban, audit log |
 | `/rest/v1/*` | PostgREST Parser | select, insert, update, delete, upsert with full filter support |
 | `/storage/v1/*` | StorageHandler | bucket CRUD, object upload/download, signed URLs |
 
@@ -98,6 +98,32 @@ const { data: { session } } = await supabase.auth.signInWithPassword({
 ```
 
 RLS functions `auth.uid()`, `auth.role()`, and `auth.email()` work as expected.
+
+**Supported auth features** (library, CLI, and browser):
+
+| Feature | API |
+|---------|-----|
+| Sign up / sign in / sign out | `supabase.auth.signUp`, `signInWithPassword`, `signOut` |
+| Token refresh | `supabase.auth.refreshSession` |
+| OTP (magic link) | `supabase.auth.signInWithOtp` |
+| Password recovery | `supabase.auth.resetPasswordForEmail` |
+| Update user | `supabase.auth.updateUser` |
+| MFA / TOTP | `supabase.auth.mfa.enroll`, `.challenge`, `.verify`, `.unenroll` |
+| Admin: list / get / create / update / delete users | `supabase.auth.admin.*` |
+| Admin: ban / unban user | `supabase.auth.admin.updateUserById({ ban_duration })` |
+| Admin: generate magic link | `supabase.auth.admin.generateLink` |
+| Admin: list / delete MFA factors | `supabase.auth.admin.listFactors`, `.deleteFactor` |
+| Admin: audit log | `supabase.auth.admin.listAuditLogs` |
+
+**CLI commands:**
+
+```bash
+npx nano-supabase auth generate-link --email=user@example.com [--type=magiclink|recovery|signup|invite]
+npx nano-supabase auth audit-log [--page=1] [--per-page=50]
+npx nano-supabase auth list-factors <user-id>
+npx nano-supabase auth delete-factor <user-id> <factor-id>
+npx nano-supabase auth ban <user-id> [--duration=24h]   # use 'none' to unban
+```
 
 ## Storage
 

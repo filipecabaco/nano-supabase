@@ -1096,8 +1096,94 @@ describe("MFA TOTP", () => {
       },
     );
     assertEquals(res.status, 200);
-    const body = (await res.json()) as { factors: { id: string }[] };
-    assertEquals(body.factors.length, 1);
+    const body = (await res.json()) as { id: string }[];
+    assertEquals(body.length, 1);
+
+    await db.close();
+  });
+
+  test("admin delete factor removes it from the database", async () => {
+    const db = createPGlite();
+    const { supabase, localFetch } = await createTestClient(db);
+
+    const signUp = await supabase.auth.signUp({
+      email: "mfa7@example.com",
+      password: "pass",
+    });
+    const token = signUp.data.session?.access_token;
+    const userId = signUp.data.user?.id;
+    assertExists(userId);
+
+    const enrollRes = await localFetch(
+      "http://localhost:54321/auth/v1/factors",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ factor_type: "totp" }),
+      },
+    );
+    const { id: factorId } = (await enrollRes.json()) as { id: string };
+
+    const deleteRes = await localFetch(
+      `http://localhost:54321/auth/v1/admin/users/${userId}/factors/${factorId}`,
+      {
+        method: "DELETE",
+        headers: { Authorization: "Bearer local-service-role-key" },
+      },
+    );
+    assertEquals(deleteRes.status, 200);
+
+    const row = await db.query<{ count: number }>(
+      "SELECT count(*)::int as count FROM auth.mfa_factors WHERE user_id = $1",
+      [userId],
+    );
+    assertEquals(row.rows[0]?.count, 0);
+
+    await db.close();
+  });
+
+  test("supabase-js mfa.enroll and admin._deleteFactor removes it", async () => {
+    const db = createPGlite();
+    const { supabase, localFetch } = await createTestClient(db);
+    const adminClient = createClient(
+      "http://localhost:54321",
+      "local-service-role-key",
+      {
+        auth: { autoRefreshToken: false },
+        global: { fetch: localFetch },
+      },
+    );
+
+    const signUp = await supabase.auth.signUp({
+      email: "mfa8@example.com",
+      password: "pass",
+    });
+    assertExists(signUp.data.session);
+    const userId = signUp.data.user?.id;
+    assertExists(userId);
+
+    const enroll = await supabase.auth.mfa.enroll({ factorType: "totp" });
+    assertEquals(enroll.error, null);
+    assertExists(enroll.data?.id);
+    assertExists(enroll.data?.totp?.qr_code);
+    const factorId = enroll.data.id;
+
+    const listRes = await adminClient.auth.admin._listFactors({ userId });
+    assertEquals(listRes.error, null);
+    assertEquals(listRes.data?.factors?.length, 1);
+    assertEquals(listRes.data?.factors?.[0]?.id, factorId);
+
+    const deleteRes = await adminClient.auth.admin._deleteFactor({
+      userId,
+      id: factorId,
+    });
+    assertEquals(deleteRes.error, null);
+
+    const listAfter = await adminClient.auth.admin._listFactors({ userId });
+    assertEquals(listAfter.data?.factors?.length, 0);
 
     await db.close();
   });
@@ -1220,6 +1306,168 @@ describe("Audit Logs", () => {
         assertEquals((times[i - 1] ?? 0) >= (times[i] ?? 0), true);
       }
     }
+
+    await db.close();
+  });
+
+  test("admin audit endpoint returns paginated entries via localFetch", async () => {
+    const db = createPGlite();
+    const { supabase, localFetch } = await createTestClient(db);
+
+    await supabase.auth.signUp({
+      email: "audit6@example.com",
+      password: "pass",
+    });
+    await supabase.auth.signOut();
+    await supabase.auth.signInWithPassword({
+      email: "audit6@example.com",
+      password: "pass",
+    });
+
+    const res = await localFetch(
+      "http://localhost:54321/auth/v1/admin/audit?page=1&per_page=5",
+      { headers: { Authorization: "Bearer local-service-role-key" } },
+    );
+    assertEquals(res.status, 200);
+    const body = (await res.json()) as { entries: unknown[]; total: number };
+    assertExists(body.entries);
+    assertEquals(body.entries.length > 0, true);
+    assertExists(body.total);
+
+    await db.close();
+  });
+});
+
+// ============================================================================
+// 9. Ban / Unban
+// ============================================================================
+
+describe("Ban / Unban", () => {
+  test("banned user cannot sign in", async () => {
+    const db = createPGlite();
+    const { supabase, localFetch } = await createTestClient(db);
+    const adminClient = createClient(
+      "http://localhost:54321",
+      "local-service-role-key",
+      { auth: { autoRefreshToken: false }, global: { fetch: localFetch } },
+    );
+
+    const {
+      data: { user },
+    } = await supabase.auth.signUp({
+      email: "ban1@example.com",
+      password: "pass",
+    });
+    assertExists(user?.id);
+    await supabase.auth.signOut();
+
+    await adminClient.auth.admin.updateUserById(user.id, {
+      ban_duration: "876000h",
+    });
+
+    const signIn = await supabase.auth.signInWithPassword({
+      email: "ban1@example.com",
+      password: "pass",
+    });
+    assertNotEquals(signIn.error, null);
+
+    await db.close();
+  });
+
+  test("unbanned user can sign in again", async () => {
+    const db = createPGlite();
+    const { supabase, localFetch } = await createTestClient(db);
+    const adminClient = createClient(
+      "http://localhost:54321",
+      "local-service-role-key",
+      { auth: { autoRefreshToken: false }, global: { fetch: localFetch } },
+    );
+
+    const {
+      data: { user },
+    } = await supabase.auth.signUp({
+      email: "ban2@example.com",
+      password: "pass",
+    });
+    assertExists(user?.id);
+    await supabase.auth.signOut();
+
+    await adminClient.auth.admin.updateUserById(user.id, {
+      ban_duration: "876000h",
+    });
+    await adminClient.auth.admin.updateUserById(user.id, {
+      ban_duration: "none",
+    });
+
+    const signIn = await supabase.auth.signInWithPassword({
+      email: "ban2@example.com",
+      password: "pass",
+    });
+    assertEquals(signIn.error, null);
+    assertExists(signIn.data.session);
+
+    await db.close();
+  });
+
+  test("banned_until is set in database after ban", async () => {
+    const db = createPGlite();
+    const { supabase, localFetch } = await createTestClient(db);
+    const adminClient = createClient(
+      "http://localhost:54321",
+      "local-service-role-key",
+      { auth: { autoRefreshToken: false }, global: { fetch: localFetch } },
+    );
+
+    const {
+      data: { user },
+    } = await supabase.auth.signUp({
+      email: "ban3@example.com",
+      password: "pass",
+    });
+    assertExists(user?.id);
+
+    await adminClient.auth.admin.updateUserById(user.id, {
+      ban_duration: "24h",
+    });
+
+    const row = await db.query<{ banned_until: string | null }>(
+      "SELECT banned_until FROM auth.users WHERE id = $1",
+      [user.id],
+    );
+    assertExists(row.rows[0]?.banned_until);
+
+    await db.close();
+  });
+
+  test("banned_until is cleared in database after unban", async () => {
+    const db = createPGlite();
+    const { supabase, localFetch } = await createTestClient(db);
+    const adminClient = createClient(
+      "http://localhost:54321",
+      "local-service-role-key",
+      { auth: { autoRefreshToken: false }, global: { fetch: localFetch } },
+    );
+
+    const {
+      data: { user },
+    } = await supabase.auth.signUp({
+      email: "ban4@example.com",
+      password: "pass",
+    });
+    assertExists(user?.id);
+
+    await adminClient.auth.admin.updateUserById(user.id, {
+      ban_duration: "24h",
+    });
+    await adminClient.auth.admin.updateUserById(user.id, {
+      ban_duration: "none",
+    });
+
+    const row = await db.query<{ banned_until: string | null }>(
+      "SELECT banned_until FROM auth.users WHERE id = $1",
+      [user.id],
+    );
+    assertEquals(row.rows[0]?.banned_until, null);
 
     await db.close();
   });

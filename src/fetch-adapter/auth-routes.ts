@@ -545,13 +545,16 @@ export async function handleAuthRoute(
   if (adminUserFactorsMatch && method === "GET") {
     const userId = adminUserFactorsMatch[1] ?? "";
     const factors = await authHandler.adminListFactors(userId);
-    return jsonResponse({ factors });
+    return jsonResponse(factors);
   }
 
   const adminUserFactorDeleteMatch = pathname.match(
     /^\/auth\/v1\/admin\/users\/([^/]+)\/factors\/([^/]+)$/,
   );
   if (adminUserFactorDeleteMatch && method === "DELETE") {
+    const userId = adminUserFactorDeleteMatch[1] ?? "";
+    const factorId = adminUserFactorDeleteMatch[2] ?? "";
+    await authHandler.adminDeleteFactor(userId, factorId);
     return jsonResponse({});
   }
 
