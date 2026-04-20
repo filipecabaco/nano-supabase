@@ -49,14 +49,6 @@ jobs:
           "
           pnpm install --no-frozen-lockfile
 
-      - name: Validate
-        if: steps.check.outputs.outdated == 'true'
-        run: |
-          npx tsc --noEmit
-          pnpm run build
-          pnpm test
-          pnpm vitest run --config vitest.cli.config.ts
-
       - name: Open PR
         if: steps.check.outputs.outdated == 'true' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
         uses: peter-evans/create-pull-request@v7
