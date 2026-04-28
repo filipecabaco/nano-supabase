@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       '@electric-sql/pglite':
-        specifier: '>=0.4.4'
-        version: 0.4.4
+        specifier: '>=0.4.5'
+        version: 0.4.5
       '@oslojs/otp':
         specifier: ^1.1.0
         version: 1.1.0
@@ -34,11 +34,11 @@ importers:
         specifier: ^2.4.12
         version: 2.4.12
       '@electric-sql/pglite-postgis':
-        specifier: ^0.0.6
-        version: 0.0.6(@electric-sql/pglite@0.4.4)
+        specifier: ^0.0.7
+        version: 0.0.7(@electric-sql/pglite@0.4.5)
       '@electric-sql/pglite-socket':
-        specifier: ^0.1.4
-        version: 0.1.4(@electric-sql/pglite@0.4.4)
+        specifier: ^0.1.5
+        version: 0.1.5(@electric-sql/pglite@0.4.5)
       '@prisma/client':
         specifier: ^6.19.2
         version: 6.19.2(prisma@6.19.2(typescript@5.9.3))(typescript@5.9.3)
@@ -86,8 +86,8 @@ importers:
         version: 4.1.4(@opentelemetry/api@1.9.0)(@types/node@25.6.0)(@vitest/browser-playwright@4.1.4)(vite@8.0.1(@emnapi/core@1.9.1)(@emnapi/runtime@1.9.1)(@types/node@25.6.0)(esbuild@0.27.7)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.3))
     optionalDependencies:
       '@electric-sql/pglite-tools':
-        specifier: ^0.3.4
-        version: 0.3.4(@electric-sql/pglite@0.4.4)
+        specifier: ^0.3.5
+        version: 0.3.5(@electric-sql/pglite@0.4.5)
       '@modelcontextprotocol/sdk':
         specifier: ^1.29.0
         version: 1.29.0(zod@4.3.6)
@@ -169,24 +169,24 @@ packages:
   '@blazediff/core@1.9.1':
     resolution: {integrity: sha512-ehg3jIkYKulZh+8om/O25vkvSsXXwC+skXmyA87FFx6A/45eqOkZsBltMw/TVteb0mloiGT8oGRTcjRAz66zaA==}
 
-  '@electric-sql/pglite-postgis@0.0.6':
-    resolution: {integrity: sha512-F4VQtP8GP7PNAFa0cB6ZgfG1oyGGDraWvfvtXFOIGIBVKRs3s/oKyVOJ0HyTBdLcVjVu98JSsvRIcOXlGKInAw==}
+  '@electric-sql/pglite-postgis@0.0.7':
+    resolution: {integrity: sha512-qWbWD3WG+PL0gBQ2YzvK0RI7C0i+VPxEpGWb8cT99x1x7kujCtfTCL2gRxFWmh5rqjoZTyY69HkcXphQH4bTNA==}
     peerDependencies:
-      '@electric-sql/pglite': 0.4.4
+      '@electric-sql/pglite': 0.4.5
 
-  '@electric-sql/pglite-socket@0.1.4':
-    resolution: {integrity: sha512-2LuMFxJPE2FbjWDrWpylWwhZ5uT03rQfBLM7g2AdZmiG3JjC8sbYFkFR4ZeoqVcn22wKzpJTXFV22mQ+s4Oueg==}
+  '@electric-sql/pglite-socket@0.1.5':
+    resolution: {integrity: sha512-/RAye+3EPKfO9nY4tljzxXmkT7yIpFDm0L3F+c28b+Z6uxPOjy/Zz/QEHYHXcrfuUC88/a9S72EO0+3E0j97wQ==}
     hasBin: true
     peerDependencies:
-      '@electric-sql/pglite': 0.4.4
+      '@electric-sql/pglite': 0.4.5
 
-  '@electric-sql/pglite-tools@0.3.4':
-    resolution: {integrity: sha512-bnIb2tN7zkFuo/yLF92I2ZvDDVigCNED37F2aEggatYyKi9QmzYvEg2fh2G2yLGHpPb0AoCO0aI/eOP4aBUiZQ==}
+  '@electric-sql/pglite-tools@0.3.5':
+    resolution: {integrity: sha512-4him0RnIyqrSqk0zzeBJKJ++VVFk6bFCwKSVV7DP3T8fOQgRSVZShlrHfAChLG2uA/T4JdQ8b/15CxBn+E34TQ==}
     peerDependencies:
-      '@electric-sql/pglite': 0.4.4
+      '@electric-sql/pglite': 0.4.5
 
-  '@electric-sql/pglite@0.4.4':
-    resolution: {integrity: sha512-g/6CWAJ4XOkObWCWAQ2IReZD8VvsDy3poRHSKvpRR2F96F8WJ3HVbjpso3gN7l0q6QPPgvxSSpl/qo5k8a7mkQ==}
+  '@electric-sql/pglite@0.4.5':
+    resolution: {integrity: sha512-aGG2zGEyZzGWKy8P+9ZoNUV0jxt1+hgbeTf+bVAYyxVZZLXg3/9aFlfLxb08AYZVAfAkQlQIysmWjhc5hwDG8g==}
 
   '@emnapi/core@1.9.1':
     resolution: {integrity: sha512-mukuNALVsoix/w1BJwFzwXBN/dHeejQtuVzcDsfOEsdpCumXb/E9j8w11h5S54tT1xhifGfbbSm/ICrObRb3KA==}
@@ -2801,20 +2801,20 @@ snapshots:
 
   '@blazediff/core@1.9.1': {}
 
-  '@electric-sql/pglite-postgis@0.0.6(@electric-sql/pglite@0.4.4)':
+  '@electric-sql/pglite-postgis@0.0.7(@electric-sql/pglite@0.4.5)':
     dependencies:
-      '@electric-sql/pglite': 0.4.4
+      '@electric-sql/pglite': 0.4.5
 
-  '@electric-sql/pglite-socket@0.1.4(@electric-sql/pglite@0.4.4)':
+  '@electric-sql/pglite-socket@0.1.5(@electric-sql/pglite@0.4.5)':
     dependencies:
-      '@electric-sql/pglite': 0.4.4
+      '@electric-sql/pglite': 0.4.5
 
-  '@electric-sql/pglite-tools@0.3.4(@electric-sql/pglite@0.4.4)':
+  '@electric-sql/pglite-tools@0.3.5(@electric-sql/pglite@0.4.5)':
     dependencies:
-      '@electric-sql/pglite': 0.4.4
+      '@electric-sql/pglite': 0.4.5
     optional: true
 
-  '@electric-sql/pglite@0.4.4': {}
+  '@electric-sql/pglite@0.4.5': {}
 
   '@emnapi/core@1.9.1':
     dependencies:
