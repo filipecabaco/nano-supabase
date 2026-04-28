@@ -28,6 +28,21 @@ jobs:
       - uses: ./.github/actions/setup
       - run: pnpm run build
       - run: pnpm pack --dry-run
+      - name: Verify browser bundle is self-contained
+        run: |
+          if grep -q "node:" dist/browser.js; then
+            echo "ERROR: dist/browser.js contains node: imports"
+            exit 1
+          fi
+          if grep -q "postgrest_parser_bg.wasm" dist/browser.js; then
+            echo "ERROR: dist/browser.js has unresolved WASM URL reference"
+            exit 1
+          fi
+          if ! grep -q "data:application/wasm;base64," dist/browser.js; then
+            echo "ERROR: dist/browser.js is missing inlined WASM"
+            exit 1
+          fi
+          echo "OK: dist/browser.js is self-contained"
 
   test:
     runs-on: ubuntu-latest
@@ -81,3 +96,12 @@ jobs:
       - uses: ./.github/actions/setup
       - run: pnpm run build
       - run: pnpm vitest run --config vitest.cli.config.ts
+
+  test-browser:
+    runs-on: ubuntu-latest
+    name: test / browser
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - run: npx playwright install chromium --with-deps
+      - run: pnpm run test:e2e:browser

@@ -6,6 +6,7 @@
 
 import type { PGlite } from "@electric-sql/pglite";
 import { createClient } from "@supabase/supabase-js";
+import { prepareSandboxConnection } from "../src/auth/schema.ts";
 import { createFetchAdapter } from "../src/client.ts";
 import { createPGlite } from "../src/pglite-factory.ts";
 import {
@@ -43,6 +44,19 @@ async function createTestClient(db?: PGlite) {
     global: { fetch: localFetch },
   });
   return { supabase, authHandler, db: dbInstance };
+}
+
+// Helper to create a notes table with owner-only RLS
+async function createNotesTableWithRLS(db: PGlite, grantTo = "authenticated") {
+  await db.query(`CREATE TABLE IF NOT EXISTS notes (
+    id SERIAL PRIMARY KEY,
+    body TEXT,
+    user_id UUID
+  )`);
+  await db.query("ALTER TABLE notes ENABLE ROW LEVEL SECURITY");
+  await db.query(`DROP POLICY IF EXISTS owner ON notes`);
+  await db.query(`CREATE POLICY owner ON notes USING (auth.uid() = user_id)`);
+  await db.query(`GRANT ALL ON notes TO ${grantTo}`);
 }
 
 // Helper to create tasks table with RLS
@@ -563,6 +577,140 @@ describe("Auth Flow", () => {
     );
     // Should still have 0 sessions (original was deleted on signOut)
     assertEquals(sessionCheck.rows[0]?.count, 0);
+
+    await db.close();
+  });
+});
+
+// ============================================================================
+// prepareSandboxConnection
+// ============================================================================
+
+describe("prepareSandboxConnection", () => {
+  test("anon role sees no rows when RLS restricts to authenticated", async () => {
+    const db = createPGlite();
+    await createFetchAdapter({ db });
+    await createNotesTableWithRLS(db);
+
+    await db.query(
+      "INSERT INTO notes (body, user_id) VALUES ('secret', gen_random_uuid())",
+    );
+
+    const sandbox = await prepareSandboxConnection(db, { role: "anon" });
+    const result = await db.query<{ body: string }>("SELECT body FROM notes");
+    assertEquals(result.rows.length, 0);
+    await sandbox.reset();
+
+    await db.close();
+  });
+
+  test("authenticated role with matching sub sees own rows only", async () => {
+    const db = createPGlite();
+    await createFetchAdapter({ db });
+    await createNotesTableWithRLS(db);
+
+    const userId = "a0000000-0000-0000-0000-000000000001";
+    await db.query(
+      `INSERT INTO notes (body, user_id) VALUES ('mine', '${userId}')`,
+    );
+    await db.query(
+      "INSERT INTO notes (body, user_id) VALUES ('theirs', gen_random_uuid())",
+    );
+
+    const sandbox = await prepareSandboxConnection(db, {
+      role: "authenticated",
+      claims: { sub: userId, email: "user@example.com" },
+    });
+
+    const result = await db.query<{ body: string }>("SELECT body FROM notes");
+    assertEquals(result.rows.length, 1);
+    assertEquals(result.rows[0]?.body, "mine");
+    await sandbox.reset();
+
+    await db.close();
+  });
+
+  test("service_role bypasses RLS and sees all rows", async () => {
+    const db = createPGlite();
+    await createFetchAdapter({ db });
+    await createNotesTableWithRLS(db, "service_role");
+
+    await db.query(
+      "INSERT INTO notes (body, user_id) VALUES ('row1', gen_random_uuid())",
+    );
+    await db.query(
+      "INSERT INTO notes (body, user_id) VALUES ('row2', gen_random_uuid())",
+    );
+
+    const sandbox = await prepareSandboxConnection(db, {
+      role: "service_role",
+    });
+    const result = await db.query<{ body: string }>("SELECT body FROM notes");
+    assertEquals(result.rows.length, 2);
+    await sandbox.reset();
+
+    await db.close();
+  });
+
+  test("reset() restores anon context so RLS blocks access again", async () => {
+    const db = createPGlite();
+    await createFetchAdapter({ db });
+    await createNotesTableWithRLS(db);
+
+    const userId = "a0000000-0000-0000-0000-000000000002";
+    await db.query(
+      `INSERT INTO notes (body, user_id) VALUES ('mine', '${userId}')`,
+    );
+
+    const sandbox = await prepareSandboxConnection(db, {
+      role: "authenticated",
+      claims: { sub: userId },
+    });
+    const before = await db.query<{ body: string }>("SELECT body FROM notes");
+    assertEquals(before.rows.length, 1);
+
+    await sandbox.reset();
+
+    const after = await db.query<{ body: string }>("SELECT body FROM notes");
+    assertEquals(after.rows.length, 0);
+
+    await db.close();
+  });
+
+  test("extraClaims appear in request.jwt.claims", async () => {
+    const db = createPGlite();
+    await createFetchAdapter({ db });
+
+    const userId = "a0000000-0000-0000-0000-000000000003";
+    const sandbox = await prepareSandboxConnection(db, {
+      role: "authenticated",
+      claims: { sub: userId, email: "x@example.com", app_role: "admin" },
+    });
+
+    const result = await db.query<{ claims: string }>(
+      "SELECT current_setting('request.jwt.claims', true) AS claims",
+    );
+    const claims = JSON.parse(result.rows[0]?.claims);
+    assertEquals(claims.sub, userId);
+    assertEquals(claims.app_role, "admin");
+    assertEquals(claims.role, "authenticated");
+
+    await sandbox.reset();
+    await db.close();
+  });
+
+  test("SET ROLE works for all three API roles (CONNECT privilege fix)", async () => {
+    const db = createPGlite();
+    await createFetchAdapter({ db });
+
+    for (const role of ["anon", "authenticated", "service_role"] as const) {
+      const sandbox = await prepareSandboxConnection(db, { role });
+      const result = await db.query<{ current_role: string }>(
+        "SELECT current_role",
+      );
+      assertEquals(result.rows[0]?.current_role, role);
+      await sandbox.reset();
+    }
 
     await db.close();
   });

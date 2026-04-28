@@ -10,6 +10,7 @@ export {
   AUTH_SCHEMA_SQL,
   CLEAR_AUTH_CONTEXT_SQL,
   getSetAuthContextSQL,
+  prepareSandboxConnection,
 } from "./schema.ts";
 export type {
   AuthChangeEvent,

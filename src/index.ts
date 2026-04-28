@@ -12,6 +12,7 @@ export {
   extractUserIdFromToken,
   generateTokenPair,
   getSetAuthContextSQL,
+  prepareSandboxConnection,
   type Session,
   type SignInCredentials,
   type SignUpCredentials,
@@ -49,6 +50,7 @@ export {
 } from "./fetch-adapter/index.ts";
 export {
   createClient,
+  type NanoSupabaseBaseOptions,
   type NanoSupabaseInstance,
   type NanoSupabaseOptions,
   nanoSupabase,

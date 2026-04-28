@@ -1,10 +1,10 @@
-export { AUTH_SCHEMA_SQL, type AuthChangeEvent, type AuthError, AuthHandler, type AuthResponse, type AuthStateChangeCallback, type AuthSubscription, CLEAR_AUTH_CONTEXT_SQL, createAccessToken, extractSessionIdFromToken, extractUserIdFromToken, generateTokenPair, getSetAuthContextSQL, type Session, type SignInCredentials, type SignUpCredentials, type TokenPair, type User, verifyAccessToken, } from "./auth/index.ts";
+export { AUTH_SCHEMA_SQL, type AuthChangeEvent, type AuthError, AuthHandler, type AuthResponse, type AuthStateChangeCallback, type AuthSubscription, CLEAR_AUTH_CONTEXT_SQL, createAccessToken, extractSessionIdFromToken, extractUserIdFromToken, generateTokenPair, getSetAuthContextSQL, prepareSandboxConnection, type Session, type SignInCredentials, type SignUpCredentials, type TokenPair, type User, verifyAccessToken, } from "./auth/index.ts";
 export { decodeJWT, type JWTPayload, signJWT, verifyJWT } from "./auth/jwt.ts";
 export { createFetchAdapter, createLocalSupabaseClient, initializeAuth, type LocalSupabaseClientConfig, type LocalSupabaseClientResult, } from "./client.ts";
 export { type AuthContext, clearAuthContext, setAuthContext, } from "./fetch-adapter/auth-context.ts";
 export { type ApiError, extractPostgresError, type PostgresError, postgresErrorResponse, } from "./fetch-adapter/error-handler.ts";
 export { createLocalFetch, type FetchAdapterConfig, handleAuthRoute, handleDataRoute, handleStorageRoute, } from "./fetch-adapter/index.ts";
-export { createClient, type NanoSupabaseInstance, type NanoSupabaseOptions, nanoSupabase, } from "./nano.ts";
+export { createClient, type NanoSupabaseBaseOptions, type NanoSupabaseInstance, type NanoSupabaseOptions, nanoSupabase, } from "./nano.ts";
 export { createPGlite, LEAN_POSTGRES_OPTIONS } from "./pglite-factory.ts";
 export { PGlitePooler } from "./pooler.ts";
 export type { ParsedQuery, QueryExecutor } from "./postgrest-parser.ts";
