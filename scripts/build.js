@@ -1,5 +1,12 @@
-import { chmodSync, copyFileSync, cpSync, mkdirSync, rmSync } from "node:fs";
-import { dirname, join } from "node:path";
+import {
+  chmodSync,
+  copyFileSync,
+  cpSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+} from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import * as esbuild from "esbuild";
 
@@ -17,6 +24,24 @@ const NODE_EXTERNALS = [
   "node:tls",
   "node:crypto",
 ];
+
+const inlinePostgrestWasm = {
+  name: "inline-postgrest-wasm",
+  setup(build) {
+    build.onLoad({ filter: /postgrest_parser\.js$/ }, (args) => {
+      let source = readFileSync(args.path, "utf8");
+      const wasmPath = resolve(dirname(args.path), "postgrest_parser_bg.wasm");
+      const dataUrl =
+        "data:application/wasm;base64," +
+        readFileSync(wasmPath).toString("base64");
+      source = source.replace(
+        "new URL('postgrest_parser_bg.wasm', import.meta.url)",
+        JSON.stringify(dataUrl),
+      );
+      return { contents: source, loader: "js" };
+    });
+  },
+};
 
 const commonOptions = {
   bundle: true,
@@ -42,12 +67,24 @@ async function buildLib() {
     ],
     outdir: join(rootDir, "dist"),
   });
+  await esbuild.build({
+    ...commonOptions,
+    external: ["@electric-sql/pglite"],
+    platform: "browser",
+    splitting: false,
+    plugins: [inlinePostgrestWasm],
+    entryPoints: [{ in: join(rootDir, "src/browser.ts"), out: "browser" }],
+    outdir: join(rootDir, "dist"),
+  });
   const fs = await import("node:fs");
   console.log(
-    `  dist/index.js  ${(fs.statSync(join(rootDir, "dist/index.js")).size / 1024) | 0}KB`,
+    `  dist/index.js   ${(fs.statSync(join(rootDir, "dist/index.js")).size / 1024) | 0}KB`,
   );
   console.log(
-    `  dist/tcp.js    ${(fs.statSync(join(rootDir, "dist/tcp.js")).size / 1024) | 0}KB`,
+    `  dist/browser.js ${(fs.statSync(join(rootDir, "dist/browser.js")).size / 1024) | 0}KB`,
+  );
+  console.log(
+    `  dist/tcp.js     ${(fs.statSync(join(rootDir, "dist/tcp.js")).size / 1024) | 0}KB`,
   );
 }
 

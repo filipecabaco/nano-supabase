@@ -1,5 +1,9 @@
 import { describe, expect, test } from "vitest";
-import { createClient, nanoSupabase } from "../../src/nano.ts";
+import {
+  createClient,
+  MemoryStorageBackend,
+  nanoSupabase,
+} from "../../src/browser.ts";
 
 type ItemsDB = {
   public: {
@@ -84,6 +88,30 @@ describe("Browser e2e", () => {
 
     expect(signInError).toBeNull();
     expect(signInData.session?.access_token).toBeDefined();
+  });
+
+  test("storage upload and download via MemoryStorageBackend", async () => {
+    const nano = await nanoSupabase({
+      storageBackend: new MemoryStorageBackend(),
+    });
+    const supabase = nano.createClient();
+
+    await supabase.storage.createBucket("files", { public: false });
+
+    const content = new Blob(["hello browser"], { type: "text/plain" });
+    const { error: uploadError } = await supabase.storage
+      .from("files")
+      .upload("greeting.txt", content);
+
+    expect(uploadError).toBeNull();
+
+    const { data, error: downloadError } = await supabase.storage
+      .from("files")
+      .download("greeting.txt");
+
+    expect(downloadError).toBeNull();
+    expect(await data?.text()).toBe("hello browser");
+    await nano.stop();
   });
 
   test("RLS blocks unauthenticated access", async () => {

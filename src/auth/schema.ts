@@ -30,6 +30,18 @@ BEGIN
   IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'dashboard_user') THEN
     CREATE ROLE dashboard_user NOSUPERUSER CREATEDB CREATEROLE REPLICATION;
   END IF;
+
+  -- PGlite's postgres role is not a superuser (rolsuper = false in WASM build),
+  -- so SET ROLE falls through to CONNECT privilege checks. Grant roles to postgres
+  -- WITH ADMIN OPTION so SET ROLE anon/authenticated/service_role works.
+  GRANT anon TO postgres WITH ADMIN OPTION;
+  GRANT authenticated TO postgres WITH ADMIN OPTION;
+  GRANT service_role TO postgres WITH ADMIN OPTION;
+
+  -- Assert service_role has BYPASSRLS — silently fails if postgres can't grant it
+  IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'service_role' AND rolbypassrls = true) THEN
+    ALTER ROLE service_role BYPASSRLS;
+  END IF;
 END
 $$;
 
@@ -37,9 +49,16 @@ GRANT anon TO authenticator;
 GRANT authenticated TO authenticator;
 GRANT service_role TO authenticator;
 
--- Statement timeouts matching official Supabase defaults
-ALTER ROLE anon SET statement_timeout = '3s';
-ALTER ROLE authenticated SET statement_timeout = '8s';
+-- CONNECT privilege: PGlite postgres is not a superuser, so non-login roles need
+-- explicit CONNECT to avoid "permission denied for database postgres" on SET ROLE.
+DO $$
+BEGIN
+  EXECUTE format(
+    'GRANT CONNECT ON DATABASE %I TO anon, authenticated, service_role',
+    current_database()
+  );
+END
+$$;
 
 -- Public schema grants
 GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
@@ -750,12 +769,14 @@ export function getSetAuthContextSQL(
   userId: string,
   role: string,
   email: string,
+  extraClaims: Record<string, unknown> = {},
 ): string {
   if (!ALLOWED_ROLES.has(role)) {
     throw new Error(`Invalid role: ${role}`);
   }
 
   const claims = JSON.stringify({
+    ...extraClaims,
     sub: userId,
     role: role,
     email: email,
@@ -782,3 +803,21 @@ export const CLEAR_AUTH_CONTEXT_SQL = `
   SELECT set_config('request.jwt.claim.email', '', false);
   SELECT set_config('request.jwt.claims', '{"role": "anon"}', false);
 `;
+
+export async function prepareSandboxConnection(
+  db: import("@electric-sql/pglite").PGliteInterface,
+  ctx: {
+    role: "anon" | "authenticated" | "service_role";
+    claims?: { sub?: string; email?: string; [key: string]: unknown };
+  },
+): Promise<{ reset(): Promise<void> }> {
+  const { role, claims = {} } = ctx;
+  const { sub = "", email = "", ...rest } = claims;
+  const sql = getSetAuthContextSQL(sub, role, email, rest);
+  await db.exec(sql);
+  return {
+    async reset() {
+      await db.exec(CLEAR_AUTH_CONTEXT_SQL);
+    },
+  };
+}
