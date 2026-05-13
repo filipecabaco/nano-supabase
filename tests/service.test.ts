@@ -74,9 +74,10 @@ describe("service with postgres registry", () => {
   let coldDir: string;
   const port = 54470;
   const base = `http://localhost:${port}`;
-  let aliceToken: string;
+  let aliceAnonKey: string;
+  let aliceServiceRoleKey: string;
   let alicePassword: string;
-  let bobToken: string;
+  let bobAnonKey: string;
 
   beforeAll(async () => {
     dataDir = mkdtempSync(join(tmpdir(), "nano-svc-pg-data-"));
@@ -198,7 +199,8 @@ describe("service with postgres registry", () => {
     expect(body.token).toBeTruthy();
     expect(body.tenant.slug).toBe("alice");
     expect(body.tenant.state).toBe("running");
-    aliceToken = body.token;
+    aliceAnonKey = body.tenant.anonKey;
+    aliceServiceRoleKey = body.tenant.serviceRoleKey;
     alicePassword = body.password;
   });
 
@@ -243,7 +245,8 @@ describe("service with postgres registry", () => {
       const res = await fetch(`${base}/alice/auth/v1/signup`, {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${aliceToken}`,
+          apikey: aliceAnonKey,
+          Authorization: `Bearer ${aliceAnonKey}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
@@ -256,23 +259,34 @@ describe("service with postgres registry", () => {
       expect(body.user?.email).toBe("alice@test.com");
     });
 
-    test("wrong tenant token is rejected at proxy level (401)", async () => {
+    test("missing apikey is rejected at proxy level (401)", async () => {
+      const res = await fetch(`${base}/alice/auth/v1/signup`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: "x@test.com", password: "pw" }),
+      });
+      expect(res.status).toBe(401);
+      expect((await res.json()).message).toMatch(/missing api key/i);
+    });
+
+    test("wrong apikey is rejected at proxy level (401)", async () => {
       const res = await fetch(`${base}/alice/auth/v1/signup`, {
         method: "POST",
         headers: {
-          Authorization: "Bearer wrong-token",
+          apikey: "wrong-key",
           "Content-Type": "application/json",
         },
         body: JSON.stringify({ email: "x@test.com", password: "pw" }),
       });
       expect(res.status).toBe(401);
+      expect((await res.json()).message).toMatch(/invalid api key/i);
     });
 
     test("unknown slug returns 404 at proxy level", async () => {
       const res = await fetch(`${base}/nonexistent/auth/v1/signup`, {
         method: "POST",
         headers: {
-          Authorization: "Bearer any-token",
+          apikey: "any-key",
           "Content-Type": "application/json",
         },
         body: JSON.stringify({ email: "x@test.com", password: "pw" }),
@@ -282,7 +296,7 @@ describe("service with postgres registry", () => {
 
     test("slug is stripped from path before forwarding to tenant", async () => {
       const res = await fetch(`${base}/alice/rest/v1/nonexistent_table`, {
-        headers: { Authorization: `Bearer ${aliceToken}` },
+        headers: { apikey: aliceAnonKey },
       });
       const body = await res.json();
       expect(body).toMatchObject({
@@ -299,12 +313,13 @@ describe("service with postgres registry", () => {
         },
         body: JSON.stringify({ slug: "bob" }),
       });
-      bobToken = (await bobRes.json()).token;
+      bobAnonKey = (await bobRes.json()).tenant.anonKey;
 
       await fetch(`${base}/bob/auth/v1/signup`, {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${bobToken}`,
+          apikey: bobAnonKey,
+          Authorization: `Bearer ${bobAnonKey}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
@@ -318,7 +333,8 @@ describe("service with postgres registry", () => {
         {
           method: "POST",
           headers: {
-            Authorization: `Bearer ${aliceToken}`,
+            apikey: aliceAnonKey,
+            Authorization: `Bearer ${aliceAnonKey}`,
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
@@ -332,7 +348,8 @@ describe("service with postgres registry", () => {
         {
           method: "POST",
           headers: {
-            Authorization: `Bearer ${bobToken}`,
+            apikey: bobAnonKey,
+            Authorization: `Bearer ${bobAnonKey}`,
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
@@ -349,16 +366,100 @@ describe("service with postgres registry", () => {
       expect(aliceSession.user?.id).not.toBe(bobSession.user?.id);
     });
 
-    test("cross-tenant token is rejected by proxy (401)", async () => {
+    test("cross-tenant apikey is rejected by proxy (401)", async () => {
       const res = await fetch(`${base}/bob/auth/v1/signup`, {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${aliceToken}`,
+          apikey: aliceAnonKey,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({ email: "cross@test.com", password: "pw" }),
       });
       expect(res.status).toBe(401);
+    });
+
+    test("service role key accepted as apikey — proxy authenticates the request", async () => {
+      const res = await fetch(`${base}/alice/auth/v1/signup`, {
+        method: "POST",
+        headers: {
+          apikey: aliceServiceRoleKey,
+          Authorization: `Bearer ${aliceServiceRoleKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          email: "svc@test.com",
+          password: "password123",
+        }),
+      });
+      expect(res.status).not.toBe(401);
+      expect(res.status).not.toBe(404);
+    });
+
+    test("user JWT passes through and auth.uid() resolves for RLS", async () => {
+      for (const sql of [
+        `CREATE TABLE IF NOT EXISTS user_items (
+           id SERIAL PRIMARY KEY,
+           owner_id UUID NOT NULL DEFAULT auth.uid(),
+           label TEXT
+         )`,
+        "ALTER TABLE user_items ENABLE ROW LEVEL SECURITY",
+        "DROP POLICY IF EXISTS owner_only ON user_items",
+        "CREATE POLICY owner_only ON user_items USING (owner_id = auth.uid())",
+      ]) {
+        const r = await fetch(`${base}/admin/tenants/alice/sql`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${ADMIN_TOKEN}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ sql }),
+        });
+        expect(r.status).toBe(200);
+      }
+
+      const signIn = await fetch(
+        `${base}/alice/auth/v1/token?grant_type=password`,
+        {
+          method: "POST",
+          headers: {
+            apikey: aliceAnonKey,
+            Authorization: `Bearer ${aliceAnonKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            email: "alice@test.com",
+            password: "password123",
+          }),
+        },
+      );
+      const { access_token, user } = await signIn.json();
+      expect(access_token).toBeTruthy();
+
+      const insert = await fetch(`${base}/alice/rest/v1/user_items`, {
+        method: "POST",
+        headers: {
+          apikey: aliceAnonKey,
+          Authorization: `Bearer ${access_token}`,
+          "Content-Type": "application/json",
+          Prefer: "return=representation",
+        },
+        body: JSON.stringify({ label: "my item" }),
+      });
+      expect(insert.status).toBe(201);
+      const [item] = await insert.json();
+      expect(item.owner_id).toBe(user.id);
+
+      const rows = await fetch(`${base}/alice/rest/v1/user_items?select=*`, {
+        headers: {
+          apikey: aliceAnonKey,
+          Authorization: `Bearer ${access_token}`,
+        },
+      });
+      expect(rows.status).toBe(200);
+      const data = await rows.json();
+      expect(
+        data.every((r: { owner_id: string }) => r.owner_id === user.id),
+      ).toBe(true);
     });
   });
 
@@ -385,7 +486,8 @@ describe("service with postgres registry", () => {
         {
           method: "POST",
           headers: {
-            Authorization: `Bearer ${aliceToken}`,
+            apikey: aliceAnonKey,
+            Authorization: `Bearer ${aliceAnonKey}`,
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
@@ -409,7 +511,8 @@ describe("service with postgres registry", () => {
         {
           method: "POST",
           headers: {
-            Authorization: `Bearer ${aliceToken}`,
+            apikey: aliceAnonKey,
+            Authorization: `Bearer ${aliceAnonKey}`,
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
@@ -442,8 +545,7 @@ describe("service with postgres registry", () => {
   });
 
   describe("token rotation", () => {
-    test("reset-token returns new token and invalidates old one", async () => {
-      const oldToken = aliceToken;
+    test("reset-token returns a new admin-level token", async () => {
       const res = await fetch(`${base}/admin/tenants/alice/reset-token`, {
         method: "POST",
         headers: { Authorization: `Bearer ${ADMIN_TOKEN}` },
@@ -451,20 +553,14 @@ describe("service with postgres registry", () => {
       expect(res.status).toBe(200);
       const { token: newToken } = await res.json();
       expect(newToken).toBeTruthy();
-      expect(newToken).not.toBe(oldToken);
-      aliceToken = newToken;
 
-      const withOld = await fetch(`${base}/alice/health`, {
-        headers: { Authorization: `Bearer ${oldToken}` },
-      });
-      expect(withOld.status).toBe(401);
-
-      const withNew = await fetch(
+      const withKey = await fetch(
         `${base}/alice/auth/v1/token?grant_type=password`,
         {
           method: "POST",
           headers: {
-            Authorization: `Bearer ${newToken}`,
+            apikey: aliceAnonKey,
+            Authorization: `Bearer ${aliceAnonKey}`,
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
@@ -473,7 +569,7 @@ describe("service with postgres registry", () => {
           }),
         },
       );
-      expect(withNew.status).toBe(200);
+      expect(withKey.status).toBe(200);
     });
   });
 
@@ -1006,7 +1102,6 @@ describe("service migrate", () => {
   const port = 54495;
   const tcpPort = 54496;
   const base = `http://localhost:${port}`;
-  let tenantToken: string;
   let remoteDbUrl: string;
 
   beforeAll(async () => {
@@ -1029,7 +1124,7 @@ describe("service migrate", () => {
     );
     await waitForHealth(base);
 
-    const createRes = await fetch(`${base}/admin/tenants`, {
+    await fetch(`${base}/admin/tenants`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${ADMIN_TOKEN}`,
@@ -1037,8 +1132,6 @@ describe("service migrate", () => {
       },
       body: JSON.stringify({ slug: "migrate-src" }),
     });
-    const createBody = await createRes.json();
-    tenantToken = createBody.token;
 
     const remoteClient = new Client({ connectionString: registryDbUrl });
     await remoteClient.connect();
@@ -1123,10 +1216,16 @@ describe("service migrate", () => {
       }),
     });
 
+    const tenantRes = await fetch(`${base}/admin/tenants/migrate-src`, {
+      headers: { Authorization: `Bearer ${ADMIN_TOKEN}` },
+    });
+    const { anonKey: migrateTenantAnonKey } = await tenantRes.json();
+
     await fetch(`${base}/migrate-src/auth/v1/signup`, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${tenantToken}`,
+        apikey: migrateTenantAnonKey,
+        Authorization: `Bearer ${migrateTenantAnonKey}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({

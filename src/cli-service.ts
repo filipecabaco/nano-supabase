@@ -345,6 +345,12 @@ export async function runServiceMode(opts: {
     );
   }
 
+  function safeEquals(a: string, b: string): boolean {
+    const ba = Buffer.from(a),
+      bb = Buffer.from(b);
+    return ba.length === bb.length && timingSafeEqual(ba, bb);
+  }
+
   async function hashToken(token: string): Promise<string> {
     const enc = new TextEncoder();
     const buf = await crypto.subtle.digest("SHA-256", enc.encode(token));
@@ -772,10 +778,7 @@ export async function runServiceMode(opts: {
       );
     }
     const hash = await hashToken(token);
-    if (
-      hash.length !== adminTokenHash.length ||
-      !timingSafeEqual(Buffer.from(hash), Buffer.from(adminTokenHash))
-    ) {
+    if (!safeEquals(hash, adminTokenHash)) {
       return new Response(
         JSON.stringify({
           error: "unauthorized",
@@ -1062,6 +1065,7 @@ export async function runServiceMode(opts: {
             params?: unknown[];
           };
           try {
+            await nano.db.exec("RESET ROLE");
             try {
               const result = await nano.db.query(sql, params as unknown[]);
               return new Response(
@@ -1904,27 +1908,19 @@ export async function runServiceMode(opts: {
       );
     }
 
-    const auth = req.headers.get("Authorization");
-    const bearerToken = auth?.startsWith("Bearer ") ? auth.slice(7) : null;
-    if (!bearerToken) {
+    const apikey = req.headers.get("apikey");
+    if (!apikey) {
       return new Response(
-        JSON.stringify({
-          error: "unauthorized",
-          message: "Missing bearer token",
-        }),
+        JSON.stringify({ error: "unauthorized", message: "Missing API key" }),
         { status: 401, headers: json },
       );
     }
-    const incomingHash = await hashToken(bearerToken);
     if (
-      incomingHash.length !== tenant.tokenHash.length ||
-      !timingSafeEqual(Buffer.from(incomingHash), Buffer.from(tenant.tokenHash))
+      !safeEquals(apikey, tenant.anonKey) &&
+      !safeEquals(apikey, tenant.serviceRoleKey)
     ) {
       return new Response(
-        JSON.stringify({
-          error: "unauthorized",
-          message: "Invalid tenant token",
-        }),
+        JSON.stringify({ error: "unauthorized", message: "Invalid API key" }),
         { status: 401, headers: json },
       );
     }
@@ -1998,8 +1994,6 @@ export async function runServiceMode(opts: {
     }
 
     const forwardHeaders = new Headers(req.headers);
-    forwardHeaders.delete("Authorization");
-    forwardHeaders.set("apikey", DEFAULT_ANON_KEY);
     const forwardBody =
       req.method !== "GET" && req.method !== "HEAD"
         ? await req.arrayBuffer()
